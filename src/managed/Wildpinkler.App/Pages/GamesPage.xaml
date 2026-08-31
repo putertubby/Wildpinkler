@@ -1,0 +1,211 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="Wildpinkler.App.Pages.GamesPage"
+    x:Name="RootPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:models="using:Wildpinkler.App.Models"
+    xmlns:controls="using:Wildpinkler.App.Controls"
+    xmlns:controlsToolkit="using:CommunityToolkit.WinUI.Controls"
+    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+
+    <Page.KeyboardAccelerators>
+        <KeyboardAccelerator Modifiers="Control" Key="F" Invoked="FocusSearch_Invoked" />
+    </Page.KeyboardAccelerators>
+
+    <Grid Padding="{StaticResource PageContentPadding}" RowSpacing="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Grid ColumnSpacing="16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Style="{StaticResource TitleTextBlockStyle}" Text="Games" VerticalAlignment="Center" />
+            <CommandBar Grid.Column="1" DefaultLabelPosition="Right" HorizontalAlignment="Right" Background="Transparent">
+                <AppBarButton x:Name="AddGameButton" Command="{x:Bind AddGameCommand}" Icon="Add" Label="Add game"
+                              ToolTipService.ToolTip="Add a game to the managed list">
+                    <AppBarButton.KeyboardAccelerators>
+                        <KeyboardAccelerator Modifiers="Control" Key="N" />
+                    </AppBarButton.KeyboardAccelerators>
+                </AppBarButton>
+                <AppBarButton x:Name="EditGameButton" Command="{x:Bind EditGameCommand}" Icon="Edit" Label="Edit"
+                              ToolTipService.ToolTip="Edit the selected game" />
+                <CommandBar.SecondaryCommands>
+                    <AppBarButton x:Name="EditDefinitionButton" Command="{x:Bind EditDefinitionCommand}" Icon="Setting" Label="Edit definition"
+                                  ToolTipService.ToolTip="Edit the selected game's definition" />
+                    <AppBarButton x:Name="ImportDefinitionButton" Command="{x:Bind ImportDefinitionCommand}" Icon="Import" Label="Import definition"
+                                  ToolTipService.ToolTip="Import a game definition file" />
+                    <AppBarButton x:Name="ExportDefinitionButton" Command="{x:Bind ExportDefinitionCommand}" Icon="Save" Label="Export definition"
+                                  ToolTipService.ToolTip="Export the selected game's definition" />
+                    <AppBarSeparator />
+                    <AppBarButton x:Name="DeleteSelectedButton" Command="{x:Bind DeleteSelectedCommand}" Icon="Delete" Label="Delete selected"
+                                  ToolTipService.ToolTip="Remove the selected game(s)">
+                        <AppBarButton.KeyboardAccelerators>
+                            <KeyboardAccelerator Key="Delete" />
+                        </AppBarButton.KeyboardAccelerators>
+                    </AppBarButton>
+                </CommandBar.SecondaryCommands>
+            </CommandBar>
+        </Grid>
+
+        <InfoBar x:Name="PageInfoBar" Grid.Row="1" IsOpen="False" />
+
+        <Grid x:Name="ListDetailsGrid" Grid.Row="2" Loaded="ListDetailsGrid_Loaded" SizeChanged="ListDetailsGrid_SizeChanged">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition x:Name="ListColumnDef" Width="*" MinWidth="280" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition x:Name="DetailsColumnDef" Width="360" MinWidth="280" MaxWidth="640" />
+            </Grid.ColumnDefinitions>
+
+            <Border Style="{StaticResource ContentCardStyle}" Margin="0,0,12,0">
+                <Grid RowSpacing="0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <controls:CollectionListHeader x:Name="ListHeader" Grid.Row="0"
+                                                   PlaceholderText="Search games by name, install path, or executable"
+                                                   ResultCountText="{x:Bind ResultCountText, Mode=OneWay}"
+                                                   SelectedCountText="{x:Bind SelectedCountText, Mode=OneWay}"
+                                                   Visibility="{x:Bind HasCollectionHeader, Mode=OneWay}"
+                                                   QueryChanged="ListHeader_QueryChanged" />
+
+                    <Grid Grid.Row="1">
+                        <ListView x:Name="GameList" SelectionMode="Extended" SelectionChanged="GameList_SelectionChanged"
+                                  DoubleTapped="GameList_DoubleTapped"
+                                  ItemContainerStyle="{StaticResource ListRowContainerStyle}"
+                                  Padding="0,4,0,4">
+                            <ListView.ItemTemplate>
+                                <DataTemplate x:DataType="models:GameEntry">
+                                    <Grid Padding="{StaticResource ListRowPadding}" ColumnSpacing="10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="32" />
+                                            <ColumnDefinition Width="*" MinWidth="160" />
+                                        </Grid.ColumnDefinitions>
+                                        <Grid.ContextFlyout>
+                                            <MenuFlyout>
+                                                <MenuFlyoutItem Click="GameRowEdit_Click" Text="Edit" />
+                                                <MenuFlyoutSeparator />
+                                                <MenuFlyoutItem Click="GameRowDelete_Click" Text="Delete" />
+                                            </MenuFlyout>
+                                        </Grid.ContextFlyout>
+                                        <Border Style="{StaticResource RowAvatarStyle}">
+                                            <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="SemiBold"
+                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                       Text="{x:Bind Name, Mode=OneWay, Converter={StaticResource InitialLetterConverter}}" />
+                                        </Border>
+                                        <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
+                                            <TextBlock FontSize="15" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
+                                                       Text="{x:Bind Name, Mode=OneWay}" />
+                                            <Grid ColumnSpacing="8">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <TextBlock Style="{StaticResource ModRowTextStyle}" Opacity="0.62"
+                                                           Text="{x:Bind InstallPath, Mode=OneWay}" />
+                                                <TextBlock Grid.Column="1" Opacity="0.56" Text="{x:Bind ProfileCountText, Mode=OneWay}" />
+                                            </Grid>
+                                        </StackPanel>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+
+                        <TextBlock x:Name="GameListStatus"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"
+                                   Opacity="0.68"
+                                   TextWrapping="Wrap"
+                                   TextAlignment="Center"
+                                   Visibility="Collapsed" />
+
+                        <ProgressRing HorizontalAlignment="Center" VerticalAlignment="Center" Width="32" Height="32"
+                                      IsActive="{x:Bind IsLoading, Mode=OneWay}"
+                                      Visibility="{x:Bind IsLoading, Mode=OneWay}" />
+
+                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8" MaxWidth="320"
+                                    Visibility="{x:Bind HasNoGames, Mode=OneWay}">
+                            <FontIcon HorizontalAlignment="Center" Glyph="&#xE7FC;" FontSize="40" Opacity="0.5" />
+                            <TextBlock HorizontalAlignment="Center" Style="{StaticResource SubtitleTextBlockStyle}" Text="No games yet" />
+                            <TextBlock HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" Opacity="0.68"
+                                       Text="Add a game to start managing its profiles and mods." />
+                            <Button HorizontalAlignment="Center" Margin="0,4,0,0" Style="{StaticResource AccentButtonStyle}"
+                                    Content="Add a game" Command="{x:Bind AddGameCommand}" />
+                        </StackPanel>
+                    </Grid>
+                </Grid>
+            </Border>
+
+            <controlsToolkit:GridSplitter x:Name="DetailsSplitter" Grid.Column="1" Width="8"
+                                          HorizontalAlignment="Stretch"
+                                          ResizeDirection="Columns" ResizeBehavior="BasedOnAlignment"
+                                          Visibility="Collapsed"
+                                          AutomationProperties.Name="Resize details pane" />
+
+            <Border x:Name="DetailsCard" Grid.Column="2" Margin="12,0,0,0" Padding="16" Visibility="Collapsed"
+                    HorizontalAlignment="Stretch"
+                    Style="{StaticResource ContentCardStyle}">
+                <StackPanel Spacing="12">
+                    <Button x:Name="BackToListButton" Command="{x:Bind BackToListCommand}" Visibility="Collapsed"
+                            AutomationProperties.Name="Back to list">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon Glyph="&#xE72B;" FontSize="14" />
+                            <TextBlock Text="Back to list" />
+                        </StackPanel>
+                    </Button>
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <Border Style="{StaticResource RowAvatarStyle}" Width="44" Height="44">
+                            <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="SemiBold" FontSize="16"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                       Text="{x:Bind DetailsName.Text, Mode=OneWay, Converter={StaticResource InitialLetterConverter}}" />
+                        </Border>
+                        <StackPanel Spacing="2" VerticalAlignment="Center">
+                            <TextBlock x:Name="DetailsName" Style="{StaticResource SubtitleTextBlockStyle}" TextWrapping="Wrap" />
+                            <TextBlock x:Name="DetailsId" Opacity="0.62" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </StackPanel>
+                    <Border BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,1,0,0" />
+                    <Grid RowSpacing="8" ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+                        <TextBlock Style="{StaticResource SectionLabelStyle}" Text="INSTALL PATH" />
+                        <TextBlock x:Name="DetailsInstallPath" Grid.Column="1" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
+                        <TextBlock Grid.Row="1" Style="{StaticResource SectionLabelStyle}" Text="EXECUTABLE" />
+                        <TextBlock x:Name="DetailsExecutablePath" Grid.Row="1" Grid.Column="1" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
+                        <TextBlock Grid.Row="2" Style="{StaticResource SectionLabelStyle}" Text="ARGUMENTS" />
+                        <TextBlock x:Name="DetailsLaunchArguments" Grid.Row="2" Grid.Column="1" TextWrapping="Wrap" />
+                        <TextBlock Grid.Row="3" Style="{StaticResource SectionLabelStyle}" Text="ADDED" />
+                        <TextBlock x:Name="DetailsAdded" Grid.Row="3" Grid.Column="1" />
+                        <TextBlock Grid.Row="4" Style="{StaticResource SectionLabelStyle}" Text="PROFILES" />
+                        <TextBlock x:Name="DetailsProfiles" Grid.Row="4" Grid.Column="1" TextWrapping="Wrap" />
+                        <TextBlock Grid.Row="5" Style="{StaticResource SectionLabelStyle}" Text="DEFINITION" />
+                        <TextBlock x:Name="DetailsDefinition" Grid.Row="5" Grid.Column="1" TextWrapping="Wrap" />
+                    </Grid>
+                    <Button x:Name="RevealInstallPathButton" Click="RevealInstallPath_Click" Content="Reveal install folder" />
+                </StackPanel>
+            </Border>
+        </Grid>
+
+        <Grid Grid.Row="3" ColumnSpacing="16">
+            <TextBlock x:Name="QueueStatus" HorizontalAlignment="Right" Opacity="0.72" />
+        </Grid>
+    </Grid>
+</Page>

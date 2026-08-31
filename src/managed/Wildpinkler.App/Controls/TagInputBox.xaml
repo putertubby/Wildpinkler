@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="Wildpinkler.App.Controls.TagInputBox"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:Wildpinkler.App.Controls">
+
+    <StackPanel Spacing="4">
+        <TextBlock x:Name="HeaderBlock" Foreground="{ThemeResource TextControlHeaderForeground}" />
+        <Border x:Name="ContainerBorder" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
+                CornerRadius="4" Padding="6" MinHeight="36">
+            <controls:WrapPanel x:Name="ChipsHost" ItemSpacing="6" LineSpacing="6" StretchLastChild="True" />
+        </Border>
+    </StackPanel>
+</UserControl>

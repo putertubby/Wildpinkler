@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="Wildpinkler.App.Pages.SettingsPage"
+    x:Name="RootPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+
+    <Grid Padding="{StaticResource PageContentPadding}" RowSpacing="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <TextBlock Style="{StaticResource TitleTextBlockStyle}" Text="Settings" VerticalAlignment="Center" />
+
+        <InfoBar x:Name="PageInfoBar" Grid.Row="1" IsOpen="False" />
+
+        <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" Padding="0,0,16,0">
+            <StackPanel Spacing="20" MaxWidth="880" HorizontalAlignment="Left">
+
+                <Border Style="{StaticResource ContentCardStyle}" Padding="16">
+                    <StackPanel Spacing="12">
+                        <TextBlock Style="{StaticResource SectionLabelStyle}" Text="APPEARANCE" />
+                        <RadioButtons x:Name="ThemeSelector" Header="App theme" SelectionChanged="ThemeSelector_SelectionChanged">
+                            <RadioButton Content="Use system setting" />
+                            <RadioButton Content="Light" />
+                            <RadioButton Content="Dark" />
+                        </RadioButtons>
+                        <TextBlock Opacity="0.68" TextWrapping="Wrap"
+                                   Text="Windows high contrast modes always take precedence over this choice." />
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource ContentCardStyle}" Padding="16">
+                    <StackPanel Spacing="12">
+                        <Grid ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Style="{StaticResource SectionLabelStyle}" Text="REMOTE SITES" VerticalAlignment="Center" />
+                            <Button Grid.Column="1" Command="{x:Bind SaveSitesCommand}" Content="Save"
+                                    Style="{StaticResource AccentButtonStyle}" />
+                        </Grid>
+
+                        <ProgressRing IsActive="{x:Bind IsLoading, Mode=OneWay}" Visibility="{x:Bind IsLoading, Mode=OneWay}"
+                                      HorizontalAlignment="Left" />
+
+                        <TextBlock Opacity="0.68" TextWrapping="Wrap"
+                                   Visibility="{x:Bind HasNoSites, Mode=OneWay}"
+                                   Text="This build has no site connectors compiled in." />
+
+                        <!-- ItemsControl, not ListView: per-row editors would be torn down by container recycling. -->
+                        <ItemsControl x:Name="SiteList">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Spacing="12" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Style="{StaticResource MergedViewCardStyle}">
+                                        <StackPanel Spacing="12">
+                                            <Grid ColumnSpacing="12">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <StackPanel Spacing="2" VerticalAlignment="Center">
+                                                    <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}" Text="{Binding Name}" />
+                                                    <TextBlock Opacity="0.62" TextWrapping="Wrap" Text="{Binding CapabilityText}" />
+                                                </StackPanel>
+                                                <ToggleSwitch Grid.Column="1" Header="Enabled" IsOn="{Binding IsEnabled, Mode=TwoWay}"
+                                                              VerticalAlignment="Center" />
+                                            </Grid>
+
+                                            <Grid ColumnSpacing="12">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <PasswordBox Header="API key" PasswordChanged="SiteApiKey_PasswordChanged"
+                                                             PlaceholderText="Paste your personal API key" />
+                                                <Button Grid.Column="1" Content="Validate" Click="ValidateSite_Click"
+                                                        VerticalAlignment="Bottom" />
+                                                <ComboBox Grid.Column="2" Header="Download method" Width="150"
+                                                          SelectedIndex="{Binding MethodIndex, Mode=TwoWay}">
+                                                    <ComboBoxItem Content="API" />
+                                                    <ComboBoxItem Content="Browser" />
+                                                </ComboBox>
+                                            </Grid>
+
+                                            <Button Content="Sign in with single sign-on" Click="SsoSignIn_Click"
+                                                    IsEnabled="{Binding IsSsoAvailable}"
+                                                    ToolTipService.ToolTip="{Binding SsoUnavailableReason}" />
+
+                                            <TextBlock Opacity="0.72" TextWrapping="Wrap" Text="{Binding ValidationMessage}"
+                                                       Visibility="{Binding ValidationVisibility}" />
+                                        </StackPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource ContentCardStyle}" Padding="16">
+                    <StackPanel Spacing="12">
+                        <TextBlock Style="{StaticResource SectionLabelStyle}" Text="DOWNLOAD LINKS" />
+
+                        <InfoBar x:Name="HandlerInfoBar" IsOpen="False" IsClosable="False" />
+
+                        <ToggleSwitch x:Name="NxmHandlerToggle" Header="Handle nxm: download links"
+                                      OnContent="Wildpinkler handles them" OffContent="Another application handles them"
+                                      Toggled="NxmHandlerToggle_Toggled" />
+
+                        <ToggleSwitch x:Name="ConfirmDownloadsToggle" Header="Ask before starting a download link"
+                                      OnContent="Show the details first" OffContent="Start immediately"
+                                      Toggled="ConfirmDownloads_Toggled" />
+                    </StackPanel>
+                </Border>
+
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</Page>

@@ -1,0 +1,42 @@
+<svg viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
+  <!-- 
+    Wildpinkler App Icon - Fluent 2 Design
+    Represents layered files/virtual file system concept
+    Theme-aware: uses currentColor for seamless Light/Dark/HighContrast support
+  -->
+  
+  <defs>
+    <style>
+      /* Define theme-aware colors using CSS custom properties and fallbacks */
+      .layer-top { fill: #0078D4; opacity: 1; }
+      .layer-mid { fill: #0078D4; opacity: 0.7; }
+      .layer-low { fill: #0078D4; opacity: 0.4; }
+      
+      /* High contrast mode support */
+      @media (prefers-contrast: more) {
+        .layer-top { fill: currentColor; opacity: 1; }
+        .layer-mid { fill: currentColor; opacity: 0.8; }
+        .layer-low { fill: currentColor; opacity: 0.5; }
+      }
+    </style>
+  </defs>
+  
+  <!-- 
+    Background: transparent for blending with any background
+    Canvas: 256x256 px, safe margin 16px = 224x224 working area, centered at 128,128
+    Grid: 4px snap
+  -->
+  
+  <!-- Bottom/lowest layer - most faded -->
+  <rect class="layer-low" x="48" y="140" width="160" height="72" rx="8" ry="8" />
+  
+  <!-- Middle layer - semi-transparent -->
+  <rect class="layer-mid" x="40" y="104" width="160" height="72" rx="8" ry="8" />
+  
+  <!-- Top layer - fully opaque, represents the "current" layer -->
+  <rect class="layer-top" x="48" y="60" width="160" height="72" rx="8" ry="8" />
+  
+  <!-- Optional: subtle visual indicator for "stacking" effect via offset shadow on top layer -->
+  <!-- Removed to keep design clean and minimal per Fluent 2 guidance -->
+  
+</svg>

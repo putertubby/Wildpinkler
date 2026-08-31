@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ContentDialog
+    x:Class="Wildpinkler.App.Controls.ProfileEditDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:models="using:Wildpinkler.App.Models"
+    Title="Profile"
+    PrimaryButtonText="Save"
+    CloseButtonText="Cancel"
+    DefaultButton="Primary"
+    Style="{StaticResource DefaultContentDialogStyle}">
+
+    <StackPanel Spacing="20">
+        <StackPanel Spacing="12">
+            <TextBlock Style="{StaticResource SectionLabelStyle}" Text="GENERAL" />
+            <TextBox x:Name="NameBox" Header="Name" TextChanged="Field_Changed" />
+            <TextBlock x:Name="NameWarningText" Foreground="{ThemeResource SystemFillColorCautionBrush}"
+                       TextWrapping="Wrap" Visibility="Collapsed"
+                       Text="Another profile already uses this name." />
+        </StackPanel>
+
+        <Border BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,1,0,0" />
+
+        <StackPanel Spacing="12">
+            <TextBlock Style="{StaticResource SectionLabelStyle}" Text="GAME" />
+            <ComboBox x:Name="GameBox" Header="Game" HorizontalAlignment="Stretch"
+                      SelectionChanged="Game_Changed">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate x:DataType="models:GameEntry">
+                        <TextBlock Text="{x:Bind Name}" />
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
+            <TextBlock x:Name="GameLockedText" Opacity="0.72" TextWrapping="Wrap" Visibility="Collapsed"
+                       Text="A profile stays with the game it was created for." />
+            <TextBlock x:Name="NoGamesText" Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                       TextWrapping="Wrap" Visibility="Collapsed"
+                       Text="Add a game on the Games page before creating a profile." />
+        </StackPanel>
+    </StackPanel>
+</ContentDialog>

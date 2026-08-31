@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ContentDialog
+    x:Class="Wildpinkler.App.Controls.AddModReviewDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Review mod details"
+    PrimaryButtonText="Add to queue"
+    SecondaryButtonText="Skip"
+    CloseButtonText="Cancel"
+    DefaultButton="Primary"
+    Style="{StaticResource DefaultContentDialogStyle}">
+
+    <ScrollViewer MaxHeight="520" Padding="0,0,16,0" VerticalScrollBarVisibility="Auto">
+        <StackPanel Spacing="12">
+            <TextBlock x:Name="ArchiveHeader" Opacity="0.68" TextWrapping="Wrap" />
+
+            <TextBox x:Name="NameBox" Header="Mod name" TextChanged="Field_Changed" />
+            <ComboBox x:Name="GameBox" Header="Supported game" HorizontalAlignment="Stretch" SelectionChanged="Game_Changed" />
+            <TextBox x:Name="VersionBox" Header="Version" TextChanged="Field_Changed" />
+            <TextBox x:Name="AuthorBox" Header="Author" />
+            <TextBox x:Name="WebsiteBox" Header="Website" />
+            <TextBox x:Name="DescriptionBox" Header="Description" AcceptsReturn="True" Height="88" TextWrapping="Wrap" />
+
+            <Border Padding="12" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="6">
+                <StackPanel Spacing="6">
+                    <TextBlock FontWeight="SemiBold" Text="FOMOD" />
+                    <TextBlock x:Name="FomodStateText" Opacity="0.68" TextWrapping="Wrap" />
+                    <TextBlock x:Name="FomodGroups" Opacity="0.68" TextWrapping="Wrap" />
+                    <TextBlock x:Name="FomodSteps" Opacity="0.68" TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+
+            <TextBlock x:Name="ArchivePathText" Opacity="0.5" IsTextSelectionEnabled="True" TextWrapping="Wrap" />
+        </StackPanel>
+    </ScrollViewer>
+</ContentDialog>

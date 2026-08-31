@@ -1,0 +1,192 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="Wildpinkler.App.Pages.DownloadsPage"
+    x:Name="RootPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:services="using:Wildpinkler.App.Services"
+    xmlns:controls="using:Wildpinkler.App.Controls"
+    xmlns:controlsToolkit="using:CommunityToolkit.WinUI.Controls"
+    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+
+    <Page.KeyboardAccelerators>
+        <KeyboardAccelerator Modifiers="Control" Key="F" Invoked="FocusSearch_Invoked" />
+    </Page.KeyboardAccelerators>
+
+    <Grid Padding="{StaticResource PageContentPadding}" RowSpacing="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <Grid ColumnSpacing="16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Style="{StaticResource TitleTextBlockStyle}" Text="Downloads" VerticalAlignment="Center" />
+            <CommandBar Grid.Column="1" DefaultLabelPosition="Right" HorizontalAlignment="Right" Background="Transparent">
+                <AppBarButton x:Name="CancelButton" Command="{x:Bind CancelSelectedCommand}" Icon="Cancel" Label="Cancel"
+                              ToolTipService.ToolTip="Stop the selected download" />
+                <AppBarButton x:Name="RetryButton" Command="{x:Bind RetrySelectedCommand}" Icon="Refresh" Label="Retry"
+                              ToolTipService.ToolTip="Start the selected download again" />
+                <CommandBar.SecondaryCommands>
+                    <AppBarButton x:Name="OpenPageButton" Command="{x:Bind OpenModPageCommand}" Label="Open mod page" />
+                    <AppBarButton x:Name="RevealButton" Command="{x:Bind RevealArchiveCommand}" Label="Reveal archive in Explorer" />
+                    <AppBarSeparator />
+                    <AppBarButton x:Name="ClearFinishedButton" Command="{x:Bind ClearFinishedCommand}" Label="Clear finished downloads" />
+                </CommandBar.SecondaryCommands>
+            </CommandBar>
+        </Grid>
+
+        <!-- Reserved slot: opening a message must not shift the list below it. -->
+        <InfoBar x:Name="PageInfoBar" Grid.Row="1" IsOpen="False" IsClosable="True" />
+
+        <Grid x:Name="ListDetailsGrid" Grid.Row="2" Loaded="ListDetailsGrid_Loaded" SizeChanged="ListDetailsGrid_SizeChanged">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition x:Name="ListColumnDef" Width="*" MinWidth="280" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition x:Name="DetailsColumnDef" Width="0" MinWidth="0" MaxWidth="640" />
+            </Grid.ColumnDefinitions>
+
+            <Border Style="{StaticResource ContentCardStyle}">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <controls:CollectionListHeader x:Name="ListHeader" Grid.Row="0"
+                                                   PlaceholderText="Search downloads by file or mod name"
+                                                   ResultCountText="{x:Bind ResultCountText, Mode=OneWay}"
+                                                   Visibility="{x:Bind HasCollectionHeader, Mode=OneWay}"
+                                                   QueryChanged="ListHeader_QueryChanged">
+                        <controls:CollectionListHeader.FiltersContent>
+                            <DropDownButton x:Name="FilterButton" Content="{x:Bind FilterButtonText, Mode=OneWay}"
+                                            AutomationProperties.Name="Filter downloads">
+                                <DropDownButton.Flyout>
+                                    <MenuFlyout Placement="BottomEdgeAlignedRight">
+                                        <RadioMenuFlyoutItem GroupName="DownloadStateFilter" Tag="All" Text="All downloads"
+                                                             IsChecked="True" Click="StateFilter_Click" />
+                                        <RadioMenuFlyoutItem GroupName="DownloadStateFilter" Tag="Active" Text="In progress"
+                                                             Click="StateFilter_Click" />
+                                        <RadioMenuFlyoutItem GroupName="DownloadStateFilter" Tag="Completed" Text="Completed"
+                                                             Click="StateFilter_Click" />
+                                        <RadioMenuFlyoutItem GroupName="DownloadStateFilter" Tag="Failed" Text="Failed or cancelled"
+                                                             Click="StateFilter_Click" />
+                                    </MenuFlyout>
+                                </DropDownButton.Flyout>
+                            </DropDownButton>
+                        </controls:CollectionListHeader.FiltersContent>
+                    </controls:CollectionListHeader>
+
+                    <Grid Grid.Row="1">
+                        <ListView x:Name="DownloadList" SelectionMode="Single" SelectionChanged="DownloadList_SelectionChanged"
+                                  ItemContainerStyle="{StaticResource ListRowContainerStyle}" Padding="0,4,0,4">
+                            <ListView.ItemTemplate>
+                                <DataTemplate x:DataType="services:DownloadJob">
+                                    <Grid Padding="{StaticResource ListRowPadding}" RowSpacing="4">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+                                        <Grid.ContextFlyout>
+                                            <MenuFlyout>
+                                                <MenuFlyoutItem Click="RowCancel_Click" Text="Cancel"
+                                                                IsEnabled="{x:Bind CanCancel, Mode=OneWay}" />
+                                                <MenuFlyoutItem Click="RowRetry_Click" Text="Retry"
+                                                                IsEnabled="{x:Bind CanRetry, Mode=OneWay}" />
+                                                <MenuFlyoutSeparator />
+                                                <MenuFlyoutItem Click="RowOpenPage_Click" Text="Open mod page"
+                                                                IsEnabled="{x:Bind CanOpenPage, Mode=OneWay}" />
+                                                <MenuFlyoutItem Click="RowReveal_Click" Text="Reveal archive in Explorer"
+                                                                IsEnabled="{x:Bind CanReveal, Mode=OneWay}" />
+                                            </MenuFlyout>
+                                        </Grid.ContextFlyout>
+
+                                        <TextBlock FontSize="15" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
+                                                   Text="{x:Bind Name, Mode=OneWay}" />
+                                        <TextBlock Grid.Row="1" Opacity="0.62" TextTrimming="CharacterEllipsis"
+                                                   Text="{x:Bind RowSubtitle, Mode=OneWay}" />
+                                        <ProgressBar Grid.Row="2" Margin="0,2,0,0" Maximum="1"
+                                                     Value="{x:Bind Progress, Mode=OneWay}"
+                                                     ShowPaused="{x:Bind IsFaulted, Mode=OneWay}"
+                                                     AutomationProperties.Name="{x:Bind StateText, Mode=OneWay}" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+
+                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8" MaxWidth="340"
+                                    Visibility="{x:Bind HasNoDownloads, Mode=OneWay}">
+                            <FontIcon HorizontalAlignment="Center" Glyph="&#xE896;" FontSize="40" Opacity="0.5" />
+                            <TextBlock HorizontalAlignment="Center" Style="{StaticResource SubtitleTextBlockStyle}" Text="No downloads yet" />
+                            <TextBlock HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" Opacity="0.68"
+                                       Text="Use a mod site's download-with-manager button, and the transfer will appear here." />
+                            <Button HorizontalAlignment="Center" Margin="0,4,0,0" Content="Open remote site settings"
+                                    Click="OpenSettings_Click" />
+                        </StackPanel>
+
+                        <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" Opacity="0.68"
+                                   TextAlignment="Center" TextWrapping="Wrap" MaxWidth="320"
+                                   Visibility="{x:Bind HasNoSearchResults, Mode=OneWay}"
+                                   Text="No downloads match the current search and filter." />
+                    </Grid>
+                </Grid>
+            </Border>
+
+            <controlsToolkit:GridSplitter x:Name="DetailsSplitter" Grid.Column="1" Width="8"
+                                          HorizontalAlignment="Stretch"
+                                          ResizeDirection="Columns" ResizeBehavior="BasedOnAlignment"
+                                          Visibility="Collapsed"
+                                          AutomationProperties.Name="Resize details pane" />
+
+            <Border x:Name="DetailsCard" Grid.Column="2" Margin="12,0,0,0" Padding="16" Visibility="Collapsed"
+                    Style="{StaticResource ContentCardStyle}">
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel Spacing="12">
+                        <Button x:Name="BackToListButton" Command="{x:Bind BackToListCommand}" Visibility="Collapsed"
+                                AutomationProperties.Name="Back to list">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon Glyph="&#xE72B;" FontSize="14" />
+                                <TextBlock Text="Back to list" />
+                            </StackPanel>
+                        </Button>
+
+                        <StackPanel Spacing="2">
+                            <TextBlock x:Name="DetailsName" Style="{StaticResource SubtitleTextBlockStyle}" TextWrapping="Wrap" />
+                            <TextBlock x:Name="DetailsMod" Opacity="0.62" TextWrapping="Wrap" />
+                        </StackPanel>
+
+                        <InfoBar x:Name="DetailsError" IsOpen="False" IsClosable="False" Severity="Error" />
+
+                        <Border BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,1,0,0" />
+
+                        <Grid RowSpacing="8" ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <TextBlock Style="{StaticResource SectionLabelStyle}" Text="STATE" />
+                            <TextBlock x:Name="DetailsState" Grid.Column="1" TextWrapping="Wrap" />
+                            <TextBlock Grid.Row="1" Style="{StaticResource SectionLabelStyle}" Text="PROGRESS" />
+                            <TextBlock x:Name="DetailsProgress" Grid.Row="1" Grid.Column="1" TextWrapping="Wrap" />
+                            <TextBlock Grid.Row="2" Style="{StaticResource SectionLabelStyle}" Text="SITE" />
+                            <TextBlock x:Name="DetailsSite" Grid.Row="2" Grid.Column="1" TextWrapping="Wrap" />
+                            <TextBlock Grid.Row="3" Style="{StaticResource SectionLabelStyle}" Text="ARCHIVE" />
+                            <TextBlock x:Name="DetailsArchive" Grid.Row="3" Grid.Column="1" TextWrapping="Wrap" />
+                        </Grid>
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+        </Grid>
+    </Grid>
+</Page>

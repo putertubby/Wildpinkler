@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ContentDialog
+    x:Class="Wildpinkler.App.Controls.ProfileModPickerDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:models="using:Wildpinkler.App.Models"
+    Title="Add mods"
+    PrimaryButtonText="Add selected"
+    CloseButtonText="Cancel"
+    DefaultButton="Primary"
+    Style="{StaticResource DefaultContentDialogStyle}">
+
+    <StackPanel Spacing="12">
+        <Grid ColumnSpacing="8">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBox x:Name="SearchBox" PlaceholderText="Search mods for this game"
+                     AutomationProperties.Name="Search mods for this game" TextChanged="SearchBox_TextChanged" />
+            <Button Grid.Column="1" Content="Add archive..." Click="AddArchive_Click"
+                    ToolTipService.ToolTip="Choose archive files to add and install" />
+        </Grid>
+        <TextBlock x:Name="ResultCountText" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.68" />
+        <Border Background="{ThemeResource LayerFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8">
+            <Grid x:Name="DropTarget" MinHeight="160" AllowDrop="True"
+                DragOver="DropTarget_DragOver" DragLeave="DropTarget_DragLeave" Drop="DropTarget_Drop">
+                <ListView x:Name="ModList" SelectionMode="Extended" SelectionChanged="ModList_SelectionChanged"
+                          ItemContainerStyle="{StaticResource ListRowContainerStyle}" Padding="0,4,0,4"
+                          ScrollViewer.HorizontalScrollMode="Disabled" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                    <ListView.ItemTemplate>
+                        <DataTemplate x:DataType="models:ModEntry">
+                            <Grid Padding="12,8" ColumnSpacing="10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="32" />
+                                    <ColumnDefinition Width="*" MinWidth="160" />
+                                </Grid.ColumnDefinitions>
+                                <Border Style="{StaticResource RowAvatarStyle}">
+                                    <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="SemiBold"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                               Text="{x:Bind Name, Converter={StaticResource InitialLetterConverter}}" />
+                                </Border>
+                                <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                                    <TextBlock FontWeight="SemiBold" TextTrimming="CharacterEllipsis" Text="{x:Bind Name}" />
+                                    <TextBlock Opacity="0.62" TextTrimming="CharacterEllipsis" Text="{x:Bind Version}" />
+                                    <TextBlock Foreground="{ThemeResource SystemFillColorCriticalBrush}" TextWrapping="Wrap"
+                                               Visibility="{x:Bind HasArchive, Converter={StaticResource InverseBoolToVisibilityConverter}}"
+                                               Text="No archive - add it on the Mods page first." />
+                                </StackPanel>
+                            </Grid>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+                <TextBlock x:Name="EmptyText" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="16"
+                           TextAlignment="Center" TextWrapping="Wrap" Opacity="0.68" Visibility="Collapsed" />
+                <Border x:Name="DropOverlay" IsHitTestVisible="False" Visibility="Collapsed"
+                        Background="{ThemeResource AccentFillColorDefaultBrush}" Opacity="0.15" />
+                <Border x:Name="DropCaption" IsHitTestVisible="False" Visibility="Collapsed" Padding="16,10" CornerRadius="6"
+                        Background="{ThemeResource AccentFillColorDefaultBrush}" HorizontalAlignment="Center" VerticalAlignment="Center">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <FontIcon Glyph="&#xE896;" FontSize="16" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                        <TextBlock Text="Drop archives here to add and install" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
+                    </StackPanel>
+                </Border>
+            </Grid>
+        </Border>
+        <TextBlock x:Name="StatusText" TextWrapping="Wrap" Opacity="0.68" Visibility="Collapsed" />
+    </StackPanel>
+</ContentDialog>

@@ -1,0 +1,512 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="Wildpinkler.App.Pages.ProfilesPage"
+    x:Name="RootPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:models="using:Wildpinkler.App.Models"
+    xmlns:controls="using:Wildpinkler.App.Controls"
+    xmlns:controlsToolkit="using:CommunityToolkit.WinUI.Controls"
+    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+
+    <Page.KeyboardAccelerators>
+        <KeyboardAccelerator Modifiers="Control" Key="F" Invoked="FocusSearch_Invoked" />
+    </Page.KeyboardAccelerators>
+
+    <Grid Padding="{StaticResource PageContentPadding}" RowSpacing="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <Grid ColumnSpacing="16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Style="{StaticResource TitleTextBlockStyle}" Text="Profiles" VerticalAlignment="Center" />
+            <CommandBar Grid.Column="1" DefaultLabelPosition="Right" HorizontalAlignment="Right" Background="Transparent">
+                <AppBarButton x:Name="AddProfileButton" Command="{x:Bind AddProfileCommand}" Icon="Add" Label="Add profile"
+                              ToolTipService.ToolTip="Create a profile for a game">
+                    <AppBarButton.KeyboardAccelerators>
+                        <KeyboardAccelerator Modifiers="Control" Key="N" />
+                    </AppBarButton.KeyboardAccelerators>
+                </AppBarButton>
+                <CommandBar.SecondaryCommands>
+                    <AppBarButton x:Name="CleanUpButton" Command="{x:Bind CleanUpCommand}" Icon="Delete" Label="Clean up unused folders"
+                                  ToolTipService.ToolTip="Remove tool output, custom branch and mod installation folders nothing references" />
+                    <AppBarSeparator />
+                    <AppBarButton x:Name="DeleteSelectedButton" Command="{x:Bind DeleteSelectedCommand}" Icon="Delete" Label="Delete selected"
+                                  ToolTipService.ToolTip="Remove the selected profile(s)">
+                        <AppBarButton.KeyboardAccelerators>
+                            <KeyboardAccelerator Key="Delete" />
+                        </AppBarButton.KeyboardAccelerators>
+                    </AppBarButton>
+                </CommandBar.SecondaryCommands>
+            </CommandBar>
+        </Grid>
+
+        <InfoBar x:Name="PageInfoBar" Grid.Row="1" IsOpen="False" />
+
+        <Grid x:Name="ListDetailsGrid" Grid.Row="2" Loaded="ListDetailsGrid_Loaded" SizeChanged="ListDetailsGrid_SizeChanged">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition x:Name="ListColumnDef" Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition x:Name="DetailsColumnDef" Width="Auto" />
+            </Grid.ColumnDefinitions>
+
+            <!-- PROFILE LIST: search and result count live with the collection they act on. -->
+            <Border Style="{StaticResource ContentCardStyle}" Margin="0,0,12,0">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <controls:CollectionListHeader x:Name="ListHeader" Grid.Row="0"
+                                                   PlaceholderText="Search profiles"
+                                                   ResultCountText="{x:Bind ResultCountText, Mode=OneWay}"
+                                                   SelectedCountText="{x:Bind SelectedCountText, Mode=OneWay}"
+                                                   Visibility="{x:Bind HasCollectionHeader, Mode=OneWay}"
+                                                   QueryChanged="ListHeader_QueryChanged" />
+
+                    <Grid Grid.Row="1">
+                        <ListView x:Name="ProfileList" SelectionMode="Extended" SelectionChanged="ProfileList_SelectionChanged"
+                                  DoubleTapped="ProfileList_DoubleTapped"
+                                  ItemContainerStyle="{StaticResource ListRowContainerStyle}"
+                                  Padding="0,4,0,4">
+                            <ListView.ItemTemplate>
+                                <DataTemplate x:DataType="models:Profile">
+                                    <Grid Padding="{StaticResource ListRowPadding}" ColumnSpacing="10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="32" />
+                                            <ColumnDefinition Width="*" MinWidth="120" />
+                                        </Grid.ColumnDefinitions>
+                                        <Grid.ContextFlyout>
+                                            <MenuFlyout>
+                                                <MenuFlyoutItem Click="ProfileRowDelete_Click" Text="Delete" />
+                                            </MenuFlyout>
+                                        </Grid.ContextFlyout>
+                                        <Border Style="{StaticResource RowAvatarStyle}">
+                                            <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="SemiBold"
+                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                       Text="{x:Bind Name, Mode=OneWay, Converter={StaticResource InitialLetterConverter}}" />
+                                        </Border>
+                                        <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
+                                            <TextBlock FontSize="15" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
+                                                       Text="{x:Bind Name, Mode=OneWay}" />
+                                            <TextBlock Style="{StaticResource ModRowTextStyle}" Opacity="0.62" TextTrimming="CharacterEllipsis"
+                                                       Text="{x:Bind SummaryText, Mode=OneWay}" />
+                                        </StackPanel>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+
+                        <TextBlock x:Name="ProfileListStatus" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                   Opacity="0.68" TextWrapping="Wrap" TextAlignment="Center" Visibility="Collapsed" />
+
+                        <ProgressRing HorizontalAlignment="Center" VerticalAlignment="Center" Width="32" Height="32"
+                                      IsActive="{x:Bind IsLoading, Mode=OneWay}"
+                                      Visibility="{x:Bind IsLoading, Mode=OneWay}" />
+
+                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8" MaxWidth="320" Padding="16"
+                                    Visibility="{x:Bind HasNoProfiles, Mode=OneWay}">
+                            <FontIcon HorizontalAlignment="Center" Glyph="&#xE77B;" FontSize="40" Opacity="0.5" />
+                            <TextBlock HorizontalAlignment="Center" Style="{StaticResource SubtitleTextBlockStyle}" Text="No profiles yet" />
+                            <TextBlock HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" Opacity="0.68"
+                                       Text="Create a profile to build a modded instance of a game." />
+                            <Button HorizontalAlignment="Center" Margin="0,4,0,0" Style="{StaticResource AccentButtonStyle}"
+                                    Content="Add a profile" Command="{x:Bind AddProfileCommand}" />
+                        </StackPanel>
+                    </Grid>
+                </Grid>
+            </Border>
+
+            <controlsToolkit:GridSplitter x:Name="DetailsSplitter" Grid.Column="1" Width="8"
+                                          HorizontalAlignment="Stretch"
+                                          ResizeDirection="Columns" ResizeBehavior="BasedOnAlignment"
+                                          Visibility="Collapsed"
+                                          AutomationProperties.Name="Resize profile list" />
+
+            <!-- WORKSPACE: one stable header, then a SelectorBar over three peer views of the same profile. -->
+            <Border x:Name="DetailsCard" Grid.Column="2" Visibility="Collapsed" Style="{StaticResource ContentCardStyle}">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <StackPanel Padding="16,16,16,12" Spacing="16">
+                        <Button x:Name="BackToListButton" Command="{x:Bind BackToListCommand}" Visibility="Collapsed"
+                                HorizontalAlignment="Left" AutomationProperties.Name="Back to list">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon Glyph="&#xE72B;" FontSize="14" />
+                                <TextBlock Text="Back to list" />
+                            </StackPanel>
+                        </Button>
+
+                        <Grid ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                            </Grid.ColumnDefinitions>
+                            <Border Style="{StaticResource RowAvatarStyle}" Width="44" Height="44">
+                                <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="SemiBold" FontSize="16"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                           Text="{x:Bind DetailsName.Text, Mode=OneWay, Converter={StaticResource InitialLetterConverter}}" />
+                            </Border>
+                            <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                                <Grid ColumnSpacing="4">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock x:Name="DetailsName" Style="{StaticResource SubtitleTextBlockStyle}" TextWrapping="Wrap"
+                                               Visibility="{x:Bind IsRenaming, Mode=OneWay, Converter={StaticResource InverseBoolToVisibilityConverter}}" />
+                                    <TextBox x:Name="RenameBox" FontSize="20" FontWeight="SemiBold"
+                                             AutomationProperties.Name="Profile name"
+                                             Visibility="{x:Bind IsRenaming, Mode=OneWay}"
+                                             TextChanged="RenameBox_TextChanged"
+                                             KeyDown="RenameBox_KeyDown" LostFocus="RenameBox_LostFocus" />
+                                    <Button Grid.Column="1" Background="Transparent" BorderThickness="0" Padding="4" Click="RenameButton_Click"
+                                            Visibility="{x:Bind IsRenaming, Mode=OneWay, Converter={StaticResource InverseBoolToVisibilityConverter}}"
+                                            AutomationProperties.Name="Rename profile" ToolTipService.ToolTip="Rename">
+                                        <FontIcon Glyph="&#xE70F;" FontSize="14" />
+                                    </Button>
+                                </Grid>
+                                <TextBlock x:Name="DetailsGame" Opacity="0.72" TextWrapping="Wrap" />
+                                <TextBlock x:Name="RenameWarningText" Foreground="{ThemeResource SystemFillColorCautionBrush}" TextWrapping="Wrap"
+                                           Visibility="Collapsed" Text="A profile with this name already exists." />
+                            </StackPanel>
+                        </Grid>
+
+                        <!-- One target selector drives every section below, so the workspace always shows one configuration. -->
+                        <Grid ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" MinWidth="160" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <ComboBox x:Name="TargetSelector" Header="Launch target" HorizontalAlignment="Stretch"
+                                      DisplayMemberPath="DisplayName" SelectionChanged="TargetSelector_SelectionChanged" />
+                            <Button Grid.Column="1" x:Name="LaunchButton" VerticalAlignment="Bottom" Style="{StaticResource AccentButtonStyle}"
+                                    Command="{x:Bind LaunchCommand}" ToolTipService.ToolTip="Launch the selected target through uufs64">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <FontIcon Glyph="&#xE768;" FontSize="14" />
+                                    <TextBlock Text="Launch" />
+                                </StackPanel>
+                            </Button>
+                            <Button Grid.Column="2" x:Name="RevealFolderButton" VerticalAlignment="Bottom"
+                                    Command="{x:Bind RevealFolderCommand}" Content="Reveal folder" />
+                            <ProgressRing Grid.Column="3" x:Name="LoadOrderBusyRing" VerticalAlignment="Bottom" Margin="0,0,0,6"
+                                          Width="20" Height="20" IsActive="False" Visibility="Collapsed" />
+                        </Grid>
+                    </StackPanel>
+
+                    <SelectorBar x:Name="WorkspaceSelector" Grid.Row="1" Padding="12,0,12,0"
+                                 SelectionChanged="WorkspaceSelector_SelectionChanged">
+                        <SelectorBarItem x:Name="MergedViewTab" Text="Views" IsSelected="True">
+                            <SelectorBarItem.Icon>
+                                <FontIcon Glyph="&#xE8B7;" />
+                            </SelectorBarItem.Icon>
+                        </SelectorBarItem>
+                        <SelectorBarItem x:Name="ToolsTab" Text="Tools">
+                            <SelectorBarItem.Icon>
+                                <FontIcon Glyph="&#xE90F;" />
+                            </SelectorBarItem.Icon>
+                        </SelectorBarItem>
+                        <SelectorBarItem x:Name="ContentTab" Text="Content">
+                            <SelectorBarItem.Icon>
+                                <FontIcon Glyph="&#xE8A5;" />
+                            </SelectorBarItem.Icon>
+                        </SelectorBarItem>
+                    </SelectorBar>
+                    <Border Grid.Row="2" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,0,0,1" />
+
+                    <Grid Grid.Row="3">
+                        <!-- PROFILE VIEW: the editable branch stack, plus the read-only custom views. -->
+                        <ScrollViewer x:Name="MergedViewSection" VerticalScrollBarVisibility="Auto" Padding="16,16,8,16">
+                            <StackPanel Spacing="16" Margin="0,0,8,0">
+                                <TextBlock Style="{StaticResource SectionLabelStyle}" Text="PROFILE VIEWS" />
+                                <controls:MergedViewSection ViewName="{x:Bind ProfileViewName, Mode=OneWay}" MountPath="{x:Bind ProfileViewMountPath, Mode=OneWay}"
+                                                            BranchCountText="{x:Bind ProfileViewBranchCountText, Mode=OneWay}"
+                                                            AccessLabel="Writable" SourceLabel="Profile"
+                                                            IsExpanded="{x:Bind ProfileViewIsExpanded, Mode=TwoWay}">
+                                    <controls:MergedViewSection.Body>
+                                    <StackPanel Spacing="6">
+                                        <Grid ColumnSpacing="8">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Opacity="0.68" VerticalAlignment="Center" Text="Branches, highest priority first" />
+                                            <Button Grid.Column="1" x:Name="AddModsButton" Content="Add mods..." Click="AddMods_Click"
+                                                    ToolTipService.ToolTip="Add mods to this profile view" />
+                                            <Button Grid.Column="2" x:Name="AddFolderButton" Content="Add folder..." Click="AddFolder_Click" />
+                                        </Grid>
+                                        <TextBlock Opacity="0.68" TextWrapping="Wrap"
+                                                   Text="Highest priority first: a file in a higher branch hides the same file below it. The profile overlay stays on top and the game install stays at the bottom. Reorder by dragging a row, or from its actions menu with Alt+Up and Alt+Down." />
+                                        <TextBlock x:Name="TargetNoteText" TextWrapping="Wrap" Visibility="Collapsed"
+                                                   Foreground="{ThemeResource SystemFillColorCautionBrush}" />
+                                        <ListView x:Name="FolderList" CanDragItems="True" CanReorderItems="True" AllowDrop="True" ReorderMode="Enabled"
+                                                  DragItemsStarting="FolderList_DragItemsStarting"
+                                                  DragItemsCompleted="FolderList_DragItemsCompleted"
+                                                  ItemContainerStyle="{StaticResource ListRowContainerStyle}" Padding="0,4,0,4"
+                                                  ScrollViewer.VerticalScrollMode="Disabled" ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                                                  ScrollViewer.HorizontalScrollMode="Disabled" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                                            <ListView.ItemTemplate>
+                                                <DataTemplate x:DataType="models:ProfileFolder">
+                                                    <Grid x:Name="FolderRowRoot" ColumnSpacing="10" Padding="{StaticResource ListRowPadding}">
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="Auto" />
+                                                                <ColumnDefinition Width="*" MinWidth="140" />
+                                                                <ColumnDefinition Width="Auto" />
+                                                                <!-- Fixed, not Auto: keeps the button/icon column aligned even when the toggle is collapsed on locked rows -->
+                                                                <ColumnDefinition Width="44" />
+                                                                <ColumnDefinition Width="Auto" />
+                                                            </Grid.ColumnDefinitions>
+                                                            <Grid.KeyboardAccelerators>
+                                                                <KeyboardAccelerator Modifiers="Menu" Key="Up"
+                                                                                     ScopeOwner="{Binding ElementName=FolderRowRoot}"
+                                                                                     Invoked="MoveFolderUp_Invoked" />
+                                                                <KeyboardAccelerator Modifiers="Menu" Key="Down"
+                                                                                     ScopeOwner="{Binding ElementName=FolderRowRoot}"
+                                                                                     Invoked="MoveFolderDown_Invoked" />
+                                                            </Grid.KeyboardAccelerators>
+
+                                                            <TextBlock Text="{x:Bind Order, Mode=OneWay}" MinWidth="20"
+                                                                       Style="{StaticResource CaptionTextBlockStyle}"
+                                                                       Opacity="0.68" TextAlignment="Right" VerticalAlignment="Center" />
+                                                            <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
+                                                                <TextBlock FontWeight="SemiBold" TextTrimming="CharacterEllipsis" Text="{x:Bind Name, Mode=OneWay}" />
+                                                                <TextBlock Opacity="0.62" TextTrimming="CharacterEllipsis" Text="{x:Bind Path, Mode=OneWay}" />
+                                                            </StackPanel>
+                                                            <Border Grid.Column="2" VerticalAlignment="Center" Padding="8,2" CornerRadius="4"
+                                                                    Background="{ThemeResource ControlFillColorSecondaryBrush}">
+                                                                <TextBlock FontSize="11" Opacity="0.72" Text="{x:Bind KindText, Mode=OneWay}" />
+                                                            </Border>
+                                                            <ToggleSwitch Grid.Column="3" VerticalAlignment="Center" OnContent="" OffContent=""
+                                                                          Visibility="{x:Bind IsLocked, Converter={StaticResource InverseBoolToVisibilityConverter}}"
+                                                                          IsOn="{x:Bind IsEnabled, Mode=TwoWay}" Toggled="FolderEnabled_Toggled"
+                                                                          AutomationProperties.Name="Include this branch in the merged view"
+                                                                          ToolTipService.ToolTip="Include this branch in the merged view" />
+                                                            <Button Grid.Column="4" Style="{StaticResource RowDeleteButtonStyle}"
+                                                                    Visibility="{x:Bind IsLocked, Converter={StaticResource InverseBoolToVisibilityConverter}}"
+                                                                    ToolTipService.ToolTip="Branch actions"
+                                                                    AutomationProperties.Name="Branch actions">
+                                                                <FontIcon Glyph="&#xE712;" FontSize="14" />
+                                                                <Button.Flyout>
+                                                                    <MenuFlyout>
+                                                                        <MenuFlyoutItem Text="Move up" Click="MoveFolderUp_Click"
+                                                                                        KeyboardAcceleratorTextOverride="Alt+Up" />
+                                                                        <MenuFlyoutItem Text="Move down" Click="MoveFolderDown_Click"
+                                                                                        KeyboardAcceleratorTextOverride="Alt+Down" />
+                                                                        <MenuFlyoutSeparator />
+                                                                        <MenuFlyoutItem Text="Game launcher..." Click="DesignateGameLauncher_Click"
+                                                                                        Visibility="{x:Bind IsModBranch}" />
+                                                                        <MenuFlyoutItem Text="Remove" Click="RemoveFolder_Click" />
+                                                                    </MenuFlyout>
+                                                                </Button.Flyout>
+                                                            </Button>
+                                                            <FontIcon Grid.Column="4" Glyph="&#xE72E;" FontSize="14" Opacity="0.5" Margin="8"
+                                                                      VerticalAlignment="Center"
+                                                                      ToolTipService.ToolTip="Pinned; this branch cannot be moved"
+                                                                      Visibility="{x:Bind IsLocked}" />
+                                                    </Grid>
+                                                </DataTemplate>
+                                            </ListView.ItemTemplate>
+                                        </ListView>
+                                        <TextBlock x:Name="LoadOrderErrorText" Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                                                   TextWrapping="Wrap" Visibility="Collapsed" />
+                                        <StackPanel x:Name="DependencyIssuesPanel" Spacing="4" Visibility="Collapsed">
+                                            <TextBlock x:Name="DependencyIssuesText" TextWrapping="Wrap"
+                                                       Foreground="{ThemeResource SystemFillColorCautionBrush}" />
+                                            <Button x:Name="FixOrderButton" Content="Fix order" Click="FixOrder_Click"
+                                                    ToolTipService.ToolTip="Reorders the affected mods to satisfy their declared load-order requirements" />
+                                        </StackPanel>
+                                    </StackPanel>
+                                    </controls:MergedViewSection.Body>
+                                </controls:MergedViewSection>
+
+                                <!-- CUSTOM VIEWS: read-only; declared by the game or a tool definition, never by a profile. -->
+                                <StackPanel Spacing="6">
+                                    <TextBlock Style="{StaticResource SectionLabelStyle}" Text="CUSTOM VIEWS" />
+                                    <TextBlock Opacity="0.68" TextWrapping="Wrap"
+                                               Text="Additional merged views this target mounts outside the game install folder, resolved from the game and tool definitions. Expand one to see its branch stack, highest priority first." />
+                                    <ItemsControl x:Name="CustomViewList">
+                                            <ItemsControl.ItemsPanel>
+                                                <ItemsPanelTemplate>
+                                                    <StackPanel Spacing="6" />
+                                                </ItemsPanelTemplate>
+                                            </ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <controls:MergedViewSection ViewName="{Binding Name}" MountPath="{Binding MountPath}"
+                                                                                BranchCountText="{Binding BranchCountText}" AccessLabel="{Binding AccessLabel}"
+                                                                                SourceLabel="{Binding SourceLabel}" IsExpanded="{Binding IsExpanded, Mode=TwoWay}">
+                                                        <controls:MergedViewSection.Body>
+                                                        <StackPanel Spacing="4" Padding="0,4,0,4">
+                                                            <ItemsControl ItemsSource="{Binding Branches}">
+                                                                <ItemsControl.ItemTemplate>
+                                                                    <DataTemplate>
+                                                                        <Grid ColumnSpacing="10" Padding="0,3">
+                                                                            <Grid.ColumnDefinitions>
+                                                                                <ColumnDefinition Width="Auto" />
+                                                                                <ColumnDefinition Width="*" />
+                                                                            </Grid.ColumnDefinitions>
+                                                                            <TextBlock MinWidth="20" TextAlignment="Right" Opacity="0.68"
+                                                                                       Style="{StaticResource CaptionTextBlockStyle}" Text="{Binding Order}" />
+                                                                            <TextBlock Grid.Column="1" TextWrapping="Wrap" IsTextSelectionEnabled="True"
+                                                                                       Text="{Binding Path}" />
+                                                                        </Grid>
+                                                                    </DataTemplate>
+                                                                </ItemsControl.ItemTemplate>
+                                                            </ItemsControl>
+                                                            <TextBlock Opacity="0.68" TextWrapping="Wrap" Visibility="{Binding EmptyBranchesVisibility}"
+                                                                       Text="This view declares no branches." />
+                                                        </StackPanel>
+                                                        </controls:MergedViewSection.Body>
+                                                    </controls:MergedViewSection>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    <TextBlock x:Name="CustomViewsEmptyText" Opacity="0.68" TextWrapping="Wrap" Visibility="Collapsed" />
+                                </StackPanel>
+                            </StackPanel>
+                        </ScrollViewer>
+
+                        <!-- TOOLS: which tools this profile launches, and what each one overrides. -->
+                        <ScrollViewer x:Name="ToolsSection" VerticalScrollBarVisibility="Auto" Padding="16,16,8,16" Visibility="Collapsed">
+                            <StackPanel Spacing="12" Margin="0,0,8,0">
+                                <TextBlock Opacity="0.68" TextWrapping="Wrap"
+                                           Text="An enabled tool becomes a launch target. A tool that produces output also gets its own output folder directly below the profile overlay, and each run writes a new output version that replaces the previous one when the tool finishes; a settings-only tool adds nothing to the profile merged view." />
+                                <Border Style="{StaticResource ContentCardStyle}" Padding="8">
+                                    <!-- ItemsControl, not ListView: each row hosts editors that container recycling would tear down. -->
+                                    <ItemsControl x:Name="ToolList">
+                                        <ItemsControl.ItemsPanel>
+                                            <ItemsPanelTemplate>
+                                                <StackPanel Spacing="6" />
+                                            </ItemsPanelTemplate>
+                                        </ItemsControl.ItemsPanel>
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate x:DataType="controls:ProfileToolRow">
+                                                <Expander HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                                                          IsExpanded="{Binding IsExpanded, Mode=TwoWay}">
+                                                    <Expander.Header>
+                                                        <Grid ColumnSpacing="10" Padding="0,4">
+                                                            <Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="32" />
+                                                                <ColumnDefinition Width="*" MinWidth="140" />
+                                                                <ColumnDefinition Width="Auto" />
+                                                            </Grid.ColumnDefinitions>
+                                                            <Border Style="{StaticResource RowAvatarStyle}">
+                                                                <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="SemiBold"
+                                                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                                           Text="{x:Bind Name, Converter={StaticResource InitialLetterConverter}}" />
+                                                            </Border>
+                                                            <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
+                                                                <TextBlock FontWeight="SemiBold" TextTrimming="CharacterEllipsis" Text="{x:Bind Name}" />
+                                                                <TextBlock Opacity="0.62" TextTrimming="CharacterEllipsis" Text="{x:Bind KindText}" />
+                                                            </StackPanel>
+                                                            <ToggleSwitch Grid.Column="2" VerticalAlignment="Center" OnContent="" OffContent=""
+                                                                          AutomationProperties.Name="Enable this tool for the profile"
+                                                                          IsOn="{x:Bind IsEnabled, Mode=TwoWay}" Toggled="ToolEnabled_Toggled" />
+                                                        </Grid>
+                                                    </Expander.Header>
+                                                    <StackPanel Spacing="12" Padding="0,4,0,8">
+                                                        <TextBox Header="Launch arguments override"
+                                                                 PlaceholderText="Leave empty to use the tool's own arguments"
+                                                                 Text="{Binding LaunchArgumentsOverride, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                 LostFocus="ToolOverride_LostFocus" />
+                                                        <ToggleSwitch Header="Capture tool output" OnContent="Yes" OffContent="No"
+                                                                      IsOn="{Binding UseOutputOverlay, Mode=TwoWay}" />
+                                                        <TextBlock Opacity="0.72" TextWrapping="Wrap"
+                                                                   Text="When enabled, writes to writable views are captured into a separate tools/[toolId]/ folder, giving this tool its own output priority. When disabled, writes go directly to the views declared in the tool definition." />
+                                                        <StackPanel Spacing="12" Visibility="{Binding OutputSectionVisibility}">
+                                                            <TextBlock Style="{StaticResource SectionLabelStyle}" Text="OUTPUT" />
+                                                            <Grid ColumnSpacing="12">
+                                                                <Grid.ColumnDefinitions>
+                                                                    <ColumnDefinition Width="*" />
+                                                                    <ColumnDefinition Width="Auto" />
+                                                                </Grid.ColumnDefinitions>
+                                                                <TextBlock VerticalAlignment="Center" TextWrapping="Wrap" Opacity="0.72"
+                                                                           IsTextSelectionEnabled="True" Text="{Binding OutputSummary}" />
+                                                                <Button Grid.Column="1" VerticalAlignment="Center" Content="Clear output"
+                                                                        Click="ClearToolOutput_Click"
+                                                                        ToolTipService.ToolTip="Delete everything this tool has written for this profile" />
+                                                            </Grid>
+                                                        </StackPanel>
+                                                    </StackPanel>
+                                                </Expander>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                </Border>
+                                <TextBlock x:Name="ToolsEmptyText" Opacity="0.68" TextWrapping="Wrap" Visibility="Collapsed"
+                                           Text="No tools support this game yet. Add one on the Tools page." />
+                            </StackPanel>
+                        </ScrollViewer>
+
+                        <!-- CONTENT: what the selected target actually resolves to on disk. -->
+                        <Grid x:Name="ContentSection" Padding="16" RowSpacing="12" Visibility="Collapsed">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+                            <TextBlock Opacity="0.68" TextWrapping="Wrap"
+                                       Text="Preview read directly from the branch folders on disk. Expand a folder to load its contents; select an entry to see which branch it comes from and what it shadows." />
+                            <Grid Grid.Row="1" ColumnSpacing="12" MinHeight="320">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="1.4*" />
+                                    <ColumnDefinition Width="*" MinWidth="200" />
+                                </Grid.ColumnDefinitions>
+                                <Border Grid.Column="0" Style="{StaticResource ContentCardStyle}">
+                                    <TreeView x:Name="ContentTree" Expanding="ContentTree_Expanding"
+                                              ItemInvoked="ContentTree_ItemInvoked"
+                                              SelectionChanged="ContentTree_SelectionChanged">
+                                        <TreeView.ItemTemplate>
+                                            <DataTemplate>
+                                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                                    <FontIcon FontSize="14" Glyph="{Binding Glyph}" />
+                                                    <TextBlock Text="{Binding Name}" />
+                                                </StackPanel>
+                                            </DataTemplate>
+                                        </TreeView.ItemTemplate>
+                                    </TreeView>
+                                </Border>
+                                <Border Grid.Column="1" Style="{StaticResource ContentCardStyle}" Padding="12">
+                                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                        <StackPanel Spacing="8">
+                                            <TextBlock Style="{StaticResource SectionLabelStyle}" Text="SELECTED ENTRY" />
+                                            <TextBlock x:Name="DetailName" TextWrapping="Wrap" FontWeight="SemiBold" />
+                                            <TextBlock x:Name="DetailOrigin" TextWrapping="Wrap" Opacity="0.72" IsTextSelectionEnabled="True" />
+                                            <TextBlock x:Name="DetailShadowedHeader" Style="{StaticResource SectionLabelStyle}" Text="SHADOWED (LOWER PRIORITY)" Visibility="Collapsed" />
+                                            <ItemsControl x:Name="DetailShadowedList" Visibility="Collapsed">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <TextBlock Text="{Binding}" Opacity="0.62" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                            <TextBlock x:Name="EmptySelectionText" Opacity="0.68" TextWrapping="Wrap"
+                                                       Text="Select an entry in the tree to see its origin." />
+                                        </StackPanel>
+                                    </ScrollViewer>
+                                </Border>
+                            </Grid>
+                        </Grid>
+                    </Grid>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <TextBlock x:Name="QueueStatus" Grid.Row="3" HorizontalAlignment="Right" Opacity="0.72" />
+    </Grid>
+</Page>

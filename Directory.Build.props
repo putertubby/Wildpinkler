@@ -1,0 +1,24 @@
+<Project>
+
+  <PropertyGroup>
+    <Configuration Condition="'$(Configuration)' == ''">Debug</Configuration>
+    <Platform Condition="'$(Platform)' == ''">x64</Platform>
+
+    <RepoRoot>$(MSBuildThisFileDirectory)</RepoRoot>
+    <ArtifactsDir>$(RepoRoot)build\</ArtifactsDir>
+    <SharedOutDir>$(ArtifactsDir)bin\$(Platform)\$(Configuration)\</SharedOutDir>
+    <SharedObjDir>$(ArtifactsDir)obj\$(MSBuildProjectName)\$(Platform)\$(Configuration)\</SharedObjDir>
+  </PropertyGroup>
+
+  <!-- Native and managed output must land in one directory so the app sits next to its native DLLs. -->
+  <PropertyGroup Condition="'$(MSBuildProjectExtension)' == '.csproj'">
+    <BaseOutputPath>$(SharedOutDir)</BaseOutputPath>
+    <OutputPath>$(SharedOutDir)</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <Platforms>x64</Platforms>
+  </PropertyGroup>
+
+</Project>

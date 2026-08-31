@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "definitionId": "fnis",
+  "name": "Fores New Idles in Skyrim (FNIS)",
+  "definitionVersion": 2,
+  "author": "Wildpinkler",
+  "description": "Generates animation behaviour files. When output capture is enabled, writes to the profile's tool output folder; otherwise writes directly to the game data folder.",
+  "supportedGameDefinitions": [
+    "skyrim-se"
+  ],
+  "producesOutput": true,
+  "executableRelativePath": "GenerateFNISforUsers.exe",
+  "workingDirectory": "",
+  "defaultLaunchArguments": "",
+  "detectionMarkers": [
+    "GenerateFNISforUsers.exe"
+  ],
+  "variables": {},
+  "mergedViews": [ ]
+}

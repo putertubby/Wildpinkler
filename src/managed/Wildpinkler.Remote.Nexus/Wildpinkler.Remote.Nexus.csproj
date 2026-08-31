@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <RootNamespace>Wildpinkler.Remote.Nexus</RootNamespace>
+    <AssemblyName>Wildpinkler.Remote.Nexus</AssemblyName>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Wildpinkler.Remote\Wildpinkler.Remote.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ContentDialog
+    x:Class="Wildpinkler.App.Controls.GameDefinitionEditDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:Wildpinkler.App.Controls"
+    Title="Edit definition"
+    PrimaryButtonText="Save"
+    CloseButtonText="Cancel"
+    DefaultButton="Primary"
+    Style="{StaticResource DefaultContentDialogStyle}">
+
+    <ContentDialog.Resources>
+        <!-- Widens this dialog only; the theme default (~548) is too tight for the two-column rows below. -->
+        <x:Double x:Key="ContentDialogMaxWidth">640</x:Double>
+    </ContentDialog.Resources>
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,16,0">
+        <StackPanel Spacing="20">
+            <InfoBar x:Name="DefinitionBar" IsOpen="True" IsClosable="False" Severity="Informational" />
+
+            <StackPanel Spacing="12">
+                <TextBlock Style="{StaticResource SectionLabelStyle}" Text="GENERAL" />
+                <TextBox x:Name="NameBox" Header="Name" TextChanged="Field_Changed" />
+                <TextBox x:Name="DescriptionBox" Header="Description" TextChanged="Field_Changed" />
+                <Grid ColumnSpacing="12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="160" />
+                    </Grid.ColumnDefinitions>
+                    <TextBox x:Name="AuthorBox" Header="Author" TextChanged="Field_Changed" />
+                    <TextBox x:Name="SteamAppIdBox" Grid.Column="1" Header="Steam id" TextChanged="Field_Changed" />
+                </Grid>
+            </StackPanel>
+
+            <Border BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,1,0,0" />
+
+            <StackPanel Spacing="12">
+                <TextBlock Style="{StaticResource SectionLabelStyle}" Text="LAUNCH" />
+                <TextBox x:Name="ExecutableBox" Header="Executable, relative to the install folder"
+                         PlaceholderText="Game.exe" TextChanged="Field_Changed" />
+            </StackPanel>
+
+            <Border BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,1,0,0" />
+
+            <StackPanel Spacing="12">
+                <TextBlock Style="{StaticResource SectionLabelStyle}" Text="DETECTION" />
+                <controls:TagInputBox x:Name="DetectionMarkersInput" Header="Detection markers"
+                         PlaceholderText="Add a relative file and press Enter" TagsChanged="DetectionMarkers_Changed" />
+            </StackPanel>
+
+            <Border BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,1,0,0" />
+
+            <StackPanel Spacing="12">
+                <TextBlock Style="{StaticResource SectionLabelStyle}" Text="VARIABLES" />
+                <TextBlock Opacity="0.72" TextWrapping="Wrap"
+                           Text="Local to this definition only: used to shorten a merged view's mount path or branches below, for example DATA. Not seen by tools or profiles." />
+                <controls:VariablesEditor x:Name="VariablesInput"
+                                          ValueHeader="PATH RELATIVE TO INSTALL FOLDER"
+                                          NamePlaceholderText="DATA" ValuePlaceholderText="Data"
+                                          Changed="Editor_Changed" />
+            </StackPanel>
+
+            <Border BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,1,0,0" />
+
+            <StackPanel Spacing="12">
+                <TextBlock Style="{StaticResource SectionLabelStyle}" Text="MERGED VIEWS" />
+                <TextBlock Opacity="0.72" TextWrapping="Wrap"
+                           Text="A merged view stacks one or more branch paths into a mount path, highest priority first. The name is a friendly label only; the mount path is the real merge identity. Both are relative to the install folder by default (e.g. Data), or may reference a read-only system folder such as {Documents}. Mark a view writable to let changes be written back to its highest branch. Reorder branches by dragging a row, or from its actions menu with Alt+Up and Alt+Down." />
+                <controls:MergedViewsEditor x:Name="MergedViewsInput" MountPathPlaceholderText="Data" Changed="Editor_Changed" />
+            </StackPanel>
+
+            <TextBlock x:Name="ErrorText" Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                       TextWrapping="Wrap" Visibility="Collapsed" />
+        </StackPanel>
+    </ScrollViewer>
+</ContentDialog>

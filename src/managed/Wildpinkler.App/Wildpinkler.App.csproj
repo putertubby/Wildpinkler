@@ -1,0 +1,53 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows10.0.26100.0</TargetFramework>
+    <TargetPlatformVersion>10.0.26100.0</TargetPlatformVersion>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <RootNamespace>Wildpinkler.App</RootNamespace>
+    <AssemblyName>Wildpinkler.App</AssemblyName>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <UseWinUI>true</UseWinUI>
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <!-- Unpackaged, self-contained Windows App SDK: no separate runtime install needed. -->
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <SelfContained>false</SelfContained>
+    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.7.*" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.*" />
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.*" />
+    <PackageReference Include="CommunityToolkit.WinUI.Controls.Sizers" Version="8.2.*" />
+    <PackageReference Include="SharpCompress" Version="0.48.*" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="9.0.*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Wildpinkler.Interop\Wildpinkler.Interop.csproj" />
+    <ProjectReference Include="..\Wildpinkler.Remote\Wildpinkler.Remote.csproj" />
+    <ProjectReference Include="..\Wildpinkler.Remote.Nexus\Wildpinkler.Remote.Nexus.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="Assets\GameDefinitions\**\*.wpgame.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\ToolDefinitions\**\*.wptool.json" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\AppIcon\**\*.png" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(VfsAssetsPath)' != ''">
+    <Content Include="$(VfsAssetsPath)\**\*">
+      <Link>%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(DesignTimeBuild)' == 'true'">
+    <Compile Include="$(IntermediateOutputPath)**\*.g.i.cs" Visible="false" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="Wildpinkler.App.Controls.VariablesEditor"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <StackPanel Spacing="12">
+        <Grid ColumnSpacing="8" Padding="0,0,44,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="160" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Style="{StaticResource SectionLabelStyle}" Text="NAME" />
+            <TextBlock x:Name="ValueHeaderBlock" Grid.Column="1" Style="{StaticResource SectionLabelStyle}" Text="VALUE" />
+        </Grid>
+
+        <!-- No inner scrolling: the hosting dialog's ScrollViewer is the only scroll region. -->
+        <ListView x:Name="VariableList" SelectionMode="None"
+                  ScrollViewer.VerticalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollMode="Disabled"
+                  ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.HorizontalScrollMode="Disabled"
+                  ItemContainerStyle="{StaticResource RowContainerStyle}">
+            <ListView.ItemTemplate>
+                <DataTemplate>
+                    <Grid ColumnSpacing="8" Padding="0,4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="160" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBox Text="{Binding Name, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                 AutomationProperties.Name="Variable name"
+                                 TextChanged="Field_Changed" Loaded="NameBox_Loaded" />
+                        <TextBox Grid.Column="1" Text="{Binding Value, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                 AutomationProperties.Name="Variable value"
+                                 TextChanged="Field_Changed" Loaded="ValueBox_Loaded" />
+                        <Button Grid.Column="2" Style="{StaticResource RowDeleteButtonStyle}"
+                                Click="DeleteVariable_Click"
+                                ToolTipService.ToolTip="Remove variable"
+                                AutomationProperties.Name="Remove variable">
+                            <FontIcon Glyph="&#xE74D;" FontSize="14" />
+                            <!-- Redirect the theme's pointer-over/pressed brushes so the icon turns destructive-red on hover. -->
+                            <Button.Resources>
+                                <StaticResource x:Key="ButtonBackgroundPointerOver" ResourceKey="SystemFillColorCriticalBackgroundBrush" />
+                                <StaticResource x:Key="ButtonForegroundPointerOver" ResourceKey="SystemFillColorCriticalBrush" />
+                                <StaticResource x:Key="ButtonBackgroundPressed" ResourceKey="SystemFillColorCriticalBackgroundBrush" />
+                                <StaticResource x:Key="ButtonForegroundPressed" ResourceKey="SystemFillColorCriticalBrush" />
+                            </Button.Resources>
+                        </Button>
+                    </Grid>
+                </DataTemplate>
+            </ListView.ItemTemplate>
+        </ListView>
+
+        <TextBlock x:Name="EmptyText" Opacity="0.68" Text="No variables defined yet." />
+
+        <Button Click="AddVariable_Click" Content="Add variable" />
+    </StackPanel>
+</UserControl>

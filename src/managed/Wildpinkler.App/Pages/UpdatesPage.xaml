@@ -1,0 +1,131 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="Wildpinkler.App.Pages.UpdatesPage"
+    x:Name="RootPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:models="using:Wildpinkler.App.Models"
+    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+
+    <Grid Padding="{StaticResource PageContentPadding}" RowSpacing="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <Grid ColumnSpacing="16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Style="{StaticResource TitleTextBlockStyle}" Text="Updates &amp; tracked mods" VerticalAlignment="Center" />
+            <CommandBar Grid.Column="1" DefaultLabelPosition="Right" HorizontalAlignment="Right" Background="Transparent">
+                <AppBarButton x:Name="CheckUpdatesButton" Icon="Sync" Label="Check updates" Click="CheckUpdatesButton_Click"
+                              ToolTipService.ToolTip="Check installed mods for newer files" />
+                <AppBarButton x:Name="RefreshTrackedButton" Icon="Refresh" Label="Refresh tracked" Click="RefreshTrackedButton_Click"
+                              ToolTipService.ToolTip="Refresh the tracked mods list" />
+            </CommandBar>
+        </Grid>
+
+        <StackPanel Grid.Row="1" Spacing="4">
+            <InfoBar x:Name="PageInfoBar" IsOpen="False" />
+            <TextBlock x:Name="StatusText" Text="{x:Bind StatusMessage, Mode=OneWay}"
+                       Style="{StaticResource CaptionTextBlockStyle}" />
+        </StackPanel>
+
+        <Grid Grid.Row="2">
+            <ProgressRing HorizontalAlignment="Center" VerticalAlignment="Center" Width="32" Height="32"
+                          IsActive="{x:Bind IsLoading, Mode=OneWay}" Visibility="{x:Bind IsLoading, Mode=OneWay}" />
+            <TabView Visibility="{x:Bind IsLoading, Converter={StaticResource InverseBoolToVisibilityConverter}}">
+                <TabViewItem Header="Available Updates">
+                    <Border Margin="0,12,0,0" Style="{StaticResource ContentCardStyle}">
+                        <Grid RowSpacing="0">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+                            <TextBlock x:Name="UpdatesCountText" Padding="{StaticResource SectionHeaderPadding}" Style="{StaticResource SectionLabelStyle}" />
+                            <Grid Grid.Row="1">
+                                <ListView x:Name="UpdatesList" ItemContainerStyle="{StaticResource ListRowContainerStyle}" SelectionMode="None">
+                            <ListView.ItemTemplate>
+                                <DataTemplate x:DataType="models:AvailableUpdateRow">
+                                    <Grid Padding="{StaticResource ListRowPadding}" ColumnSpacing="12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Spacing="3">
+                                            <TextBlock Text="{x:Bind Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{x:Bind VersionText}" Opacity="0.68" />
+                                            <TextBlock Text="Updated {x:Bind UpdatedText}" Opacity="0.62" />
+                                        </StackPanel>
+                                        <Button Grid.Column="1" Content="Update" IsEnabled="{x:Bind IsActionAvailable}"
+                                            ToolTipService.ToolTip="Update this mod" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                                </ListView>
+                                <StackPanel x:Name="UpdatesEmptyPanel" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                            Spacing="6" MaxWidth="300" Visibility="Collapsed">
+                                    <FontIcon HorizontalAlignment="Center" Glyph="&#xE895;" FontSize="36" Opacity="0.5" />
+                                    <TextBlock HorizontalAlignment="Center" Style="{StaticResource SubtitleTextBlockStyle}" Text="No updates available" />
+                                    <TextBlock HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" Opacity="0.68"
+                                               Text="Check again after installing or tracking a mod." />
+                                </StackPanel>
+                            </Grid>
+                        </Grid>
+                    </Border>
+                </TabViewItem>
+
+                <TabViewItem Header="Tracked Mods">
+                    <Border Margin="0,12,0,0" Style="{StaticResource ContentCardStyle}">
+                        <Grid RowSpacing="0">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+                            <TextBlock x:Name="TrackedCountText" Padding="{StaticResource SectionHeaderPadding}" Style="{StaticResource SectionLabelStyle}" />
+                            <Grid Grid.Row="1">
+                                <ListView x:Name="TrackedList" ItemContainerStyle="{StaticResource ListRowContainerStyle}" SelectionMode="None">
+                            <ListView.ItemTemplate>
+                                <DataTemplate x:DataType="models:TrackedModRow">
+                                    <Grid Padding="{StaticResource ListRowPadding}" ColumnSpacing="12">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Spacing="3">
+                                            <TextBlock Text="{x:Bind Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                                <TextBlock Text="{x:Bind DomainText}" Opacity="0.68" TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Text="·" Opacity="0.68" />
+                                                <TextBlock Text="{x:Bind AuthorText}" Opacity="0.68" TextTrimming="CharacterEllipsis" />
+                                            </StackPanel>
+                                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                                <TextBlock Text="{x:Bind VersionText}" Opacity="0.62" TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Text="· Last modified" Opacity="0.62" />
+                                                <TextBlock Text="{x:Bind LastModifiedText}" Opacity="0.62" TextTrimming="CharacterEllipsis" />
+                                            </StackPanel>
+                                        </StackPanel>
+                                        <Button Grid.Column="1" Content="Download" IsEnabled="{x:Bind IsActionAvailable}"
+                                            ToolTipService.ToolTip="Download this tracked mod" />
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                                </ListView>
+                                <StackPanel x:Name="TrackedEmptyPanel" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                            Spacing="6" MaxWidth="300" Visibility="Collapsed">
+                                    <FontIcon HorizontalAlignment="Center" Glyph="&#xE8D4;" FontSize="36" Opacity="0.5" />
+                                    <TextBlock HorizontalAlignment="Center" Style="{StaticResource SubtitleTextBlockStyle}" Text="No tracked mods" />
+                                    <TextBlock HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" Opacity="0.68"
+                                               Text="Tracked mods from Nexus will appear here when available." />
+                                </StackPanel>
+                            </Grid>
+                        </Grid>
+                    </Border>
+                </TabViewItem>
+            </TabView>
+        </Grid>
+    </Grid>
+</Page>

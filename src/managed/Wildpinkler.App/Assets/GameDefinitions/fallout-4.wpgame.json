@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 2,
+  "definitionId": "fallout-4",
+  "name": "Fallout 4",
+  "definitionVersion": 2,
+  "author": "Wildpinkler",
+  "description": "Built-in definition for Fallout 4.",
+  "steamAppId": "377160",
+  "executableRelativePath": "Fallout4.exe",
+  "remoteGameKeys": {
+    "nexus": "fallout4"
+  },
+  "detectionMarkers": [
+    "Fallout4.exe",
+    "Data\\Fallout4.esm"
+  ],
+  "variables": {
+    "DATA": "Data",
+    "SCRIPTS": "Data\\Scripts",
+    "F4SE": "Data\\F4SE\\Plugins"
+  },
+  "mergedViews": [],
+  "defaultLaunchArguments": ""
+}

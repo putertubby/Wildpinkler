@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="Wildpinkler.App.Controls.CollectionListHeader"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Padding="{StaticResource SectionHeaderPadding}" Spacing="8">
+            <Grid ColumnSpacing="8">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+
+                <TextBox x:Name="SearchBox" HorizontalAlignment="Stretch"
+                         AutomationProperties.AcceleratorKey="Control F"
+                         TextChanged="SearchBox_TextChanged" KeyDown="SearchBox_KeyDown" />
+
+                <Button x:Name="ClearButton" Grid.Column="1" VerticalAlignment="Stretch"
+                        Click="ClearButton_Click" Visibility="Collapsed"
+                        AutomationProperties.Name="Clear search"
+                        ToolTipService.ToolTip="Clear search">
+                    <FontIcon Glyph="&#xE711;" FontSize="12" />
+                </Button>
+
+                <ContentPresenter x:Name="FiltersHost" Grid.Column="2" VerticalAlignment="Center"
+                                  Content="{x:Bind FiltersContent, Mode=OneWay}" />
+            </Grid>
+
+            <ContentPresenter x:Name="ChipsHost" Content="{x:Bind ChipsContent, Mode=OneWay}"
+                              Visibility="{x:Bind HasChips, Mode=OneWay}" />
+
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Style="{StaticResource SectionLabelStyle}" VerticalAlignment="Center"
+                           Text="{x:Bind ResultCountText, Mode=OneWay}" />
+                <TextBlock Grid.Column="1" Opacity="0.72" VerticalAlignment="Center"
+                           Text="{x:Bind SelectedCountText, Mode=OneWay}" />
+            </Grid>
+        </StackPanel>
+
+        <Border Grid.Row="1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,0,0,1" />
+    </Grid>
+</UserControl>

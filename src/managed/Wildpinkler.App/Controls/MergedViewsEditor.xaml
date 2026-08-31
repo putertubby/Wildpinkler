@@ -1,0 +1,146 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="Wildpinkler.App.Controls.MergedViewsEditor"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <StackPanel Spacing="12">
+        <ItemsControl x:Name="MergedViewList">
+            <ItemsControl.ItemsPanel>
+                <ItemsPanelTemplate>
+                    <StackPanel Spacing="12" />
+                </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                    <Border Style="{StaticResource MergedViewCardStyle}">
+                        <StackPanel Spacing="8">
+                            <Grid ColumnSpacing="8">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBox Text="{Binding Name, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                         Header="Name" PlaceholderText="GameData" TextChanged="Field_Changed"
+                                         ToolTipService.ToolTip="{Binding MountPath}" />
+                                <TextBox Grid.Column="1"
+                                         Text="{Binding MountPath, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                         Header="Mount path" TextChanged="Field_Changed" Loaded="MountPathBox_Loaded" />
+                                <ToggleSwitch Grid.Column="2" Header="Writable"
+                                              IsOn="{Binding IsWritable, Mode=TwoWay}" Toggled="MergedView_Toggled" />
+                                <Button Grid.Column="3" Style="{StaticResource RowDeleteButtonStyle}"
+                                        Click="DeleteMergedView_Click" VerticalAlignment="Bottom"
+                                        ToolTipService.ToolTip="Remove merged view"
+                                        AutomationProperties.Name="Remove merged view">
+                                    <FontIcon Glyph="&#xE74D;" FontSize="14" />
+                                    <!-- Redirect the theme's pointer-over/pressed brushes so the icon turns destructive-red on hover. -->
+                                    <Button.Resources>
+                                        <StaticResource x:Key="ButtonBackgroundPointerOver" ResourceKey="SystemFillColorCriticalBackgroundBrush" />
+                                        <StaticResource x:Key="ButtonForegroundPointerOver" ResourceKey="SystemFillColorCriticalBrush" />
+                                        <StaticResource x:Key="ButtonBackgroundPressed" ResourceKey="SystemFillColorCriticalBackgroundBrush" />
+                                        <StaticResource x:Key="ButtonForegroundPressed" ResourceKey="SystemFillColorCriticalBrush" />
+                                    </Button.Resources>
+                                </Button>
+                            </Grid>
+                            <StackPanel Spacing="4">
+                                <Grid ColumnSpacing="8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock Text="Branches, highest priority first"
+                                               Foreground="{ThemeResource TextControlHeaderForeground}" />
+                                    <!-- Quick way to see every branch without opening a dialog. -->
+                                    <Button Grid.Column="1" Background="Transparent" BorderThickness="0" Padding="4,0"
+                                            AutomationProperties.Name="Show all branches">
+                                        <StackPanel Orientation="Horizontal" Spacing="4">
+                                            <TextBlock Text="{Binding BranchesSummary}" Opacity="0.68" />
+                                            <FontIcon Glyph="&#xE70D;" FontSize="10" Opacity="0.68" />
+                                        </StackPanel>
+                                        <Button.Flyout>
+                                            <Flyout Placement="Bottom">
+                                                <ItemsControl ItemsSource="{Binding Branches}" MaxWidth="360">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <TextBlock Text="{Binding Path}" TextTrimming="CharacterEllipsis" Margin="0,2" />
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                            </Flyout>
+                                        </Button.Flyout>
+                                    </Button>
+                                </Grid>
+
+                                <!-- No MaxHeight and no inner scrolling: the hosting dialog's ScrollViewer is the only scroll region. -->
+                                <ListView ItemsSource="{Binding Branches}" SelectionMode="Single"
+                                          CanDragItems="True" CanReorderItems="True" AllowDrop="True"
+                                          ReorderMode="Enabled"
+                                          ItemContainerStyle="{StaticResource RowContainerStyle}"
+                                          ScrollViewer.VerticalScrollMode="Disabled"
+                                          ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                                          ScrollViewer.HorizontalScrollMode="Disabled"
+                                          ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                                    <ListView.ItemTemplate>
+                                        <DataTemplate>
+                                            <Grid x:Name="BranchRowRoot" ColumnSpacing="8" Padding="0,4">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto" />
+                                                    <ColumnDefinition Width="*" />
+                                                    <ColumnDefinition Width="Auto" />
+                                                </Grid.ColumnDefinitions>
+                                                <Grid.KeyboardAccelerators>
+                                                    <KeyboardAccelerator Modifiers="Menu" Key="Up"
+                                                                         ScopeOwner="{Binding ElementName=BranchRowRoot}"
+                                                                         Invoked="MoveBranchUp_Invoked" />
+                                                    <KeyboardAccelerator Modifiers="Menu" Key="Down"
+                                                                         ScopeOwner="{Binding ElementName=BranchRowRoot}"
+                                                                         Invoked="MoveBranchDown_Invoked" />
+                                                </Grid.KeyboardAccelerators>
+
+                                                <TextBlock Text="{Binding Order}" MinWidth="16"
+                                                           Style="{StaticResource CaptionTextBlockStyle}"
+                                                           Opacity="0.68" TextAlignment="Right"
+                                                           VerticalAlignment="Center" />
+                                                <TextBox Grid.Column="1"
+                                                         Text="{Binding Path, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                         PlaceholderText="Data\meshes, or {Documents}\My Games\..."
+                                                         AutomationProperties.Name="Branch path"
+                                                         TextChanged="Field_Changed" Loaded="BranchPathBox_Loaded" />
+                                                <Button Grid.Column="2" Style="{StaticResource RowDeleteButtonStyle}"
+                                                        ToolTipService.ToolTip="Branch actions"
+                                                        AutomationProperties.Name="Branch actions">
+                                                    <FontIcon Glyph="&#xE712;" FontSize="14" />
+                                                    <Button.Flyout>
+                                                        <MenuFlyout>
+                                                            <MenuFlyoutItem Text="Move up" Click="MoveBranchUp_Click"
+                                                                            KeyboardAcceleratorTextOverride="Alt+Up" />
+                                                            <MenuFlyoutItem Text="Move down" Click="MoveBranchDown_Click"
+                                                                            KeyboardAcceleratorTextOverride="Alt+Down" />
+                                                            <MenuFlyoutSeparator />
+                                                            <MenuFlyoutItem Text="Remove" Click="DeleteBranch_Click" />
+                                                        </MenuFlyout>
+                                                    </Button.Flyout>
+                                                </Button>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ListView.ItemTemplate>
+                                </ListView>
+
+                                <TextBlock Opacity="0.68" Text="No branches yet."
+                                           Visibility="{Binding HasBranches, Converter={StaticResource InverseBoolToVisibilityConverter}}" />
+
+                                <Button Content="Add branch" Click="AddBranch_Click" Margin="0,4,0,0" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+
+        <TextBlock x:Name="EmptyText" Opacity="0.68" Text="No merged views defined yet." />
+
+        <Button Click="AddMergedView_Click" Content="Add merged view" />
+    </StackPanel>
+</UserControl>

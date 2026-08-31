@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 2,
+  "definitionId": "skyrim-se",
+  "name": "The Elder Scrolls V: Skyrim Special Edition",
+  "definitionVersion": 2,
+  "author": "Wildpinkler",
+  "description": "Built-in definition for Skyrim Special Edition / Anniversary Edition.",
+  "steamAppId": "489830",
+  "executableRelativePath": "SkyrimSE.exe",
+  "remoteGameKeys": {
+    "nexus": "skyrimspecialedition"
+  },
+  "detectionMarkers": [
+    "SkyrimSE.exe",
+    "Data\\Skyrim.esm"
+  ],
+  "variables": {
+    "saves": "${LocalAppData}\\Skyrim Special Edition\\Saves",
+    "settings": "${Documents}\\My Games\\Skyrim Special Edition"
+  },
+  "mergedViews": [
+    {
+      "name": "GameSaves",
+      "mountPath": "${saves}",
+      "branches": [
+        "Saves",
+        "${saves}"
+      ],
+      "isWritable": true
+    },
+    {
+      "name": "GameSettings",
+      "mountPath": "${settings}",
+      "branches": [
+        "Settings",
+        "${settings}"
+      ],
+      "isWritable": true
+    }
+  ],
+  "defaultLaunchArguments": ""
+}

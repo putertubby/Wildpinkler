@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ContentDialog
+    x:Class="Wildpinkler.App.Controls.ToolDefinitionEditDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:Wildpinkler.App.Controls"
+    Title="Edit tool definition"
+    PrimaryButtonText="Save"
+    CloseButtonText="Cancel"
+    DefaultButton="Primary"
+    Style="{StaticResource DefaultContentDialogStyle}">
+
+    <ContentDialog.Resources>
+        <!-- Widens this dialog only; the theme default (~548) is too tight for the two-column rows below. -->
+        <x:Double x:Key="ContentDialogMaxWidth">640</x:Double>
+    </ContentDialog.Resources>
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="0,0,16,0">
+        <StackPanel Spacing="20">
+            <InfoBar x:Name="DefinitionBar" IsOpen="True" IsClosable="False" Severity="Informational" />
+
+            <StackPanel Spacing="12">
+                <TextBlock Style="{StaticResource SectionLabelStyle}" Text="GENERAL" />
+                <TextBox x:Name="NameBox" Header="Name" TextChanged="Field_Changed" />
+                <TextBox x:Name="DescriptionBox" Header="Description" TextChanged="Field_Changed" />
+                <TextBox x:Name="AuthorBox" Header="Author" TextChanged="Field_Changed" />
+            </StackPanel>
+
+            <Border BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,1,0,0" />
+
+            <StackPanel Spacing="12">
+                <TextBlock Style="{StaticResource SectionLabelStyle}" Text="COMPATIBILITY" />
+                <controls:TagInputBox x:Name="SupportedGamesInput" Header="Supported game definitions"
+                                      PlaceholderText="Add a game definition id and press Enter"
+                                      TagsChanged="Tags_Changed" />
+                <TextBlock Opacity="0.72" TextWrapping="Wrap"
+                           Text="Leave empty to offer this tool for every game." />
+            </StackPanel>
+
+            <Border BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,1,0,0" />
+
+            <StackPanel Spacing="12">
+                <TextBlock Style="{StaticResource SectionLabelStyle}" Text="LAUNCH" />
+                <ToggleSwitch x:Name="ProducesOutputSwitch" Header="Produces output" OnContent="Yes" OffContent="No"
+                              Toggled="ProducesOutput_Toggled" />
+                <TextBlock Opacity="0.72" TextWrapping="Wrap"
+                           Text="Turn this off for a tool that only changes settings and writes nothing into the profile's merged view, such as LOOT. It still becomes a launch target, but it is given no output folder and its writable views write straight to the branches declared below." />
+                <TextBox x:Name="ExecutableBox" Header="Executable, relative to the tool's install folder"
+                         PlaceholderText="Tool.exe" TextChanged="Field_Changed" />
+                <TextBox x:Name="WorkingDirectoryBox" Header="Working directory (optional)"
+                         PlaceholderText="{}{VARIABLE}\subfolder" TextChanged="Field_Changed" />
+                <TextBox x:Name="LaunchArgumentsBox" Header="Suggested launch arguments" TextChanged="Field_Changed" />
+            </StackPanel>
+
+            <Border BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,1,0,0" />
+
+            <StackPanel Spacing="12">
+                <TextBlock Style="{StaticResource SectionLabelStyle}" Text="DETECTION" />
+                <controls:TagInputBox x:Name="DetectionMarkersInput" Header="Detection markers"
+                                      PlaceholderText="Add a relative file and press Enter" TagsChanged="Tags_Changed" />
+            </StackPanel>
+
+            <Border BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,1,0,0" />
+
+            <StackPanel Spacing="12">
+                <TextBlock Style="{StaticResource SectionLabelStyle}" Text="VARIABLES" />
+                <TextBlock Opacity="0.72" TextWrapping="Wrap"
+                           Text="Local to this definition only: used to shorten a merged view's mount path or branches below. Not seen by the game or a profile." />
+                <controls:VariablesEditor x:Name="VariablesInput" ValueHeader="VALUE"
+                                          NamePlaceholderText="settings" ValuePlaceholderText="Data"
+                                          Changed="Editor_Changed" />
+            </StackPanel>
+
+            <Border x:Name="MergedViewsDivider" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,1,0,0" />
+
+            <StackPanel x:Name="MergedViewsSection" Spacing="12">
+                <TextBlock Style="{StaticResource SectionLabelStyle}" Text="MERGED VIEWS" />
+                <TextBlock Opacity="0.72" TextWrapping="Wrap"
+                           Text="A merged view stacks one or more branch paths into a mount path, highest priority first. The name is a friendly label only; the mount path is the real merge identity - use the same mount path as one of the game's own views (e.g. Data) to override it. All paths must use variables like ${{GameInstallPath}} or ${{ToolInstallPath}} to resolve to absolute folders. Mark a view writable to let the tool write back to its highest branch. Reorder branches by dragging a row, or from its actions menu with Alt+Up and Alt+Down." />
+                <controls:MergedViewsEditor x:Name="MergedViewsInput" MountPathPlaceholderText="Data" Changed="Editor_Changed" />
+            </StackPanel>
+
+            <TextBlock x:Name="ErrorText" Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                       TextWrapping="Wrap" Visibility="Collapsed" />
+        </StackPanel>
+    </ScrollViewer>
+</ContentDialog>

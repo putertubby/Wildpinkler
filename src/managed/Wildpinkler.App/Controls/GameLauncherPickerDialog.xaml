@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ContentDialog
+    x:Class="Wildpinkler.App.Controls.GameLauncherPickerDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Use as a game launcher?"
+    PrimaryButtonText="Save"
+    CloseButtonText="Cancel"
+    DefaultButton="Primary"
+    Style="{StaticResource DefaultContentDialogStyle}">
+
+    <StackPanel Spacing="12">
+        <TextBlock Opacity="0.72" TextWrapping="Wrap"
+                   Text="This mod contains one or more executables. While this mod is enabled, its designated launcher becomes an extra way to start the game. You can change this choice later from the branch's 'more' menu." />
+        <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="320">
+            <RadioButtons x:Name="ExecutableList" />
+        </ScrollViewer>
+    </StackPanel>
+</ContentDialog>

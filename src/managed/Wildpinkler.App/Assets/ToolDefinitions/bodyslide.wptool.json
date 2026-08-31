@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "definitionId": "bodyslide",
+  "name": "BodySlide and Outfit Studio",
+  "definitionVersion": 2,
+  "author": "Wildpinkler",
+  "description": "Builds body and outfit meshes. When output capture is enabled, writes to the profile's tool output folder; otherwise writes directly to the game data folder.",
+  "supportedGameDefinitions": [
+    "skyrim-se",
+    "fallout-4"
+  ],
+  "producesOutput": true,
+  "executableRelativePath": "BodySlide x64.exe",
+  "workingDirectory": "",
+  "defaultLaunchArguments": "",
+  "detectionMarkers": [
+    "BodySlide x64.exe"
+  ],
+  "variables": {},
+  "mergedViews": [ ]
+}

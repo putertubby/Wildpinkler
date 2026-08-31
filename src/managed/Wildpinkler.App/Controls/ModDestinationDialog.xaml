@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ContentDialog
+    x:Class="Wildpinkler.App.Controls.ModDestinationDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Choose a destination"
+    PrimaryButtonText="Install"
+    CloseButtonText="Cancel"
+    DefaultButton="Primary"
+    Style="{StaticResource DefaultContentDialogStyle}">
+
+    <StackPanel Spacing="12">
+        <InfoBar x:Name="SuggestedRootInfoBar"
+                 IsClosable="False"
+                 IsOpen="False"
+                 Severity="Informational"
+                 Title="Archive layout" />
+        <ComboBox x:Name="SourceRootBox"
+                  Header="Archive content root"
+                  HorizontalAlignment="Stretch"
+                  SelectionChanged="SourceRootBox_SelectionChanged" />
+        <TextBlock Opacity="0.72" TextWrapping="Wrap"
+                   Text="Where inside the profile's merged folder should this mod's content appear? Leave empty to place it at the root (e.g. enter 'Data' if the archive's files belong directly under the game's Data folder)." />
+        <TextBox x:Name="DestinationBox" Header="Relative destination path" PlaceholderText="e.g. Data"
+                 TextChanged="DestinationBox_TextChanged" />
+        <TextBlock x:Name="ErrorText" Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                   TextWrapping="Wrap" Visibility="Collapsed" />
+        <CheckBox x:Name="RememberPathCheck" Content="Remember this path for future installs of this mod" />
+    </StackPanel>
+</ContentDialog>

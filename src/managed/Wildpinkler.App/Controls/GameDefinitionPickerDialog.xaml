@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ContentDialog
+    x:Class="Wildpinkler.App.Controls.GameDefinitionPickerDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:models="using:Wildpinkler.App.Models"
+    Title="Choose a game definition"
+    PrimaryButtonText="Use definition"
+    CloseButtonText="Cancel"
+    DefaultButton="Primary"
+    Style="{StaticResource DefaultContentDialogStyle}">
+
+    <StackPanel Spacing="12">
+        <TextBlock Opacity="0.72" TextWrapping="Wrap"
+                   Text="A definition supplies the executable, launch arguments and virtual file system variables for a game." />
+
+        <Border Background="{ThemeResource LayerFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8">
+            <ListView x:Name="DefinitionList" MaxHeight="320" SelectionMode="Single"
+                      SelectionChanged="DefinitionList_SelectionChanged"
+                      ItemContainerStyle="{StaticResource ListRowContainerStyle}"
+                      Padding="0,4,0,4">
+                <ListView.ItemTemplate>
+                    <DataTemplate x:DataType="models:GameDefinition">
+                        <Grid Padding="12,8" ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="36" />
+                                <ColumnDefinition Width="*" MinWidth="160" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <Border Width="36" Height="36" CornerRadius="6" Background="{ThemeResource ControlFillColorSecondaryBrush}">
+                                <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="SemiBold"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                           Text="{x:Bind DisplayName, Converter={StaticResource InitialLetterConverter}}" />
+                            </Border>
+                            <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                                <TextBlock FontWeight="SemiBold" TextTrimming="CharacterEllipsis" Text="{x:Bind DisplayName}" />
+                                <TextBlock Opacity="0.62" TextTrimming="CharacterEllipsis" Text="{x:Bind Description}" />
+                            </StackPanel>
+                            <TextBlock Grid.Column="2" VerticalAlignment="Center" Opacity="0.56" Text="{x:Bind SourceText}" />
+                        </Grid>
+                    </DataTemplate>
+                </ListView.ItemTemplate>
+            </ListView>
+        </Border>
+
+        <TextBlock x:Name="EmptyText" Opacity="0.68" TextWrapping="Wrap" Visibility="Collapsed"
+                   Text="No definitions are available. Import one from the Games page before adding a game." />
+    </StackPanel>
+</ContentDialog>

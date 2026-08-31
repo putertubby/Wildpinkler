@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "definitionId": "loot",
+  "name": "LOOT",
+  "definitionVersion": 2,
+  "author": "Wildpinkler",
+  "description": "Load Order Optimisation Tool. Reads the profile's plugin list and writes its own settings outside the game folder.",
+  "supportedGameDefinitions": [],
+  "producesOutput": false,
+  "executableRelativePath": "LOOT.exe",
+  "workingDirectory": "",
+  "defaultLaunchArguments": "",
+  "detectionMarkers": [
+    "LOOT.exe"
+  ],
+  "variables": {
+    "settings": "${LocalAppData}/LOOT"
+  },
+  "mergedViews": [
+    {
+      "name": "LootSettings",
+      "mountPath": "${settings}",
+      "branches": [
+        "${settings}"
+      ],
+      "isWritable": true
+    }
+  ]
+}
