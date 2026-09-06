@@ -15,25 +15,25 @@
     "Data\\Skyrim.esm"
   ],
   "variables": {
-    "saves": "${LocalAppData}\\Skyrim Special Edition\\Saves",
-    "settings": "${Documents}\\My Games\\Skyrim Special Edition"
+    "documents": "${Documents}\\My Games\\Skyrim Special Edition",
+    "localappdata": "${LocalAppData}\\Skyrim Special Edition"
   },
   "mergedViews": [
     {
-      "name": "GameSaves",
-      "mountPath": "${saves}",
+      "name": "Documents",
+      "mountPath": "${documents}",
       "branches": [
-        "Saves",
-        "${saves}"
+        "Documents",
+        "${documents}"
       ],
       "isWritable": true
     },
     {
-      "name": "GameSettings",
-      "mountPath": "${settings}",
+      "name": "LocalAppData",
+      "mountPath": "${localappdata}",
       "branches": [
-        "Settings",
-        "${settings}"
+        "LocalAppData",
+        "${localappdata}"
       ],
       "isWritable": true
     }
