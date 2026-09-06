@@ -11,7 +11,8 @@ public sealed class ModInstallation
 {
     public string Id { get; set; } = string.Empty;
     public string ModId { get; set; } = string.Empty;
-    public bool IsFomod { get; set; }
+    public string SourceArchiveSha256 { get; set; } = string.Empty;
+    public ModInstallationRecipe Recipe { get; set; } = new GuidedInstallationRecipe();
     public string SelectionSignature { get; set; } = string.Empty;
     public string SelectionSummary { get; set; } = string.Empty;
     public string FolderPath { get; set; } = string.Empty;

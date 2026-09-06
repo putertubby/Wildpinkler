@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Threading.Tasks;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -10,7 +9,6 @@ using Microsoft.UI.Xaml.Navigation;
 using Windows.Graphics;
 using Wildpinkler.App.Pages;
 using Wildpinkler.App.Services;
-using Wildpinkler.App.ViewModels;
 
 namespace Wildpinkler.App;
 
@@ -22,9 +20,9 @@ public sealed partial class MainWindow : Window
     private const int MinimumWindowHeight = 600;
 
     private readonly Dictionary<string, Type> _pagesByTag = new();
-    private readonly ActiveProfileContext _profileContext = Services.AppServices.ActiveProfile;
     private readonly AppSettings _settings = Services.AppServices.AppSettings;
     private RectInt32 _restoreBounds;
+    private string _currentPageTag = NavigationCatalog.Sections[0].Tag;
 
     public MainWindow()
     {
@@ -37,8 +35,6 @@ public sealed partial class MainWindow : Window
         // Set app icon from Assets/AppIcon folder
         SetAppIcon();
         
-        _profileContext.PropertyChanged += (_, _) => UpdateTitleBarSubtitle();
-        UpdateTitleBarSubtitle();
         BuildNavigation();
         ContentFrame.Navigated += ContentFrame_Navigated;
 
@@ -47,7 +43,7 @@ public sealed partial class MainWindow : Window
         AppWindow.Changed += AppWindow_Changed;
         AppWindow.Closing += AppWindow_Closing;
 
-        _ = NavigateToStartupPageAsync();
+        NavigateToStartupPage();
     }
 
     public static MainWindow? Instance { get; private set; }
@@ -70,24 +66,14 @@ public sealed partial class MainWindow : Window
     public static IntPtr WindowHandle =>
         Instance is null ? IntPtr.Zero : WinRT.Interop.WindowNative.GetWindowHandle(Instance);
 
-    private void UpdateTitleBarSubtitle() =>
-        AppTitleBar.Subtitle = $"{_profileContext.ProfileName} \u00b7 {_profileContext.GameName}";
-
-    // Games is the landing view until at least one game exists; after that, Profiles.
-    private async Task NavigateToStartupPageAsync()
+    // Lands on the last active page from the previous session, falling back to the top nav entry (e.g. first run, or a persisted tag that no longer exists).
+    private void NavigateToStartupPage()
     {
-        var tag = NavigationCatalog.GamesTag;
-        try
-        {
-            var games = await Services.AppServices.GameStore.LoadAsync();
-            if (games.Count > 0)
-                tag = NavigationCatalog.ProfilesTag;
-        }
-        catch (Exception)
-        {
-            // GamesPage surfaces the load failure itself.
-        }
+        var tag = _settings.ActivePageTag is string saved && _pagesByTag.ContainsKey(saved)
+            ? saved
+            : NavigationCatalog.Sections[0].Tag;
 
+        _currentPageTag = tag;
         NavView.SelectedItem = FindMenuItem(tag);
         ContentFrame.Navigate(_pagesByTag[tag]);
     }
@@ -149,6 +135,7 @@ public sealed partial class MainWindow : Window
         _settings.WindowTop = _restoreBounds.Y;
         _settings.WindowWidth = _restoreBounds.Width;
         _settings.WindowHeight = _restoreBounds.Height;
+        _settings.ActivePageTag = _currentPageTag;
         Services.AppServices.AppSettingsStore.Save(_settings);
     }
 
@@ -170,7 +157,10 @@ public sealed partial class MainWindow : Window
 
         var tag = _pagesByTag.FirstOrDefault(entry => entry.Value == args.SourcePageType).Key;
         if (tag is not null)
+        {
             NavView.SelectedItem = FindMenuItem(tag);
+            _currentPageTag = tag;
+        }
     }
 
     private void BuildNavigation()

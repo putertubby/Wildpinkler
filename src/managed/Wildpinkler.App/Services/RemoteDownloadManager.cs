@@ -164,11 +164,7 @@ public sealed record RemoteDownloadPreview(
 /// </summary>
 public sealed class RemoteDownloadManager
 {
-    private readonly RemoteSiteRegistry _registry;
-    private readonly RemoteSiteContext _context;
-    private readonly ArchiveDownloadService _archiveDownloader;
-    private readonly ModStore _store;
-    private readonly SemaphoreSlim _concurrency = new(2, 2);
+    private readonly RemoteArchiveAcquisitionService _acquisition;
     private DispatcherQueue? _dispatcher;
 
     public RemoteDownloadManager(
@@ -177,11 +173,10 @@ public sealed class RemoteDownloadManager
         ArchiveDownloadService archiveDownloader,
         ModStore store)
     {
-        _registry = registry;
-        _context = context;
-        _archiveDownloader = archiveDownloader;
-        _store = store;
+        _acquisition = new RemoteArchiveAcquisitionService(registry, context, archiveDownloader, store);
     }
+
+    public RemoteDownloadManager(RemoteArchiveAcquisitionService acquisition) => _acquisition = acquisition;
 
     public ObservableCollection<DownloadJob> Jobs { get; } = new();
 
@@ -196,23 +191,8 @@ public sealed class RemoteDownloadManager
     /// Resolves everything a link can tell us without downloading anything, so the user can review a
     /// pre-filled record and be warned about a missing local game before any bytes move.
     /// </summary>
-    public async Task<RemoteDownloadPreview> PreviewAsync(RemoteLink link, CancellationToken cancellationToken = default)
-    {
-        if (!link.IsDownloadable)
-            throw new RemoteSiteException(RemoteErrorKind.NotFound, link.UnsupportedReason ?? "This link cannot be downloaded.", link.SiteId);
-
-        if (!_registry.TryGet(link.SiteId, out var provider))
-            throw new RemoteSiteException(RemoteErrorKind.Unknown, $"No connector is registered for site '{link.SiteId}'.", link.SiteId);
-
-        var (credential, account) = await _context.AuthenticateAsync(provider, cancellationToken);
-        var resolved = await ResolvePrimaryFileAsync(provider, link, credential, cancellationToken);
-        var reference = resolved.ToRef(provider.BuildModPageUrl(resolved.ToRef()));
-
-        var mod = await provider.GetModAsync(reference, credential, cancellationToken);
-        var file = await provider.GetFileAsync(reference, credential, cancellationToken);
-
-        return new RemoteDownloadPreview(resolved, provider.DisplayName, mod, file, account);
-    }
+    public Task<RemoteDownloadPreview> PreviewAsync(RemoteLink link, CancellationToken cancellationToken = default) =>
+        _acquisition.PreviewAsync(link, cancellationToken);
 
     public DownloadJob? Enqueue(RemoteLink link)
     {
@@ -242,72 +222,36 @@ public sealed class RemoteDownloadManager
 
     private async Task RunAsync(DownloadJob job)
     {
-        var acquired = false;
         try
         {
-            await _concurrency.WaitAsync(job.Cancellation.Token);
-            acquired = true;
-
-            if (!_registry.TryGet(job.SiteId, out var provider))
-                throw new RemoteSiteException(RemoteErrorKind.Unknown, $"No connector is registered for site '{job.SiteId}'.", job.SiteId);
-
-            Set(job, () => job.State = DownloadJobState.Resolving);
-
-            var (credential, account) = await _context.AuthenticateAsync(provider, job.Cancellation.Token);
-            var link = await ResolvePrimaryFileAsync(provider, job.Link, credential, job.Cancellation.Token);
-
-            var reference = link.ToRef(provider.BuildModPageUrl(link.ToRef()));
-            var mod = await provider.GetModAsync(reference, credential, job.Cancellation.Token);
-            var file = await provider.GetFileAsync(reference, credential, job.Cancellation.Token);
-            var sources = await provider.GetDownloadSourcesAsync(link, account, credential, job.Cancellation.Token);
-
-            Set(job, () =>
+            var progress = new Progress<RemoteAcquisitionProgress>(update => Set(job, () =>
             {
-                job.Name = file.DisplayName ?? file.FileName;
-                job.Subtitle = $"{mod.Name} · {provider.DisplayName}";
-                job.TotalBytes = file.SizeInBytes;
-            });
-
-            var entry = await BuildEntryAsync(provider, mod, file, reference);
-            job.Entry = entry;
-
-            var destination = _store.GetArchivePath(entry.Id, file.FileName);
-            EnsureDiskSpace(destination, file.SizeInBytes);
-
-            Set(job, () => job.State = DownloadJobState.Downloading);
-            var progress = new Progress<long>(bytes => Set(job, () =>
-            {
-                job.BytesDownloaded = bytes;
-                entry.DownloadProgress = job.Progress;
-            }));
-
-            await _archiveDownloader.DownloadFromMirrorsAsync(
-                sources.OrderBy(source => source.Ordinal).Select(source => source.Uri).ToList(),
-                destination + ".part",
-                destination,
-                progress,
-                job.Cancellation.Token);
-
-            if (!string.IsNullOrWhiteSpace(file.Md5))
-            {
-                Set(job, () => job.State = DownloadJobState.Verifying);
-                var actual = await ComputeMd5Async(destination, job.Cancellation.Token);
-                if (!string.Equals(actual, file.Md5, StringComparison.OrdinalIgnoreCase))
+                job.State = update.Phase switch
                 {
-                    File.Delete(destination);
-                    throw new InvalidDataException("The downloaded archive did not match the checksum published by the site.");
+                    RemoteAcquisitionPhase.Resolving => DownloadJobState.Resolving,
+                    RemoteAcquisitionPhase.Downloading => DownloadJobState.Downloading,
+                    _ => DownloadJobState.Verifying
+                };
+                job.BytesDownloaded = update.BytesDownloaded;
+                job.TotalBytes = update.TotalBytes;
+                if (!string.IsNullOrWhiteSpace(update.FileName))
+                    job.Name = update.FileName;
+                if (!string.IsNullOrWhiteSpace(update.ModName))
+                    job.Subtitle = $"{update.ModName} · {update.SiteName}";
+                if (update.Entry is not null)
+                {
+                    job.Entry = update.Entry;
+                    update.Entry.DownloadProgress = job.Progress;
                 }
-            }
-
-            await _store.AttachDownloadedArchiveAsync(entry, destination);
-            entry.Status = "Available";
-            await _store.UpsertAsync(entry);
+            }));
+            var result = await _acquisition.AcquireAsync(job.Link, progress: progress, cancellationToken: job.Cancellation.Token);
 
             Set(job, () =>
             {
-                job.BytesDownloaded = file.SizeInBytes ?? job.BytesDownloaded;
+                job.Entry = result.Entry;
+                job.BytesDownloaded = result.File.SizeInBytes ?? job.BytesDownloaded;
                 job.State = DownloadJobState.Completed;
-                EntryUpdated?.Invoke(this, entry);
+                EntryUpdated?.Invoke(this, result.Entry);
             });
         }
         catch (OperationCanceledException)
@@ -331,87 +275,6 @@ public sealed class RemoteDownloadManager
                 job.State = DownloadJobState.Failed;
             });
         }
-        finally
-        {
-            if (acquired)
-                _concurrency.Release();
-        }
-    }
-
-    /// <summary>A mod-only link names no file, so the site's primary file is chosen for the user.</summary>
-    private static async Task<RemoteLink> ResolvePrimaryFileAsync(
-        IRemoteSiteProvider provider, RemoteLink link, RemoteCredential credential, CancellationToken cancellationToken)
-    {
-        if (link.Kind != RemoteLinkKind.Mod)
-            return link;
-
-        var listing = await provider.GetModFilesAsync(new RemoteRef(link.SiteId, link.GameKey!, link.ModKey!), credential, cancellationToken);
-        var primary = listing.Files.FirstOrDefault(file => file.IsPrimary)
-                      ?? listing.Files.FirstOrDefault(file => file.Category == RemoteFileCategory.Main)
-                      ?? throw new RemoteSiteException(RemoteErrorKind.NotFound, "This mod has no main file to download.", provider.SiteId);
-
-        return RemoteLink.ForModFile(link.SiteId, link.GameKey!, link.ModKey!, primary.FileKey);
-    }
-
-    /// <summary>
-    /// Finds the entry this download belongs to, or creates one, and fills in everything the site
-    /// told us. Matching by reference first and content hash second keeps a re-download from
-    /// duplicating a mod the user already has.
-    /// </summary>
-    private async Task<ModEntry> BuildEntryAsync(
-        IRemoteSiteProvider provider, RemoteModMetadata mod, RemoteFileMetadata file, RemoteRef reference)
-    {
-        var fileRef = reference with { FileKey = file.FileKey };
-        var entries = await _store.LoadAsync();
-
-        var entry = entries.FirstOrDefault(item => item.Remote?.IsSameFile(fileRef) == true)
-                    ?? entries.FirstOrDefault(item => !string.IsNullOrWhiteSpace(file.Md5) &&
-                                                      string.Equals(item.Md5, file.Md5, StringComparison.OrdinalIgnoreCase))
-                    ?? new ModEntry { Id = Guid.NewGuid().ToString("N") };
-
-        // An existing entry for the same mod but a different file is the version this one supersedes.
-        foreach (var superseded in entries.Where(item =>
-                     item.Remote?.IsSameMod(fileRef) == true && item.Remote?.IsSameFile(fileRef) != true))
-            superseded.HasUpdate = true;
-
-        entry.Remote = fileRef;
-        entry.Name = mod.Name;
-        entry.Game = mod.Ref.GameKey;
-        entry.Version = file.Version ?? mod.Version ?? string.Empty;
-        entry.Source = provider.DisplayName;
-        entry.Status = "Downloading";
-        entry.FileName = file.FileName;
-        entry.Md5 = file.Md5;
-        entry.FileSize = file.SizeInBytes;
-        entry.Author = mod.Author;
-        entry.Description = mod.Summary ?? mod.DescriptionHtml;
-        entry.CategoryName = mod.CategoryName;
-        entry.Website = mod.Ref.PageUrl;
-        entry.UploadedAt = file.UploadedAt;
-        entry.RemoteFileCategory = file.Category;
-        entry.IsPrimaryFile = file.IsPrimary;
-        entry.ChangelogText = file.ChangelogText;
-        entry.RemoteUpdatedAt = mod.UpdatedAt;
-        entry.HasUpdate = false;
-
-        return await _store.UpsertAsync(entry);
-    }
-
-    private static void EnsureDiskSpace(string destination, long? required)
-    {
-        if (required is not > 0)
-            return;
-        var root = Path.GetPathRoot(destination);
-        if (root is not null && new DriveInfo(root).AvailableFreeSpace < required)
-            throw new IOException("There is not enough free disk space for this archive.");
-    }
-
-    private static async Task<string> ComputeMd5Async(string path, CancellationToken cancellationToken)
-    {
-        await using var stream = File.OpenRead(path);
-        using var md5 = MD5.Create();
-        var hash = await md5.ComputeHashAsync(stream, cancellationToken);
-        return Convert.ToHexString(hash).ToLowerInvariant();
     }
 
     private void Set(DownloadJob job, Action mutate) => Post(mutate);

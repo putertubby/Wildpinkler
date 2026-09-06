@@ -103,24 +103,38 @@ public sealed class ProfileFolderProvisioner
         binding.OutputFolderId = string.Empty;
     }
 
+    /// <summary>Identifies the pending folder a tool run writes before its output is promoted.</summary>
+    public sealed record PendingToolRun(int Version, string FolderPath);
+
     /// <summary>
     /// Creates the folder a pending tool run writes into: the next version, which sits on top of the
     /// tool's own merged views while it runs and replaces the current one once it finishes.
     /// </summary>
-    public string BeginToolRun(Profile profile, ProfileTool binding, string toolId)
+    public PendingToolRun BeginToolRun(Profile profile, ProfileTool binding, string toolId)
     {
-        var path = GetToolOutputFolder(profile, toolId, binding.OutputVersion + 1);
+        var version = binding.OutputVersion + 1;
+        var path = GetToolOutputFolder(profile, toolId, version);
         Directory.CreateDirectory(path);
-        return path;
+        return new PendingToolRun(version, path);
     }
 
     /// <summary>Promotes the folder a finished run wrote into; the previous version is left for garbage collection.</summary>
-    public void CompleteToolRun(Profile profile, ProfileTool binding, string toolId)
+    public void CompleteToolRun(Profile profile, ProfileTool binding, string toolId, PendingToolRun pendingRun)
     {
-        binding.OutputVersion++;
+        if (pendingRun.Version != binding.OutputVersion + 1)
+            throw new InvalidOperationException("The pending tool output version is no longer current.");
+
+        binding.OutputVersion = pendingRun.Version;
         var folder = profile.Folders.FirstOrDefault(item => item.Id == binding.OutputFolderId);
         if (folder is not null)
             folder.Path = GetToolOutputFolder(profile, toolId, binding.OutputVersion);
+    }
+
+    /// <summary>Removes a pending directory when a loader could not be started before it could write output.</summary>
+    public void AbandonToolRun(PendingToolRun pendingRun)
+    {
+        if (Directory.Exists(pendingRun.FolderPath))
+            Directory.Delete(pendingRun.FolderPath, recursive: true);
     }
 
     public void Delete(Profile profile)

@@ -35,6 +35,11 @@
                     </AppBarButton.KeyboardAccelerators>
                 </AppBarButton>
                 <CommandBar.SecondaryCommands>
+                    <AppBarButton Command="{x:Bind OpenModListsCommand}" Icon="OpenFile" Label="Create from mod list"
+                                  ToolTipService.ToolTip="Open the Mod lists workspace" />
+                    <AppBarButton Command="{x:Bind ExportModListCommand}" Icon="Save" Label="Export mod list"
+                                  ToolTipService.ToolTip="Export the selected profile as a portable recipe" />
+                    <AppBarSeparator />
                     <AppBarButton x:Name="CleanUpButton" Command="{x:Bind CleanUpCommand}" Icon="Delete" Label="Clean up unused folders"
                                   ToolTipService.ToolTip="Remove tool output, custom branch and mod installation folders nothing references" />
                     <AppBarSeparator />
@@ -99,6 +104,9 @@
                                                        Text="{x:Bind Name, Mode=OneWay}" />
                                             <TextBlock Style="{StaticResource ModRowTextStyle}" Opacity="0.62" TextTrimming="CharacterEllipsis"
                                                        Text="{x:Bind SummaryText, Mode=OneWay}" />
+                                            <TextBlock Foreground="{ThemeResource SystemFillColorCautionBrush}" TextTrimming="CharacterEllipsis"
+                                                       Visibility="{x:Bind IsRunActive, Mode=OneWay}"
+                                                       Text="{x:Bind ActiveRunText, Mode=OneWay}" />
                                         </StackPanel>
                                     </Grid>
                                 </DataTemplate>
@@ -174,6 +182,7 @@
                                              TextChanged="RenameBox_TextChanged"
                                              KeyDown="RenameBox_KeyDown" LostFocus="RenameBox_LostFocus" />
                                     <Button Grid.Column="1" Background="Transparent" BorderThickness="0" Padding="4" Click="RenameButton_Click"
+                                            IsEnabled="{x:Bind IsSelectedProfileModifiable, Mode=OneWay}"
                                             Visibility="{x:Bind IsRenaming, Mode=OneWay, Converter={StaticResource InverseBoolToVisibilityConverter}}"
                                             AutomationProperties.Name="Rename profile" ToolTipService.ToolTip="Rename">
                                         <FontIcon Glyph="&#xE70F;" FontSize="14" />
@@ -207,6 +216,9 @@
                             <ProgressRing Grid.Column="3" x:Name="LoadOrderBusyRing" VerticalAlignment="Bottom" Margin="0,0,0,6"
                                           Width="20" Height="20" IsActive="False" Visibility="Collapsed" />
                         </Grid>
+                        <InfoBar IsOpen="True" IsClosable="False" Severity="Informational"
+                                 Visibility="{x:Bind SelectedProfileRunVisibility, Mode=OneWay}"
+                                 Message="{x:Bind SelectedProfileRunText, Mode=OneWay}" />
                     </StackPanel>
 
                     <SelectorBar x:Name="WorkspaceSelector" Grid.Row="1" Padding="12,0,12,0"
@@ -248,14 +260,17 @@
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Opacity="0.68" VerticalAlignment="Center" Text="Branches, highest priority first" />
                                             <Button Grid.Column="1" x:Name="AddModsButton" Content="Add mods..." Click="AddMods_Click"
+                                                    IsEnabled="{x:Bind IsSelectedProfileModifiable, Mode=OneWay}"
                                                     ToolTipService.ToolTip="Add mods to this profile view" />
-                                            <Button Grid.Column="2" x:Name="AddFolderButton" Content="Add folder..." Click="AddFolder_Click" />
+                                                <Button Grid.Column="2" x:Name="AddFolderButton" Content="Add folder..." Click="AddFolder_Click"
+                                                    IsEnabled="{x:Bind IsSelectedProfileModifiable, Mode=OneWay}" />
                                         </Grid>
                                         <TextBlock Opacity="0.68" TextWrapping="Wrap"
                                                    Text="Highest priority first: a file in a higher branch hides the same file below it. The profile overlay stays on top and the game install stays at the bottom. Reorder by dragging a row, or from its actions menu with Alt+Up and Alt+Down." />
                                         <TextBlock x:Name="TargetNoteText" TextWrapping="Wrap" Visibility="Collapsed"
                                                    Foreground="{ThemeResource SystemFillColorCautionBrush}" />
                                         <ListView x:Name="FolderList" CanDragItems="True" CanReorderItems="True" AllowDrop="True" ReorderMode="Enabled"
+                                                  IsEnabled="{x:Bind IsSelectedProfileModifiable, Mode=OneWay}"
                                                   DragItemsStarting="FolderList_DragItemsStarting"
                                                   DragItemsCompleted="FolderList_DragItemsCompleted"
                                                   ItemContainerStyle="{StaticResource ListRowContainerStyle}" Padding="0,4,0,4"
@@ -329,6 +344,7 @@
                                             <TextBlock x:Name="DependencyIssuesText" TextWrapping="Wrap"
                                                        Foreground="{ThemeResource SystemFillColorCautionBrush}" />
                                             <Button x:Name="FixOrderButton" Content="Fix order" Click="FixOrder_Click"
+                                                    IsEnabled="{x:Bind IsSelectedProfileModifiable, Mode=OneWay}"
                                                     ToolTipService.ToolTip="Reorders the affected mods to satisfy their declared load-order requirements" />
                                         </StackPanel>
                                     </StackPanel>
@@ -389,7 +405,7 @@
                                            Text="An enabled tool becomes a launch target. A tool that produces output also gets its own output folder directly below the profile overlay, and each run writes a new output version that replaces the previous one when the tool finishes; a settings-only tool adds nothing to the profile merged view." />
                                 <Border Style="{StaticResource ContentCardStyle}" Padding="8">
                                     <!-- ItemsControl, not ListView: each row hosts editors that container recycling would tear down. -->
-                                    <ItemsControl x:Name="ToolList">
+                                    <ItemsControl x:Name="ToolList" IsEnabled="{x:Bind IsSelectedProfileModifiable, Mode=OneWay}">
                                         <ItemsControl.ItemsPanel>
                                             <ItemsPanelTemplate>
                                                 <StackPanel Spacing="6" />

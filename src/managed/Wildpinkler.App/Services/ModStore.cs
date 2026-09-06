@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -14,8 +15,8 @@ public sealed class ModStore
 {
     // Case-insensitive on read because this file is hand-edited between schema changes.
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true, PropertyNameCaseInsensitive = true };
-    // Schema 4 added ModEntry.Dependencies and ProvidedGameVersion; no migration, older files fail loudly.
-    private const int CurrentSchemaVersion = 4;
+    // Schema 5 adds the archive SHA-256 used by reproducible mod-list manifests.
+    private const int CurrentSchemaVersion = 5;
     private readonly string _rootPath;
     private readonly string _databasePath;
     private readonly string _backupPath;
@@ -129,6 +130,7 @@ public sealed class ModStore
             await source.CopyToAsync(target);
 
         entry.ArchivePath = destination;
+        entry.Sha256 = await ComputeSha256Async(destination);
         SetFomodState(entry, destination);
         return entry;
     }
@@ -148,11 +150,18 @@ public sealed class ModStore
         return Path.Combine(_archivePath, $"{entryId}{extension}");
     }
 
-    public Task<ModEntry> AttachDownloadedArchiveAsync(ModEntry entry, string archivePath)
+    public async Task<ModEntry> AttachDownloadedArchiveAsync(ModEntry entry, string archivePath)
     {
         entry.ArchivePath = archivePath;
+        entry.Sha256 = await ComputeSha256Async(archivePath);
         SetFomodState(entry, archivePath);
-        return Task.FromResult(entry);
+        return entry;
+    }
+
+    private static async Task<string> ComputeSha256Async(string path)
+    {
+        await using var stream = File.OpenRead(path);
+        return Convert.ToHexString(await SHA256.HashDataAsync(stream));
     }
 
     private void SetFomodState(ModEntry entry, string path)

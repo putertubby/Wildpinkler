@@ -18,6 +18,7 @@ public sealed partial class ModEntry : ObservableObject
     private RemoteRef? _remote;
     private string _fileName = string.Empty;
     private string? _md5;
+    private string? _sha256;
     private long? _fileSize;
     private string? _categoryName;
     private string? _author;
@@ -70,6 +71,7 @@ public sealed partial class ModEntry : ObservableObject
     }
     public string FileName { get => _fileName; set => SetProperty(ref _fileName, value); }
     public string? Md5 { get => _md5; set => SetProperty(ref _md5, value); }
+    public string? Sha256 { get => _sha256; set => SetProperty(ref _sha256, value); }
     public long? FileSize { get => _fileSize; set => SetProperty(ref _fileSize, value); }
     public string? CategoryName { get => _categoryName; set => SetProperty(ref _categoryName, value); }
     public string? Author { get => _author; set => SetProperty(ref _author, value); }

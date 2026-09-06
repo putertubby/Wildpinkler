@@ -30,8 +30,10 @@ public sealed class AppSettings
     public double? ToolsDetailsWidth { get; set; }
     public double? ModsDetailsWidth { get; set; }
     public double? DownloadsDetailsWidth { get; set; }
+    public double? ModListsDetailsWidth { get; set; }
     public bool ConfirmRemoteDownloads { get; set; } = true;
     public double? ProfilesListWidth { get; set; }
+    public string? ActivePageTag { get; set; }
 }
 
 // Deliberately synchronous, unlike the other stores: both call sites are window lifecycle points

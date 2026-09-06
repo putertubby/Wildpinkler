@@ -143,6 +143,7 @@ A profile is launched through a *launch target*. The game is the default target;
 - The exported uufs64 configuration file has exactly two top-level keys: `variables` and `mountpoints`. `variables` never contains a profile's/tool's/game's own user-defined variables (those are only ever inputs to building `mountpoints` above), and never contains a `FOLDERID_*` system folder (uufs64 already knows those internally) - it carries only the profile-computed built-in placeholder names (`InstallPath`, `ProfilePath`) still referenced by a `${name}` in a mountpoint's `root`/`branches`, plus the fixed `workingDirectory` key. Each entry in `mountpoints` has `name`, `root`, `branches` and `writable`, one per merged view in the target's already deepest-mount-path-first order.
 - `workingDirectory` describes the launched executable's identity as seen through the virtual file system - resolved against the mounted install root, never against wherever the executable actually sits on disk. For the ordinary game executable and every tool this is identical to the real path, but a mod designated as the game's launcher (see [Mods as game launchers](#mods-as-game-launchers)) physically lives inside that mod's own installed folder; once its branch is mounted at the game's install root, the exported `workingDirectory` reflects where the game sees it there instead. The real on-disk executable is still what Wildpinkler actually starts, passed via `--target` (with `--args` and `--steamid` when non-empty), not through the config.
 - Launching exports the target's configuration and then starts `uufs64ldr.exe --target <executable> [--args <arguments>] [--steamid <id>] <configPath>`.
+- `uufs64ldr.exe` is the lifetime owner of the launched target: it must not exit until the injected target process tree has exited. A launcher or Steam bootstrap process exiting after it creates the actual game/tool is not completion. The loader must retain VFS injection for applicable descendants, return a nonzero exit code for an unsuccessful target run, and release its own resources only at final completion. Wildpinkler observes loader lifetime asynchronously and permits one active target per profile; a running profile remains inspectable but its mount/configuration-changing operations are unavailable. Closing Wildpinkler neither stops a loader nor promotes a pending tool-output version.
 
 ### Tools
 
@@ -256,10 +257,72 @@ Nexus acceptable use policy prohibits bulk retrieval.
 
 ### Dependency management
 
-Out of scope for now, and deliberately so: the Nexus v1 API exposes no requirements endpoint at all.
-A resolver would have to combine FOMOD `moduleDependencies`, plugin master records and the v2 GraphQL
-API, which is a separate problem from fetching a file. Mod entries already persist the fields such a
-resolver would consume (`RemoteFileCategory`, `IsPrimaryFile`, `RequirementsRaw`).
+Dependency edges come from FOMOD metadata, plugin master records or manual entry. The resolver checks
+required/disabled mods, load-before/load-after ordering, cycles, conflicts and executable-version
+constraints against the active profile. These findings are advisory: launch presents unresolved
+issues for acknowledgment rather than silently changing the load order or fetching a dependency.
+The Nexus v1 API exposes no requirements endpoint, so Wildpinkler does not infer a complete remote
+dependency graph from Nexus metadata.
 
-Also out of scope: Nexus Collections beyond refusing them clearly, the v2 GraphQL API, browser
-extensions and userscripts, and endorsing or tracking mutations from the UI.
+### Native mod lists
+
+A native mod list is an untrusted, portable JSON recipe named `*.wpmodlist.json`. Schema 1 contains:
+
+- a safe list id, immutable positive revision, name, author and description;
+- a game-definition id/minimum definition version and optional executable-version constraint;
+- one contiguous ordered content list containing mods and guided unmanaged-folder requirements;
+- for each mod, enabled state, optional launcher path, exact `RemoteRef`, archive file name,
+  SHA-256, optional provider MD5/size and a FOMOD, manual or guided installation recipe;
+- portable profile variables/merged views plus explicit manual-setting requirements for local paths;
+- tool prerequisites by portable definition id, binding overrides and typed automatic or
+  tracked-manual invocation requests.
+
+Validation rejects unknown fields and future schemas; duplicate ids/order; unsafe relative paths;
+machine-local absolute paths; remote page URLs containing credentials, query strings or fragments;
+incomplete exact-file references; malformed hashes; and tool invocations without a registered
+definition. The format has no arbitrary executable, command-line or script field. Download
+credentials and mirror URLs are runtime data and are never persisted in a list.
+
+Imported and exported revisions are copied to
+`%LOCALAPPDATA%\Wildpinkler\mod-lists\<listId>\<revision>.wpmodlist.json`. Re-importing byte-equivalent
+content is idempotent. Different content using the same id and revision is a conflict and requires an
+explicit replacement decision. The Mod lists page is a responsive, searchable single-selection
+list/details workspace; its visible collections are reconciled by stable keys rather than rebuilt.
+
+Profile export derives portable intent rather than serializing a `Profile`: pinned game/overlay
+folders, generated tool output, saves, settings, local ids and local paths are excluded. Private mods,
+unmanaged folders, omitted local settings and custom tools remain visible as guided requirements.
+The resulting grade is `Reproducible`, `Guided` or `Unavailable`, derived from content rather than
+trusted from the file.
+
+Creating a profile from a list starts with preflight against the selected local game, executable
+version, local archive/install cache and registered tools. It creates an unpublished staged profile
+and an ordered task graph covering acquisition, installation, guided folders, tool prerequisites,
+per-build tool consent/invocation, validation and commit. No download or profile-store mutation occurs
+until the user reviews the plan and resumes it.
+
+Build state is atomically persisted in `%LOCALAPPDATA%\Wildpinkler\mod-list-builds.json` after every
+task transition. Startup never continues work silently: interrupted downloads/installations become
+pending and interrupted folder/tool/consent tasks become action required. Resume is idempotent and
+reuses archive SHA-256 matches and installation recipe matches. Automatic remote acquisition uses the
+same connector, rate limiting, two-transfer concurrency, mirror fallback, partial-file recovery and
+checksum verification as the Downloads page. A non-premium Nexus account without a valid site-issued
+key pauses for manual acquisition; the selected file must match the manifest SHA-256.
+
+Manual and changed FOMOD installations accept a user-prepared installed folder. Replayable FOMOD
+recipes require an exact `ModuleConfig.xml` hash and uniquely matching step/group/plugin names;
+missing or changed choices fail closed. Registered tool invocations require one explicit consent per
+build. Automatic invocations run after consent; tracked-manual invocations pause and use the normal
+loader-backed launch path so output promotion and failure are observed. Arbitrary commands are never
+executed.
+
+Validation blocks missing/disabled requirements, dependency cycles and game-version mismatches.
+Order/conflict advisories pause for explicit acknowledgment. Commit atomically adds the staged
+profile, then synchronizes mod associations; a failed commit remains resumable. Discard removes only
+the unpublished profile directory. Archives/installations remain shared and garbage collection treats
+installation ids referenced by active journals as live.
+
+Nexus Collections are a separate unsupported format and their protocol links remain recognised and
+refused. Also out of scope: the Nexus v2 GraphQL API, browser extensions/userscripts, archive
+redistribution, arbitrary scripts, mutable profile-state backup bundles, list marketplaces/signing,
+and automatic installation of third-party tools.

@@ -15,10 +15,11 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <!-- Subtitle carries the active profile/game, replacing the old separate ProfileHeaderBar row. -->
+        <!-- Static tagline; no longer tracks the active profile/game. -->
         <TitleBar x:Name="AppTitleBar"
                   Grid.Row="0"
                   Title="Wildpinkler"
+                  Subtitle="the mod juggler"
                   IsBackButtonVisible="{x:Bind ContentFrame.CanGoBack, Mode=OneWay}"
                   BackRequested="AppTitleBar_BackRequested"
                   IsPaneToggleButtonVisible="True"

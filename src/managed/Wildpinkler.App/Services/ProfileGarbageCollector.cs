@@ -21,8 +21,15 @@ public sealed record GarbageCollectionResult(int ToolOutputFolders, int CustomFo
 public sealed class ProfileGarbageCollector
 {
     private readonly ModInstallationStore _installationStore;
+    private readonly ActiveRunRegistry _runs;
+    private readonly ModListBuildStore? _builds;
 
-    public ProfileGarbageCollector(ModInstallationStore installationStore) => _installationStore = installationStore;
+    public ProfileGarbageCollector(ModInstallationStore installationStore, ActiveRunRegistry runs, ModListBuildStore? builds = null)
+    {
+        _installationStore = installationStore;
+        _runs = runs;
+        _builds = builds;
+    }
 
     public async Task<GarbageCollectionResult> CollectAsync(IReadOnlyList<Profile> profiles)
     {
@@ -31,6 +38,9 @@ public sealed class ProfileGarbageCollector
 
         foreach (var profile in profiles.Where(profile => Directory.Exists(profile.FolderPath)))
         {
+            if (_runs.HasRun(profile.Id))
+                continue;
+
             toolOutput += CollectToolOutput(profile);
             custom += CollectCustomFolders(profile);
         }
@@ -45,13 +55,10 @@ public sealed class ProfileGarbageCollector
         if (!Directory.Exists(root))
             return 0;
 
-        // A running tool writes into OutputVersion + 1, so only strictly older versions are collectable.
+        // CollectAsync skips active profiles, so an idle profile retains only its current output.
         var live = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var binding in profile.Tools)
-        {
             live.Add(Normalize(ProfileFolderProvisioner.GetToolOutputFolder(profile, binding.ToolEntryId, binding.OutputVersion)));
-            live.Add(Normalize(ProfileFolderProvisioner.GetToolOutputFolder(profile, binding.ToolEntryId, binding.OutputVersion + 1)));
-        }
 
         return DeleteUnreferenced(root, live);
     }
@@ -80,6 +87,8 @@ public sealed class ProfileGarbageCollector
             return 0;
 
         var referencedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (_builds is not null)
+            referencedIds.UnionWith(await _builds.GetReferencedInstallationIdsAsync());
         var referencedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var folder in profiles.SelectMany(profile => profile.Folders))
         {

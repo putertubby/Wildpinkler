@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ContentDialog
+    x:Class="Wildpinkler.App.Controls.ModListBuildSetupDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:models="using:Wildpinkler.App.Models"
+    Title="Create profile from mod list"
+    PrimaryButtonText="Review build"
+    CloseButtonText="Cancel"
+    DefaultButton="Primary"
+    Style="{StaticResource DefaultContentDialogStyle}">
+    <StackPanel Spacing="20">
+        <StackPanel Spacing="12">
+            <TextBlock Style="{StaticResource SectionLabelStyle}" Text="PROFILE" />
+            <TextBox x:Name="NameBox" Header="Profile name" TextChanged="Field_Changed" />
+            <TextBlock x:Name="NameError" Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                       Text="Enter a profile name." Visibility="Collapsed" />
+        </StackPanel>
+        <Border BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,1,0,0" />
+        <StackPanel Spacing="12">
+            <TextBlock Style="{StaticResource SectionLabelStyle}" Text="GAME" />
+            <ComboBox x:Name="GameBox" Header="Installed game" HorizontalAlignment="Stretch" SelectionChanged="Game_Changed">
+                <ComboBox.ItemTemplate>
+                    <DataTemplate x:DataType="models:GameEntry">
+                        <TextBlock Text="{x:Bind Name}" />
+                    </DataTemplate>
+                </ComboBox.ItemTemplate>
+            </ComboBox>
+            <TextBlock x:Name="NoGamesText" Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                       TextWrapping="Wrap" Visibility="Collapsed"
+                       Text="No installed game matches this mod list's game definition." />
+        </StackPanel>
+    </StackPanel>
+</ContentDialog>

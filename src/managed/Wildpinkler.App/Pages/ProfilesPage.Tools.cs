@@ -80,7 +80,7 @@ public sealed partial class ProfilesPage
 
     private void CommitToolBindings()
     {
-        if (SelectedProfile is not { } profile)
+        if (SelectedProfile is not { } profile || !_runAccess.CanModify(profile))
             return;
 
         try
@@ -113,7 +113,8 @@ public sealed partial class ProfilesPage
 
     private async void ClearToolOutput_Click(object sender, RoutedEventArgs args)
     {
-        if (SelectedProfile is not { } profile || (sender as FrameworkElement)?.DataContext is not ProfileToolRow row)
+        if (SelectedProfile is not { } profile || !_runAccess.CanModify(profile) ||
+            (sender as FrameworkElement)?.DataContext is not ProfileToolRow row)
             return;
 
         var dialog = new ContentDialog
@@ -128,6 +129,9 @@ public sealed partial class ProfilesPage
         };
 
         if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+            return;
+
+        if (!_runAccess.CanModify(profile))
             return;
 
         try

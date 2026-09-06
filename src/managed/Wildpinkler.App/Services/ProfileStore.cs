@@ -12,8 +12,8 @@ namespace Wildpinkler.App.Services;
 public sealed class ProfileStore
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
-    private const int CurrentSchemaVersion = 1;
-    private readonly string _rootPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Wildpinkler");
+    private const int CurrentSchemaVersion = 2;
+    private readonly string _rootPath;
     private readonly string _databasePath;
     private readonly string _backupPath;
     private readonly string _temporaryPath;
@@ -22,8 +22,9 @@ public sealed class ProfileStore
     private readonly HashSet<string> _deletedIds = new(StringComparer.Ordinal);
     private long _revision;
 
-    public ProfileStore()
+    public ProfileStore(string? rootPath = null)
     {
+        _rootPath = rootPath ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Wildpinkler");
         _databasePath = Path.Combine(_rootPath, "profiles.json");
         _backupPath = Path.Combine(_rootPath, "profiles.json.bak");
         _temporaryPath = Path.Combine(_rootPath, "profiles.json.tmp");
@@ -119,8 +120,8 @@ public sealed class ProfileStore
         await using var stream = File.OpenRead(path);
         using var document = await JsonDocument.ParseAsync(stream);
         var database = document.RootElement.Deserialize<DatabaseDocument>(JsonOptions);
-        if (database is null || database.SchemaVersion > CurrentSchemaVersion)
-            throw new JsonException("The profiles database schema is not supported.");
+        if (database is null || database.SchemaVersion != CurrentSchemaVersion)
+            throw new JsonException($"The profiles database is schema {database?.SchemaVersion.ToString() ?? "unknown"}, but this build requires schema {CurrentSchemaVersion}.");
 
         var profiles = database.Profiles ?? new List<Profile>();
         foreach (var profile in profiles)

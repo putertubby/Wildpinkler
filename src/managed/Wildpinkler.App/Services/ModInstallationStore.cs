@@ -13,15 +13,16 @@ namespace Wildpinkler.App.Services;
 public sealed class ModInstallationStore
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
-    private const int CurrentSchemaVersion = 1;
-    private readonly string _rootPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Wildpinkler");
+    private const int CurrentSchemaVersion = 2;
+    private readonly string _rootPath;
     private readonly string _databasePath;
     private readonly string _backupPath;
     private readonly string _temporaryPath;
     private readonly SemaphoreSlim _databaseLock = new(1, 1);
 
-    public ModInstallationStore()
+    public ModInstallationStore(string? rootPath = null)
     {
+        _rootPath = rootPath ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Wildpinkler");
         _databasePath = Path.Combine(_rootPath, "mod-installations.json");
         _backupPath = Path.Combine(_rootPath, "mod-installations.json.bak");
         _temporaryPath = Path.Combine(_rootPath, "mod-installations.json.tmp");
@@ -86,8 +87,8 @@ public sealed class ModInstallationStore
         await using var stream = File.OpenRead(path);
         var document = await JsonSerializer.DeserializeAsync<DatabaseDocument>(stream, JsonOptions)
             ?? throw new JsonException("The mod installations file is empty or malformed.");
-        if (document.SchemaVersion > CurrentSchemaVersion)
-            throw new JsonException("The mod installations file schema is not supported.");
+        if (document.SchemaVersion != CurrentSchemaVersion)
+            throw new JsonException($"The mod installations file is schema {document.SchemaVersion}, but this build requires schema {CurrentSchemaVersion}.");
         return document.Installations;
     }
 

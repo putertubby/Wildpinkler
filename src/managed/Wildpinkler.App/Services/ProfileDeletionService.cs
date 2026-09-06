@@ -15,12 +15,18 @@ public sealed class ProfileDeletionService
     private readonly ProfileStore _profileStore;
     private readonly ProfileFolderProvisioner _provisioner;
     private readonly ModStore _modStore;
+    private readonly ProfileRunAccessPolicy _runAccess;
 
-    public ProfileDeletionService(ProfileStore profileStore, ProfileFolderProvisioner provisioner, ModStore modStore)
+    public ProfileDeletionService(
+        ProfileStore profileStore,
+        ProfileFolderProvisioner provisioner,
+        ModStore modStore,
+        ProfileRunAccessPolicy runAccess)
     {
         _profileStore = profileStore;
         _provisioner = provisioner;
         _modStore = modStore;
+        _runAccess = runAccess;
     }
 
     public Task<IReadOnlyList<string>> DeleteProfilesAsync(IEnumerable<Profile> profiles)
@@ -38,6 +44,9 @@ public sealed class ProfileDeletionService
         var doomed = stored.Where(matches).ToList();
         if (doomed.Count == 0)
             return Array.Empty<string>();
+
+        foreach (var profile in doomed)
+            _runAccess.EnsureCanModify(profile);
 
         foreach (var profile in doomed)
             _provisioner.Delete(profile);

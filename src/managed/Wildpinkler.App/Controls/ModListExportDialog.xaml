@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ContentDialog
+    x:Class="Wildpinkler.App.Controls.ModListExportDialog"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="Export mod list"
+    PrimaryButtonText="Export"
+    CloseButtonText="Cancel"
+    DefaultButton="Primary"
+    Style="{StaticResource DefaultContentDialogStyle}">
+
+    <StackPanel Spacing="20">
+        <StackPanel Spacing="12">
+            <TextBlock Style="{StaticResource SectionLabelStyle}" Text="IDENTITY" />
+            <TextBox x:Name="NameBox" Header="Name" TextChanged="Field_Changed" />
+            <TextBox x:Name="IdBox" Header="List id" TextChanged="Field_Changed" />
+            <TextBlock x:Name="IdErrorText" Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                       Text="Use 1-64 lowercase letters, numbers, '.', '_' or '-'." TextWrapping="Wrap" Visibility="Collapsed" />
+            <NumberBox x:Name="RevisionBox" Header="Revision" Minimum="1" Maximum="2147483647"
+                       SpinButtonPlacementMode="Compact" ValueChanged="Revision_Changed" />
+        </StackPanel>
+        <Border BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,1,0,0" />
+        <StackPanel Spacing="12">
+            <TextBlock Style="{StaticResource SectionLabelStyle}" Text="DETAILS" />
+            <TextBox x:Name="AuthorBox" Header="Author" TextChanged="Field_Changed" />
+            <TextBox x:Name="DescriptionBox" Header="Description" TextWrapping="Wrap" AcceptsReturn="True"
+                     MinHeight="80" MaxHeight="160" TextChanged="Field_Changed" />
+        </StackPanel>
+    </StackPanel>
+</ContentDialog>

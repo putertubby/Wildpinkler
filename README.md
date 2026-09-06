@@ -77,11 +77,52 @@ explanation rather than silently ignored. So are an expired link, a link created
 account, and a non-premium account with no site-issued download key, since Nexus only issues those
 from the mod page.
 
+If an `nxm:` link does not reach the download confirmation, try it once with Wildpinkler closed and
+once with Wildpinkler already running. Startup, activation, and preview failures are recorded in
+`%LOCALAPPDATA%\Wildpinkler\diagnostics.log`. The log does not include the link or its query values;
+do not share a complete `nxm:` link because its query can contain short-lived download credentials.
+
 Downloads appear on their own Downloads page with per-transfer progress, cancel and retry, mirror
 fallback and checksum verification. An archive added by hand can be identified through the site's
 checksum lookup and filled in with the same metadata, one request at a time and only when asked.
 
-Dependency management and Nexus Collections are not implemented; see `spec.md` for why.
+Wildpinkler evaluates dependencies extracted from FOMOD metadata and plugin masters, plus constraints
+entered by hand. The result is advisory: unresolved requirements, order violations, conflicts and
+game-version mismatches are shown before launch but can be acknowledged.
+
+### Mod lists
+
+A Wildpinkler mod list is a portable recipe stored as `*.wpmodlist.json`. It records the game
+definition and executable-version requirement, exact remote file identities and archive hashes,
+ordered enabled state, launcher designation, structured FOMOD or manual installation choices,
+portable profile overrides and tool prerequisites. It never contains local database ids, install
+paths, credentials, short-lived download URLs, profile overlay content, saves, settings or generated
+tool output.
+
+Use **Export mod list** from a selected profile to add an immutable revision to the local catalog and
+optionally write a shareable copy. The export is graded:
+
+- **Reproducible** - every archive is identifiable and every installation recipe is replayable.
+- **Guided** - one or more private files, folders, settings or tool steps require user action.
+- **Unavailable** - required content has no verifiable archive or acquisition instructions.
+
+Incomplete requirements remain in the export instead of being silently omitted. The **Mod lists**
+page imports, searches, filters, inspects and removes catalog revisions. **Create profile** first
+builds a preflight plan without publishing a profile or moving bytes. Resume then reuses matching
+archives/installations, downloads exact remote files where the account permits it, verifies provider
+MD5 and manifest SHA-256, replays structured FOMOD/manual recipes, and pauses on private archives,
+unmanaged folders, changed installers, missing tools or tracked-manual steps.
+
+Every task transition is saved to `%LOCALAPPDATA%\Wildpinkler\mod-list-builds.json`. Closing the app
+does not publish a partial profile; on restart interrupted automatic work becomes ready to resume and
+interrupted user/tool work returns as action required. Tool invocations target registered tool
+definitions only and require one explicit consent decision per build. Blocking dependency or game
+version failures prevent publication; load-order/conflict advisories require acknowledgment. The
+profile is added to the Profiles page only after validation and commit. Discard removes only its
+unpublished profile folder; verified archives and shared installations remain reusable.
+
+Wildpinkler mod lists are independent of Nexus Collections. Nexus collection links remain recognised
+and refused; Wildpinkler does not import that format or redistribute mod archives.
 
 ## Clarifications
 
@@ -95,11 +136,17 @@ Everything Wildpinkler manages lives under `%LOCALAPPDATA%\Wildpinkler`:
 %LOCALAPPDATA%\Wildpinkler\
 ├── archives/                                  # Downloaded mod archives
 ├── mod-installs/<modId>/<installationId>/     # Shared, deduplicated mod installations
+├── mod-lists/<listId>/<revision>.wpmodlist.json # Validated immutable manifest catalog
+├── mod-list-builds.json                       # Persistent resumable build journal
 ├── profiles/<profileId>/                      # One managed folder per profile
 ├── games.json, tools.json, mods.json, profiles.json, mod-installations.json
 ```
 
-A mod installation is global and shared: it is keyed by the mod plus the exact installation choices (FOMOD selections or manual destination), so two profiles that install a mod identically reference the same folder instead of extracting it twice. It is never written to by a running game - only the profile overlay is.
+A mod installation is global and shared: it is keyed by the mod, source archive SHA-256 and exact
+installation choices, so two profiles that install the same archive identically reference the same
+folder instead of extracting it twice. FOMOD records retain selected step/group/plugin names and the
+`ModuleConfig.xml` hash; manual records retain source root and destination. It is never written to by
+a running game - only the profile overlay is.
 
 Everything below a profile folder is the opposite: owned by exactly that profile and never shared.
 
@@ -183,6 +230,8 @@ The command builds the Release solution, publishes the framework-dependent `win-
 - `Wildpinkler-<version>-win-x64.sha256`
 
 `uufs64ldr.exe` and `uufs64.dll` are copied beside `Wildpinkler.App.exe`, which is required by the application's launch contract. The installer detects the x64 .NET 8 Desktop Runtime and opens the official download page when it is unavailable. Uninstall preserves `%LOCALAPPDATA%\Wildpinkler` by default and asks before deleting it.
+
+The external `uufs64ldr.exe` is the lifetime owner for every launched target. After accepting the target, configuration and optional Steam arguments, it must remain running until the injected target process tree has exited. This includes a launcher or Steam bootstrap process that exits after spawning the actual game or tool. It must keep VFS injection active in relevant descendants, return a nonzero exit code when the target run fails, and clean up only after that final completion. Wildpinkler observes this loader process asynchronously: it remains usable for other profiles but locks mount-changing operations on the running profile. Closing Wildpinkler does not stop the loader or its target.
 
 When the loader or shim moves into this repository, replace the external asset-acquisition input with that project’s build output while retaining the same staged layout and installer/archive workflow.
 

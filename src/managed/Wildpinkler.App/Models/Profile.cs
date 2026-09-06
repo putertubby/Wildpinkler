@@ -12,6 +12,8 @@ public sealed partial class Profile : ObservableObject
 {
     private string _name = string.Empty;
     private string _gameName = string.Empty;
+    private bool _isRunActive;
+    private string _activeRunText = string.Empty;
 
     public Profile() => Folders.CollectionChanged += (_, _) => Normalize();
 
@@ -53,6 +55,20 @@ public sealed partial class Profile : ObservableObject
             if (SetProperty(ref _gameName, value))
                 OnPropertyChanged(nameof(SummaryText));
         }
+    }
+
+    [JsonIgnore]
+    public bool IsRunActive
+    {
+        get => _isRunActive;
+        set => SetProperty(ref _isRunActive, value);
+    }
+
+    [JsonIgnore]
+    public string ActiveRunText
+    {
+        get => _activeRunText;
+        set => SetProperty(ref _activeRunText, value);
     }
 
     [JsonIgnore]

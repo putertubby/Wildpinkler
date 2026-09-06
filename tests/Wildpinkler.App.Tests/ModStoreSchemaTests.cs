@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Wildpinkler.App.Models;
@@ -11,7 +12,7 @@ using Xunit;
 namespace Wildpinkler.App.Tests;
 
 /// <summary>
-/// The mods database ships no migration: it only reads schema 4, and anything else must fail loudly
+/// The mods database ships no migration: it only reads the current schema, and anything else must fail loudly
 /// rather than load partially. These tests drive a private store rooted in a temp directory.
 /// </summary>
 public class ModStoreSchemaTests : IDisposable
@@ -83,6 +84,19 @@ public class ModStoreSchemaTests : IDisposable
         var dependency = Assert.Single(only.Dependencies);
         Assert.Equal(ModDependencyKind.GameVersion, dependency.Kind);
         Assert.Equal("1.6.640.0", Assert.Single(dependency.VersionConstraint!.ExactVersions));
+    }
+
+    [Fact]
+    public async Task AddArchiveAsync_ComputesSha256()
+    {
+        var source = Path.Combine(_root, "source.zip");
+        await File.WriteAllTextAsync(source, "archive content");
+        var expected = Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(source)));
+        var entry = new ModEntry { Id = "abc", Name = "Test mod" };
+
+        await CreateStore().AddArchiveAsync(entry, source);
+
+        Assert.Equal(expected, entry.Sha256);
     }
 
     [Fact]

@@ -1,0 +1,252 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="Wildpinkler.App.Pages.ModListsPage"
+    x:Name="RootPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:models="using:Wildpinkler.App.Models"
+    xmlns:controls="using:Wildpinkler.App.Controls"
+    xmlns:controlsToolkit="using:CommunityToolkit.WinUI.Controls"
+    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+
+    <Page.KeyboardAccelerators>
+        <KeyboardAccelerator Modifiers="Control" Key="F" Invoked="FocusSearch_Invoked" />
+    </Page.KeyboardAccelerators>
+
+    <Grid Padding="{StaticResource PageContentPadding}" RowSpacing="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <Grid ColumnSpacing="16">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Style="{StaticResource TitleTextBlockStyle}" Text="Mod lists" VerticalAlignment="Center" />
+            <CommandBar Grid.Column="1" DefaultLabelPosition="Right" HorizontalAlignment="Right" Background="Transparent">
+                <AppBarButton Command="{x:Bind ImportCommand}" Icon="OpenFile" Label="Import"
+                              ToolTipService.ToolTip="Import a Wildpinkler mod list" />
+                <CommandBar.SecondaryCommands>
+                    <AppBarButton Command="{x:Bind DeleteSelectedCommand}" Icon="Delete" Label="Delete selected"
+                                  ToolTipService.ToolTip="Remove the selected mod-list revision" />
+                </CommandBar.SecondaryCommands>
+            </CommandBar>
+        </Grid>
+
+        <InfoBar x:Name="PageInfoBar" Grid.Row="1" IsOpen="False" IsClosable="True" />
+
+        <Grid x:Name="ListDetailsGrid" Grid.Row="2" Loaded="ListDetailsGrid_Loaded" SizeChanged="ListDetailsGrid_SizeChanged">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition x:Name="ListColumnDef" Width="*" MinWidth="280" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition x:Name="DetailsColumnDef" Width="0" MinWidth="0" MaxWidth="640" />
+            </Grid.ColumnDefinitions>
+
+            <Border Style="{StaticResource ContentCardStyle}">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <controls:CollectionListHeader x:Name="ListHeader"
+                                                   PlaceholderText="Search mod lists"
+                                                   ResultCountText="{x:Bind ResultCountText, Mode=OneWay}"
+                                                   Visibility="{x:Bind HasCollectionHeader, Mode=OneWay}"
+                                                   QueryChanged="ListHeader_QueryChanged">
+                        <controls:CollectionListHeader.FiltersContent>
+                            <DropDownButton Content="{x:Bind FilterButtonText, Mode=OneWay}"
+                                            AutomationProperties.Name="Filter mod lists">
+                                <DropDownButton.Flyout>
+                                    <MenuFlyout Placement="BottomEdgeAlignedRight">
+                                        <RadioMenuFlyoutItem GroupName="GradeFilter" Tag="All" Text="All grades" IsChecked="True" Click="GradeFilter_Click" />
+                                        <RadioMenuFlyoutItem GroupName="GradeFilter" Tag="Reproducible" Text="Reproducible" Click="GradeFilter_Click" />
+                                        <RadioMenuFlyoutItem GroupName="GradeFilter" Tag="Guided" Text="Guided" Click="GradeFilter_Click" />
+                                        <RadioMenuFlyoutItem GroupName="GradeFilter" Tag="Unavailable" Text="Unavailable" Click="GradeFilter_Click" />
+                                        <MenuFlyoutSeparator />
+                                        <RadioMenuFlyoutItem GroupName="GradeFilter" Tag="ActiveBuild" Text="Active builds" Click="GradeFilter_Click" />
+                                        <RadioMenuFlyoutItem GroupName="GradeFilter" Tag="CompletedBuild" Text="Completed builds" Click="GradeFilter_Click" />
+                                    </MenuFlyout>
+                                </DropDownButton.Flyout>
+                            </DropDownButton>
+                        </controls:CollectionListHeader.FiltersContent>
+                    </controls:CollectionListHeader>
+
+                    <Grid Grid.Row="1">
+                        <ListView x:Name="ModListList" SelectionMode="Single" SelectionChanged="ModListList_SelectionChanged"
+                                  ItemContainerStyle="{StaticResource ListRowContainerStyle}" Padding="0,4,0,4">
+                            <ListView.ItemTemplate>
+                                <DataTemplate x:DataType="models:ModListCatalogEntry">
+                                    <Grid Padding="{StaticResource ListRowPadding}" ColumnSpacing="10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="32" />
+                                            <ColumnDefinition Width="*" MinWidth="120" />
+                                        </Grid.ColumnDefinitions>
+                                        <Grid.ContextFlyout>
+                                            <MenuFlyout>
+                                                <MenuFlyoutItem Text="Delete" Click="RowDelete_Click" />
+                                            </MenuFlyout>
+                                        </Grid.ContextFlyout>
+                                        <Border Style="{StaticResource RowAvatarStyle}">
+                                            <FontIcon Glyph="&#xE8A5;" FontSize="14" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                        </Border>
+                                        <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
+                                            <TextBlock FontSize="15" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
+                                                       Text="{x:Bind Manifest.Name}" />
+                                            <TextBlock Opacity="0.62" TextTrimming="CharacterEllipsis"
+                                                       Text="{x:Bind RowSubtitle}" />
+                                        </StackPanel>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+
+                        <ProgressRing Width="32" Height="32" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                      IsActive="{x:Bind IsLoading, Mode=OneWay}" Visibility="{x:Bind IsLoading, Mode=OneWay}" />
+                        <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8" MaxWidth="320" Padding="16"
+                                    Visibility="{x:Bind HasNoItems, Mode=OneWay}">
+                            <FontIcon Glyph="&#xE8A5;" FontSize="40" Opacity="0.5" HorizontalAlignment="Center" />
+                            <TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="No mod lists yet" HorizontalAlignment="Center" />
+                            <TextBlock Text="Import a mod list to add it to this computer." TextWrapping="Wrap" TextAlignment="Center" Opacity="0.68" />
+                            <Button Content="Import a mod list" Command="{x:Bind ImportCommand}" Style="{StaticResource AccentButtonStyle}" HorizontalAlignment="Center" />
+                        </StackPanel>
+                        <TextBlock Text="No mod lists match the current search and filter." TextWrapping="Wrap" TextAlignment="Center"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center" Opacity="0.68"
+                                   Visibility="{x:Bind HasNoSearchResults, Mode=OneWay}" />
+                    </Grid>
+                </Grid>
+            </Border>
+
+            <controlsToolkit:GridSplitter x:Name="DetailsSplitter" Grid.Column="1" Width="8"
+                                          ResizeDirection="Columns" ResizeBehavior="BasedOnAlignment"
+                                          Visibility="Collapsed" AutomationProperties.Name="Resize mod-list details pane" />
+
+            <Border x:Name="DetailsCard" Grid.Column="2" Margin="12,0,0,0" Style="{StaticResource ContentCardStyle}" Visibility="Collapsed">
+                <Grid>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+                    <StackPanel Padding="16,16,16,12" Spacing="12">
+                        <Button x:Name="BackToListButton" Command="{x:Bind BackToListCommand}" Visibility="Collapsed"
+                                HorizontalAlignment="Left" AutomationProperties.Name="Back to mod lists">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon Glyph="&#xE72B;" FontSize="14" />
+                                <TextBlock Text="Back to list" />
+                            </StackPanel>
+                        </Button>
+                        <Grid ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock x:Name="DetailsName" Style="{StaticResource SubtitleTextBlockStyle}" TextWrapping="Wrap" VerticalAlignment="Center" />
+                            <Button Grid.Column="1" Content="Create profile" Command="{x:Bind CreateProfileCommand}"
+                                    Style="{StaticResource AccentButtonStyle}" />
+                        </Grid>
+                        <TextBlock x:Name="DetailsMetadata" Opacity="0.68" TextWrapping="Wrap" />
+                    </StackPanel>
+                    <SelectorBar x:Name="DetailsSelector" Grid.Row="1" Padding="12,0,12,8" SelectionChanged="DetailsSelector_SelectionChanged">
+                        <SelectorBarItem Text="Overview" Tag="Overview" IsSelected="True" />
+                        <SelectorBarItem Text="Contents" Tag="Contents" />
+                        <SelectorBarItem Text="Builds" Tag="Builds" />
+                    </SelectorBar>
+                    <Grid Grid.Row="2">
+                        <ScrollViewer x:Name="OverviewPanel" VerticalScrollBarVisibility="Auto">
+                            <StackPanel Padding="16,8,16,16" Spacing="16">
+                                <StackPanel Spacing="4">
+                                    <TextBlock Style="{StaticResource SectionLabelStyle}" Text="DESCRIPTION" />
+                                    <TextBlock x:Name="DetailsDescription" TextWrapping="Wrap" />
+                                </StackPanel>
+                                <Grid ColumnSpacing="24" RowSpacing="8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <TextBlock Text="Game" Opacity="0.68" />
+                                    <TextBlock x:Name="DetailsGame" Grid.Column="1" TextWrapping="Wrap" />
+                                    <TextBlock Grid.Row="1" Text="Author" Opacity="0.68" />
+                                    <TextBlock x:Name="DetailsAuthor" Grid.Row="1" Grid.Column="1" TextWrapping="Wrap" />
+                                    <TextBlock Grid.Row="2" Text="Revision" Opacity="0.68" />
+                                    <TextBlock x:Name="DetailsRevision" Grid.Row="2" Grid.Column="1" />
+                                    <TextBlock Grid.Row="3" Text="Grade" Opacity="0.68" />
+                                    <TextBlock x:Name="DetailsGrade" Grid.Row="3" Grid.Column="1" />
+                                </Grid>
+                                <InfoBar x:Name="GradeInfoBar" IsOpen="False" IsClosable="False" />
+                            </StackPanel>
+                        </ScrollViewer>
+                        <Grid x:Name="ContentsPanel" Visibility="Collapsed">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+                                <TextBlock x:Name="ContentsSummary" Margin="16,8,16,8" TextWrapping="Wrap" />
+                                <ListView x:Name="ContentsList" IsItemClickEnabled="False" SelectionMode="None"
+                                          Grid.Row="1" Padding="0,4,0,4"
+                                          ItemContainerStyle="{StaticResource ListRowContainerStyle}">
+                                    <ListView.ItemTemplate>
+                                        <DataTemplate x:DataType="models:ModListContentEntry">
+                                            <StackPanel Padding="{StaticResource ListRowPadding}" Spacing="3">
+                                                <TextBlock FontWeight="SemiBold" Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Opacity="0.62" Text="{x:Bind RowSubtitle}" />
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ListView.ItemTemplate>
+                                </ListView>
+                        </Grid>
+                        <Grid x:Name="BuildPanel" Visibility="Collapsed">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                                <RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <InfoBar x:Name="BuildInfoBar" Margin="16,8,16,8" IsOpen="False" IsClosable="False" />
+                            <StackPanel Grid.Row="1" Margin="16,4,16,12" Spacing="6">
+                                <TextBlock x:Name="BuildStatusText" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                <ProgressBar Maximum="1" Value="{x:Bind ActiveBuildProgress, Mode=OneWay}"
+                                             AutomationProperties.Name="Profile build progress" />
+                            </StackPanel>
+                            <ListView x:Name="BuildTaskList" Grid.Row="2" SelectionMode="Single"
+                                      SelectionChanged="BuildTaskList_SelectionChanged"
+                                      ItemContainerStyle="{StaticResource ListRowContainerStyle}" Padding="0,4,0,4">
+                                <ListView.ItemTemplate>
+                                    <DataTemplate x:DataType="models:ModListBuildTask">
+                                        <StackPanel Padding="{StaticResource ListRowPadding}" Spacing="4">
+                                            <TextBlock FontWeight="SemiBold" Text="{x:Bind Name}" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Opacity="0.68" Text="{x:Bind RowSubtitle, Mode=OneWay}" TextWrapping="Wrap" />
+                                            <ProgressBar Maximum="1" Value="{x:Bind Progress, Mode=OneWay}" />
+                                        </StackPanel>
+                                    </DataTemplate>
+                                </ListView.ItemTemplate>
+                            </ListView>
+                            <CommandBar Grid.Row="3" DefaultLabelPosition="Right" Background="Transparent">
+                                <AppBarButton x:Name="ResumeBuildButton" Command="{x:Bind ResumeBuildCommand}" Icon="Play" Label="Resume" />
+                                <AppBarButton x:Name="TaskActionButton" Command="{x:Bind RunTaskActionCommand}" Icon="Go" Label="Continue" />
+                                <AppBarButton x:Name="CancelBuildButton" Command="{x:Bind CancelBuildCommand}" Icon="Cancel" Label="Cancel" />
+                                <CommandBar.SecondaryCommands>
+                                    <AppBarButton Command="{x:Bind DiscardBuildCommand}" Icon="Delete" Label="Discard build" />
+                                </CommandBar.SecondaryCommands>
+                            </CommandBar>
+                            <StackPanel Grid.RowSpan="4" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8"
+                                        Visibility="{x:Bind HasNoBuild, Mode=OneWay}">
+                                <TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="No build started" HorizontalAlignment="Center" />
+                                <TextBlock Text="Create a profile to review its installation plan." Opacity="0.68" TextWrapping="Wrap" TextAlignment="Center" />
+                            </StackPanel>
+                        </Grid>
+                    </Grid>
+                </Grid>
+            </Border>
+        </Grid>
+    </Grid>
+</Page>

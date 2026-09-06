@@ -65,19 +65,22 @@ public sealed class ArchiveDownloadService
 
     private static async Task WriteAsync(HttpResponseMessage response, string partialPath, string finalPath, long existingLength, IProgress<long>? progress, CancellationToken cancellationToken)
     {
-        await using var input = await response.Content.ReadAsStreamAsync(cancellationToken);
-        await using var output = new FileStream(partialPath, existingLength == 0 ? FileMode.Create : FileMode.Append, FileAccess.Write, FileShare.None, 81920, FileOptions.Asynchronous | FileOptions.SequentialScan);
-        var buffer = new byte[81920];
-        var total = existingLength;
-        int read;
-        while ((read = await input.ReadAsync(buffer, cancellationToken)) > 0)
+        await using (var input = await response.Content.ReadAsStreamAsync(cancellationToken))
+        await using (var output = new FileStream(partialPath, existingLength == 0 ? FileMode.Create : FileMode.Append, FileAccess.Write, FileShare.None, 81920, FileOptions.Asynchronous | FileOptions.SequentialScan))
         {
-            await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
-            total += read;
-            progress?.Report(total);
+            var buffer = new byte[81920];
+            var total = existingLength;
+            int read;
+            while ((read = await input.ReadAsync(buffer, cancellationToken)) > 0)
+            {
+                await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
+                total += read;
+                progress?.Report(total);
+            }
+
+            await output.FlushAsync(cancellationToken);
         }
 
-        await output.FlushAsync(cancellationToken);
         File.Move(partialPath, finalPath, true);
     }
 }

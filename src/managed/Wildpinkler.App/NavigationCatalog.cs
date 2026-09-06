@@ -12,15 +12,17 @@ public static class NavigationCatalog
     public const string ModsTag = "Mods";
     public const string GamesTag = "Games";
     public const string ProfilesTag = "Profiles";
+    public const string ModListsTag = "ModLists";
     public const string DownloadsTag = "Downloads";
 
     public static IReadOnlyList<Entry> Sections { get; } = new[]
     {
         new Entry(GamesTag, "Games", typeof(GamesPage), "\uE7FC"),
         new Entry(ProfilesTag, "Profiles", typeof(ProfilesPage), "\uE77B"),
-        new Entry("Tools", "Tools", typeof(ToolsPage), "\uE90F"),
-        new Entry(ModsTag, "Mods", typeof(ModsPage), "\uE7B8"),
         new Entry(DownloadsTag, "Downloads", typeof(DownloadsPage), "\uE896"),
+        new Entry(ModsTag, "Mods", typeof(ModsPage), "\uE7B8"),
+        new Entry(ModListsTag, "Mod lists", typeof(ModListsPage), "\uE8A5"),
+        new Entry("Tools", "Tools", typeof(ToolsPage), "\uE90F"),
         new Entry("Updates", "Updates & Tracked", typeof(UpdatesPage), "\uE895"),
     };
 }

@@ -15,13 +15,16 @@ public sealed partial class ProfilesPage
 {
     private async void AddMods_Click(object sender, RoutedEventArgs args)
     {
-        if (SelectedProfile is not { } profile)
+        if (SelectedProfile is not { } profile || !_runAccess.CanModify(profile))
             return;
 
         var gameMods = _allMods.Where(mod => mod.Game.Equals(profile.GameName, StringComparison.OrdinalIgnoreCase)).ToList();
         var installedModIds = profile.Folders.Where(folder => folder.ModId is not null).Select(folder => folder.ModId!);
         var dialog = new ProfileModPickerDialog(gameMods, installedModIds) { XamlRoot = XamlRoot };
         var result = await dialog.ShowAsync();
+
+        if (!_runAccess.CanModify(profile))
+            return;
 
         if (dialog.ImportedArchives.Count > 0)
         {

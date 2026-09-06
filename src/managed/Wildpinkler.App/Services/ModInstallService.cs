@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using System.Threading.Tasks;
 using SharpCompress.Archives;
 using Wildpinkler.App.Models;
@@ -20,12 +22,12 @@ public sealed class ModInstallService
     private readonly FomodInstallerParser _parser;
     private readonly string _installsRoot;
 
-    public ModInstallService(ModInstallationStore store, IArchiveInspector archiveInspector, FomodInstallerParser parser)
+    public ModInstallService(ModInstallationStore store, IArchiveInspector archiveInspector, FomodInstallerParser parser, string? installsRoot = null)
     {
         _store = store;
         _archiveInspector = archiveInspector;
         _parser = parser;
-        _installsRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Wildpinkler", "mod-installs");
+        _installsRoot = installsRoot ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Wildpinkler", "mod-installs");
     }
 
     /// <summary>Parses the mod's ModuleConfig.xml, or returns null if it is not a FOMOD / cannot be read.</summary>
@@ -48,19 +50,36 @@ public sealed class ModInstallService
         return _archiveInspector.InspectLayout(mod.ArchivePath);
     }
 
-    public async Task<string> FindOrCreateFomodInstallationAsync(
-        ModEntry mod, IReadOnlyList<FomodFileInstall> resolvedFiles, string signature, string selectionSummary)
+    public async Task<ModInstallation> FindOrCreateFomodInstallationAsync(
+        ModEntry mod, IReadOnlyList<FomodFileInstall> resolvedFiles, string signature, string selectionSummary,
+        IReadOnlyList<FomodStepSelection> selections)
     {
+        var archiveSha256 = RequireArchiveSha256(mod);
+        var recipe = new FomodInstallationRecipe
+        {
+            ModuleConfigSha256 = ReadFomodModuleSha256(mod),
+            Selections = selections.SelectMany(step => step.Groups
+                .Where(group => group.SelectedPlugins.Count > 0)
+                .Select(group => new FomodSelectionChoice
+                {
+                    Step = step.Step.Name,
+                    Group = group.Group.Name,
+                    Plugins = group.SelectedPlugins.Select(plugin => plugin.Name).ToList()
+                }))
+                .ToList()
+        };
         var existing = (await _store.LoadAsync())
-            .FirstOrDefault(item => item.ModId == mod.Id && item.IsFomod && item.SelectionSignature == signature);
+            .FirstOrDefault(item => item.ModId == mod.Id && item.Recipe is FomodInstallationRecipe &&
+                                    item.SourceArchiveSha256 == archiveSha256 && item.SelectionSignature == signature);
         if (existing is not null && Directory.Exists(existing.FolderPath))
-            return existing.FolderPath;
+            return existing;
 
         var installation = new ModInstallation
         {
             Id = Guid.NewGuid().ToString("N"),
             ModId = mod.Id,
-            IsFomod = true,
+            SourceArchiveSha256 = archiveSha256,
+            Recipe = recipe,
             SelectionSignature = signature,
             SelectionSummary = selectionSummary
         };
@@ -69,14 +88,75 @@ public sealed class ModInstallService
 
         ExtractFomodFiles(mod.ArchivePath, resolvedFiles, installation.FolderPath);
         await _store.AddAsync(installation);
-        return installation.FolderPath;
+        return installation;
     }
 
-    public async Task<string> FindOrCreateManualInstallationAsync(
+    public async Task<ModInstallation> FindOrCreateFromRecipeAsync(
+        ModEntry mod, ModInstallationRecipe recipe, IReadOnlyList<ProfileFolder> profileFolders)
+    {
+        if (recipe is ManualInstallationRecipe manual)
+            return await FindOrCreateManualInstallationAsync(mod, manual.SourceRoot, manual.Destination);
+        if (recipe is not FomodInstallationRecipe fomod)
+            throw new InvalidOperationException("This installation requires user guidance and cannot be replayed automatically.");
+
+        var module = TryParseFomod(mod)
+            ?? throw new InvalidDataException("The archive no longer contains a readable FOMOD installer.");
+        var actualModuleHash = ReadFomodModuleSha256(mod);
+        if (!string.Equals(actualModuleHash, fomod.ModuleConfigSha256, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidDataException("The FOMOD installer changed since this recipe was recorded.");
+
+        var fileState = new ProfileFileStateProvider(profileFolders);
+        var engine = new FomodSelectionEngine();
+        var selections = new List<FomodStepSelection>();
+        var flags = new Dictionary<string, string>();
+        foreach (var step in module.InstallSteps)
+        {
+            var requestedForStep = fomod.Selections.Where(choice => choice.Step == step.Name).ToList();
+            if (!engine.IsStepVisible(step, flags, fileState))
+            {
+                if (requestedForStep.Count > 0)
+                    throw new InvalidDataException($"Recorded FOMOD step '{step.Name}' is no longer visible.");
+                continue;
+            }
+
+            var stepSelection = new FomodStepSelection { Step = step };
+            foreach (var group in step.Groups)
+            {
+                var requested = requestedForStep.Where(choice => choice.Group == group.Name).ToList();
+                if (requested.Count > 1)
+                    throw new InvalidDataException($"FOMOD group '{group.Name}' is duplicated in the recipe.");
+                var plugins = requested.Count == 0
+                    ? new List<FomodPlugin>()
+                    : requested[0].Plugins.Select(name =>
+                        group.Plugins.SingleOrDefault(plugin => plugin.Name == name)
+                        ?? throw new InvalidDataException($"FOMOD option '{name}' no longer exists in '{group.Name}'.")).ToList();
+                var validationError = engine.ValidateGroup(group, plugins);
+                if (validationError is not null)
+                    throw new InvalidDataException(validationError);
+                stepSelection.Groups.Add(new FomodGroupSelection { Group = group, SelectedPlugins = plugins });
+            }
+            if (requestedForStep.Any(choice => step.Groups.All(group => group.Name != choice.Group)))
+                throw new InvalidDataException($"A recorded FOMOD group in step '{step.Name}' no longer exists.");
+            selections.Add(stepSelection);
+            flags = engine.AccumulateFlags(selections);
+        }
+        if (fomod.Selections.Any(choice => module.InstallSteps.All(step => step.Name != choice.Step)))
+            throw new InvalidDataException("A recorded FOMOD step no longer exists.");
+
+        var resolvedFiles = engine.ResolveFileInstalls(module, selections, fileState);
+        var signature = engine.ComputeSelectionSignature(selections);
+        return await FindOrCreateFomodInstallationAsync(mod, resolvedFiles, signature, DescribeSelections(fomod), selections);
+    }
+
+    private static string DescribeSelections(FomodInstallationRecipe recipe) =>
+        string.Join(", ", recipe.Selections.SelectMany(choice => choice.Plugins.Select(plugin => $"{choice.Group}: {plugin}")));
+
+    public async Task<ModInstallation> FindOrCreateManualInstallationAsync(
         ModEntry mod, string sourceRootRelativePath, string destinationRelativePath)
     {
         var sourceRoot = NormalizeRelativePath(sourceRootRelativePath);
         var destination = destinationRelativePath?.Trim() ?? string.Empty;
+        var archiveSha256 = RequireArchiveSha256(mod);
         if (sourceRoot.Length > 0 && !DefinitionValidation.IsSafeRelativePath(sourceRoot))
             throw new ArgumentException("Source root must be empty or a safe archive-relative path.", nameof(sourceRootRelativePath));
         if (destination.Length > 0 && !DefinitionValidation.IsSafeRelativePath(destination))
@@ -84,15 +164,17 @@ public sealed class ModInstallService
 
         var signature = BuildManualSelectionSignature(sourceRoot, destination);
         var existing = (await _store.LoadAsync())
-            .FirstOrDefault(item => item.ModId == mod.Id && !item.IsFomod && item.SelectionSignature == signature);
+            .FirstOrDefault(item => item.ModId == mod.Id && item.Recipe is ManualInstallationRecipe &&
+                                    item.SourceArchiveSha256 == archiveSha256 && item.SelectionSignature == signature);
         if (existing is not null && Directory.Exists(existing.FolderPath))
-            return existing.FolderPath;
+            return existing;
 
         var installation = new ModInstallation
         {
             Id = Guid.NewGuid().ToString("N"),
             ModId = mod.Id,
-            IsFomod = false,
+            SourceArchiveSha256 = archiveSha256,
+            Recipe = new ManualInstallationRecipe { SourceRoot = sourceRoot, Destination = destination },
             SelectionSignature = signature,
             SelectionSummary = $"{(sourceRoot.Length == 0 ? "Archive root" : sourceRoot)} -> {(destination.Length == 0 ? "Profile root" : destination)}"
         };
@@ -103,8 +185,22 @@ public sealed class ModInstallService
         Directory.CreateDirectory(mountRoot);
         ExtractWholeArchive(mod.ArchivePath, sourceRoot, mountRoot);
         await _store.AddAsync(installation);
-        return installation.FolderPath;
+        return installation;
     }
+
+    private string ReadFomodModuleSha256(ModEntry mod)
+    {
+        var files = _archiveInspector.ReadFomodFiles(mod.ArchivePath);
+        if (!files.TryGetValue("ModuleConfig.xml", out var xml))
+            throw new InvalidDataException("The FOMOD archive has no ModuleConfig.xml.");
+
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(xml)));
+    }
+
+    private static string RequireArchiveSha256(ModEntry mod) =>
+        !string.IsNullOrWhiteSpace(mod.Sha256)
+            ? mod.Sha256
+            : throw new InvalidOperationException($"'{mod.Name}' has no archive SHA-256. Re-import or re-download the archive before installing it.");
 
     // Applied in the caller's priority-ascending order, so a later entry legitimately overwrites an earlier one.
     private void ExtractFomodFiles(string archivePath, IReadOnlyList<FomodFileInstall> installs, string destinationRoot)

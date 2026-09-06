@@ -14,19 +14,43 @@ public sealed class LaunchService
 
     private readonly ProfileConfigExporter _exporter;
     private readonly ProfileFolderProvisioner _provisioner;
+    private readonly ActiveRunRegistry _runs;
+    private readonly IProcessLauncher _processLauncher;
+    private readonly string? _loaderPath;
 
-    public LaunchService(ProfileConfigExporter exporter, ProfileFolderProvisioner provisioner)
+    public LaunchService(
+        ProfileConfigExporter exporter,
+        ProfileFolderProvisioner provisioner,
+        ActiveRunRegistry runs,
+        IProcessLauncher processLauncher,
+        string? loaderPath = null)
     {
         _exporter = exporter;
         _provisioner = provisioner;
+        _runs = runs;
+        _processLauncher = processLauncher;
+        _loaderPath = loaderPath;
     }
 
-    /// <summary>Raised once a tool run finished and its output version was promoted, so the profile can be saved.</summary>
-    public event Action<Profile>? ToolRunCompleted;
+    /// <summary>Raised after the loader exits and any captured tool output is finalized.</summary>
+    public event Action<LaunchCompletion>? LaunchCompleted;
 
-    public string LoaderPath => Path.Combine(AppContext.BaseDirectory, LoaderFileName);
+    public string LoaderPath => _loaderPath ?? Path.Combine(AppContext.BaseDirectory, LoaderFileName);
 
     public async Task<string> LaunchAsync(Profile profile, LaunchTarget target)
+    {
+        var launched = await StartAsync(profile, target);
+        _ = launched.Completion;
+        return launched.ConfigPath;
+    }
+
+    public async Task<LaunchCompletion> LaunchAndWaitAsync(Profile profile, LaunchTarget target)
+    {
+        var launched = await StartAsync(profile, target);
+        return await launched.Completion;
+    }
+
+    private async Task<StartedLaunch> StartAsync(Profile profile, LaunchTarget target)
     {
         if (string.IsNullOrWhiteSpace(target.ExecutablePath))
             throw new InvalidOperationException($"'{target.DisplayName}' has no executable configured.");
@@ -37,16 +61,37 @@ public sealed class LaunchService
         var binding = target.IsGame || !target.ProducesOutput
             ? null
             : profile.Tools.FirstOrDefault(item => item.ToolEntryId == target.Id);
+        if (!_runs.TryReserve(profile, target, out var run))
+            throw new InvalidOperationException($"'{profile.Name}' already has a target running.");
 
-        // The pending version must exist before the config is exported: it is the target's top branch.
-        if (binding is not null)
-            _provisioner.BeginToolRun(profile, binding, target.Id);
+        ProfileFolderProvisioner.PendingToolRun? pendingRun = null;
+        try
+        {
+            // The pending version must exist before the config is exported: it is the target's top branch.
+            if (binding is not null)
+                pendingRun = _provisioner.BeginToolRun(profile, binding, target.Id);
 
-        var configPath = await _exporter.ExportAsync(profile, target);
+            var configPath = await _exporter.ExportAsync(profile, target);
 
-        if (!File.Exists(LoaderPath))
-            throw new FileNotFoundException($"{LoaderFileName} was not found next to Wildpinkler.", LoaderPath);
+            if (!File.Exists(LoaderPath))
+                throw new FileNotFoundException($"{LoaderFileName} was not found next to Wildpinkler.", LoaderPath);
 
+            var startInfo = CreateStartInfo(target, configPath);
+            var process = _processLauncher.Start(startInfo);
+            _runs.MarkRunning(run);
+            return new StartedLaunch(configPath, ObserveCompletionAsync(process, run, profile, target, binding, pendingRun));
+        }
+        catch
+        {
+            if (pendingRun is not null)
+                _provisioner.AbandonToolRun(pendingRun);
+            _runs.Release(run);
+            throw;
+        }
+    }
+
+    private ProcessStartInfo CreateStartInfo(LaunchTarget target, string configPath)
+    {
         var startInfo = new ProcessStartInfo(LoaderPath)
         {
             UseShellExecute = false,
@@ -67,18 +112,48 @@ public sealed class LaunchService
             startInfo.ArgumentList.Add(target.SteamGameId);
         }
         startInfo.ArgumentList.Add(configPath);
+        return startInfo;
+    }
 
-        var process = Process.Start(startInfo);
-        if (binding is not null && process is not null)
+    private async Task<LaunchCompletion> ObserveCompletionAsync(
+        ILaunchedProcess process,
+        ActiveRun run,
+        Profile profile,
+        LaunchTarget target,
+        ProfileTool? binding,
+        ProfileFolderProvisioner.PendingToolRun? pendingRun)
+    {
+        var succeeded = false;
+        try
         {
-            process.EnableRaisingEvents = true;
-            process.Exited += (_, _) =>
+            using (process)
             {
-                _provisioner.CompleteToolRun(profile, binding, target.Id);
-                ToolRunCompleted?.Invoke(profile);
-            };
+                succeeded = await process.WaitForExitAsync() == 0;
+            }
+
+            if (succeeded && binding is not null && pendingRun is not null)
+                _provisioner.CompleteToolRun(profile, binding, target.Id, pendingRun);
+        }
+        catch
+        {
+            succeeded = false;
+        }
+        finally
+        {
+            _runs.Release(run);
         }
 
-        return configPath;
+        var completion = new LaunchCompletion(profile, target, succeeded, pendingRun);
+        LaunchCompleted?.Invoke(completion);
+        return completion;
     }
+
+    private sealed record StartedLaunch(string ConfigPath, Task<LaunchCompletion> Completion);
 }
+
+/// <summary>The final result of one loader-backed target run.</summary>
+public sealed record LaunchCompletion(
+    Profile Profile,
+    LaunchTarget Target,
+    bool Succeeded,
+    ProfileFolderProvisioner.PendingToolRun? PendingToolRun);

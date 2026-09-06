@@ -47,6 +47,8 @@ public sealed partial class ProfilesPage : Page, INotifyPropertyChanged
     private readonly ProfileDeletionService _deletionService = AppServices.ProfileDeletionService;
     private readonly LaunchTargetResolver _launchTargetResolver = AppServices.LaunchTargetResolver;
     private readonly LaunchService _launchService = AppServices.LaunchService;
+    private readonly ActiveRunRegistry _activeRuns = AppServices.ActiveRunRegistry;
+    private readonly ProfileRunAccessPolicy _runAccess = AppServices.ProfileRunAccessPolicy;
     private readonly BackgroundOperationQueue _queue = AppServices.BackgroundOperationQueue;
     private readonly ObservableCollection<Profile> _allProfiles = new();
     private readonly ObservableCollection<Profile> _visibleProfiles = new();
@@ -83,6 +85,9 @@ public sealed partial class ProfilesPage : Page, INotifyPropertyChanged
     public string ProfileViewMountPath { get => _profileViewMountPath; private set => SetProperty(ref _profileViewMountPath, value); }
     public string ProfileViewBranchCountText { get => _profileViewBranchCountText; private set => SetProperty(ref _profileViewBranchCountText, value); }
     public bool ProfileViewIsExpanded { get => _profileViewIsExpanded; set => SetProperty(ref _profileViewIsExpanded, value); }
+    public bool IsSelectedProfileModifiable => _runAccess.CanModify(SelectedProfile);
+    public string SelectedProfileRunText => SelectedProfile?.ActiveRunText ?? string.Empty;
+    public Visibility SelectedProfileRunVisibility => SelectedProfile?.IsRunActive == true ? Visibility.Visible : Visibility.Collapsed;
 
     public bool HasLoadError => LoadErrorMessage is not null;
 
@@ -115,10 +120,27 @@ public sealed partial class ProfilesPage : Page, INotifyPropertyChanged
         // Another page can delete profiles (deleting a game cascades into them), so the cached list
         // has to follow the store instead of staying at whatever the constructor read.
         _store.Changed += ProfileStore_Changed;
-        // A tool run promotes its output version on exit, off the UI thread.
-        _launchService.ToolRunCompleted += LaunchService_ToolRunCompleted;
+        // A loader completion finalizes captured tool output off the UI thread.
+        _launchService.LaunchCompleted += LaunchService_LaunchCompleted;
+        _activeRuns.RunStarted += ActiveRuns_Changed;
+        _activeRuns.RunEnded += ActiveRuns_Changed;
         _ = LoadAsync();
     }
+
+    private void ActiveRuns_Changed(object? sender, ActiveRun run) => DispatcherQueue.TryEnqueue(() =>
+    {
+        var profile = _allProfiles.FirstOrDefault(item => item.Id == run.ProfileId);
+        if (profile is not null)
+        {
+            profile.IsRunActive = _activeRuns.HasRun(profile.Id);
+            profile.ActiveRunText = profile.IsRunActive ? $"Running: {run.TargetName}" : string.Empty;
+        }
+
+        OnPropertyChanged(nameof(IsSelectedProfileModifiable));
+        OnPropertyChanged(nameof(SelectedProfileRunText));
+        OnPropertyChanged(nameof(SelectedProfileRunVisibility));
+        UpdateCommandStates();
+    });
 
     private void ProfileStore_Changed(object? sender, EventArgs args) =>
         DispatcherQueue.TryEnqueue(() => _ = SyncProfilesAsync());
@@ -160,11 +182,12 @@ public sealed partial class ProfilesPage : Page, INotifyPropertyChanged
         UpdateSelectedProfileDetails();
     }
 
-    private void LaunchService_ToolRunCompleted(Profile profile) => DispatcherQueue.TryEnqueue(() =>
+    private void LaunchService_LaunchCompleted(LaunchCompletion completion) => DispatcherQueue.TryEnqueue(() =>
     {
-        if (ReferenceEquals(SelectedProfile, profile))
+        if (ReferenceEquals(SelectedProfile, completion.Profile))
             RefreshWorkspace();
-        Save("Save tool output version");
+        if (completion.Succeeded && completion.Target.ProducesOutput)
+            Save("Save tool output version");
     });
 
     private void UpdateLayoutState(double width)
@@ -376,13 +399,62 @@ public sealed partial class ProfilesPage : Page, INotifyPropertyChanged
     {
         SelectedCount = ProfileList.SelectedItems.Count;
         RevealFolderCommand.NotifyCanExecuteChanged();
+        CleanUpCommand.NotifyCanExecuteChanged();
         DeleteSelectedCommand.NotifyCanExecuteChanged();
+        ExportModListCommand.NotifyCanExecuteChanged();
         LaunchCommand.NotifyCanExecuteChanged();
     }
 
     private Profile? SelectedProfile => ProfileList.SelectedItems.Count == 1 ? ProfileList.SelectedItem as Profile : null;
 
     private GameEntry? GameFor(Profile profile) => _games.FirstOrDefault(game => game.Id == profile.GameId);
+
+    [RelayCommand]
+    private void OpenModLists() => MainWindow.Instance?.NavigateToSection(NavigationCatalog.ModListsTag);
+
+    private bool CanExportModList() => SelectedProfile is not null && IsSelectedProfileModifiable;
+
+    [RelayCommand(CanExecute = nameof(CanExportModList))]
+    private async Task ExportModListAsync()
+    {
+        if (SelectedProfile is not { } profile || GameFor(profile) is not { Definition: { } definition } game)
+            return;
+
+        var dialog = new Controls.ModListExportDialog(profile.Name) { XamlRoot = XamlRoot };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+            return;
+
+        try
+        {
+            var installations = await AppServices.ModInstallationStore.LoadAsync();
+            var result = await AppServices.ModListExportService.CreateAsync(
+                profile, game, definition, _allMods, installations, _tools, dialog.Metadata);
+            await AppServices.ModListCatalogStore.SaveAsync(result.Manifest);
+
+            var picker = new Windows.Storage.Pickers.FileSavePicker
+            {
+                SuggestedStartLocation = Windows.Storage.Pickers.PickerLocationId.ComputerFolder,
+                SuggestedFileName = result.Manifest.ListId + ".wpmodlist"
+            };
+            picker.FileTypeChoices.Add("Wildpinkler mod list", new List<string> { ".json" });
+            WinRT.Interop.InitializeWithWindow.Initialize(picker, MainWindow.WindowHandle);
+            var file = await picker.PickSaveFileAsync();
+            if (file is not null)
+                await AppServices.ModListManifestSerializer.SaveAsync(result.Manifest, file.Path);
+
+            var detail = result.Grade.Reasons.Count == 0 ? string.Empty : $" {string.Join(" ", result.Grade.Reasons)}";
+            ShowInfo($"Saved '{result.Manifest.Name}' revision {result.Manifest.Revision} as {result.Grade.Grade}.{detail}",
+                result.Grade.Grade == ModListGrade.Unavailable ? InfoBarSeverity.Warning : InfoBarSeverity.Success);
+        }
+        catch (ModListRevisionConflictException exception)
+        {
+            ShowInfo(exception.Message, InfoBarSeverity.Warning);
+        }
+        catch (Exception exception)
+        {
+            ShowInfo($"Unable to export the mod list. {exception.Message}", InfoBarSeverity.Error);
+        }
+    }
 
     private void ListHeader_QueryChanged(object? sender, EventArgs args) => RefreshProfiles();
 
@@ -400,6 +472,9 @@ public sealed partial class ProfilesPage : Page, INotifyPropertyChanged
     private void UpdateSelectedProfileDetails()
     {
         UpdateCommandStates();
+        OnPropertyChanged(nameof(IsSelectedProfileModifiable));
+        OnPropertyChanged(nameof(SelectedProfileRunText));
+        OnPropertyChanged(nameof(SelectedProfileRunVisibility));
         UpdateLayoutState(_listDetailsWidth);
         IsRenaming = false;
 
@@ -423,9 +498,6 @@ public sealed partial class ProfilesPage : Page, INotifyPropertyChanged
         RefreshTools(profile);
         ResetMergedContent();
         RefreshWorkspace();
-
-        AppServices.ActiveProfile.ProfileName = profile.Name;
-        AppServices.ActiveProfile.GameName = gameName;
     }
 
     /// <summary>The one target every workspace section is scoped to.</summary>
@@ -525,6 +597,7 @@ public sealed partial class ProfilesPage : Page, INotifyPropertyChanged
             profile.GameName.Contains(query, StringComparison.OrdinalIgnoreCase));
 
         var desiredProfiles = filtered.OrderBy(profile => profile.Name, StringComparer.OrdinalIgnoreCase).ToList();
+        UpdateRunPresentation(desiredProfiles);
         CollectionReconciler.Reconcile(_visibleProfiles, desiredProfiles, profile => profile.Id);
         HasNoProfiles = !IsLoading && LoadErrorMessage is null && _allProfiles.Count == 0;
         HasNoSearchResults = !IsLoading && LoadErrorMessage is null && _allProfiles.Count > 0 && _visibleProfiles.Count == 0;
@@ -657,7 +730,7 @@ public sealed partial class ProfilesPage : Page, INotifyPropertyChanged
             Process.Start(new ProcessStartInfo("explorer.exe", $"\"{path}\"") { UseShellExecute = true });
     }
 
-    private bool CanLaunch() => SelectedTarget is not null;
+    private bool CanLaunch() => SelectedTarget is not null && IsSelectedProfileModifiable;
 
     [RelayCommand(CanExecute = nameof(CanLaunch))]
     private async Task LaunchAsync()
@@ -734,7 +807,9 @@ public sealed partial class ProfilesPage : Page, INotifyPropertyChanged
         return await dialog.ShowAsync() != ContentDialogResult.Primary;
     }
 
-    [RelayCommand]
+    private bool CanCleanUp() => _allProfiles.All(_runAccess.CanModify);
+
+    [RelayCommand(CanExecute = nameof(CanCleanUp))]
     private async Task CleanUpAsync()
     {
         var dialog = new ContentDialog
@@ -778,7 +853,7 @@ public sealed partial class ProfilesPage : Page, INotifyPropertyChanged
         DeleteSelectedCommand.Execute(null);
     }
 
-    private bool CanDeleteSelected() => ProfileList.SelectedItems.Count > 0;
+    private bool CanDeleteSelected() => ProfileList.SelectedItems.Count > 0 && ProfileList.SelectedItems.Cast<Profile>().All(_runAccess.CanModify);
 
     [RelayCommand(CanExecute = nameof(CanDeleteSelected))]
     private async Task DeleteSelectedAsync()
@@ -817,6 +892,12 @@ public sealed partial class ProfilesPage : Page, INotifyPropertyChanged
     {
         if (SelectedProfile is not { } profile)
             return;
+
+        if (!_runAccess.CanModify(profile))
+        {
+            ShowInfo("A running profile cannot be renamed.", InfoBarSeverity.Warning);
+            return;
+        }
 
         RenameBox.Text = profile.Name;
         IsRenaming = true;
@@ -865,6 +946,13 @@ public sealed partial class ProfilesPage : Page, INotifyPropertyChanged
             return;
         }
 
+        if (!_runAccess.CanModify(profile))
+        {
+            IsRenaming = false;
+            ShowInfo("A running profile cannot be renamed.", InfoBarSeverity.Warning);
+            return;
+        }
+
         var newName = RenameBox.Text.Trim();
         if (newName.Length == 0)
         {
@@ -881,6 +969,15 @@ public sealed partial class ProfilesPage : Page, INotifyPropertyChanged
     }
 
     private void CancelRename() => IsRenaming = false;
+
+    private void UpdateRunPresentation(IEnumerable<Profile> profiles)
+    {
+        foreach (var profile in profiles)
+        {
+            profile.IsRunActive = _activeRuns.TryGetRun(profile.Id, out var run);
+            profile.ActiveRunText = run is null ? string.Empty : $"Running: {run.TargetName}";
+        }
+    }
 
     private void Save(string label) => Enqueue(label, () => _store.SaveAsync(_allProfiles.ToList()));
 

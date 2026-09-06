@@ -63,13 +63,15 @@ public sealed partial class ProfilesPage
     {
         // Same same-event ordering hazard as ToolEnabled_Toggled: read the switch's own state directly
         // rather than trusting the x:Bind TwoWay push has already landed on the model.
+        if (SelectedProfile is not { } profile || !_runAccess.CanModify(profile))
+            return;
+
         if (sender is ToggleSwitch { DataContext: ProfileFolder folder } toggle)
             folder.IsEnabled = toggle.IsOn;
 
         RefreshWorkspace();
         Save("Save load order");
-        if (SelectedProfile is { } profile)
-            await RefreshDependencyIssuesAsync(profile);
+        await RefreshDependencyIssuesAsync(profile);
     }
 
     // Advisory only - a failure here (e.g. the mods database is briefly locked) must never block editing the load order.
@@ -101,7 +103,7 @@ public sealed partial class ProfilesPage
     // cannot loop forever.
     private async void FixOrder_Click(object sender, RoutedEventArgs args)
     {
-        if (SelectedProfile is not { } profile)
+        if (SelectedProfile is not { } profile || !_runAccess.CanModify(profile))
             return;
 
         var mods = await AppServices.ModStore.LoadAsync();
@@ -141,6 +143,12 @@ public sealed partial class ProfilesPage
 
     private void FolderList_DragItemsStarting(object sender, DragItemsStartingEventArgs args)
     {
+        if (SelectedProfile is not { } profile || !_runAccess.CanModify(profile))
+        {
+            args.Cancel = true;
+            return;
+        }
+
         // The overlay and the game install are pinned to the ends, so they are not draggable at all.
         if (args.Items.Any(item => item is ProfileFolder { IsLocked: true }))
             args.Cancel = true;
@@ -148,7 +156,7 @@ public sealed partial class ProfilesPage
 
     private void FolderList_DragItemsCompleted(ListViewBase sender, DragItemsCompletedEventArgs args)
     {
-        if (SelectedProfile is not { } profile)
+        if (SelectedProfile is not { } profile || !_runAccess.CanModify(profile))
             return;
 
         // Repinning inline would re-enter the ListView's reorder bookkeeping, so let it settle first.
@@ -172,7 +180,7 @@ public sealed partial class ProfilesPage
 
     private void MoveFolder(object? dataContext, int offset)
     {
-        if (SelectedProfile is not { } profile || dataContext is not ProfileFolder { IsLocked: false } folder)
+        if (SelectedProfile is not { } profile || !_runAccess.CanModify(profile) || dataContext is not ProfileFolder { IsLocked: false } folder)
             return;
 
         var index = profile.Folders.IndexOf(folder);
@@ -185,7 +193,7 @@ public sealed partial class ProfilesPage
 
     private void RemoveFolder_Click(object sender, RoutedEventArgs args)
     {
-        if (SelectedProfile is not { } profile)
+        if (SelectedProfile is not { } profile || !_runAccess.CanModify(profile))
             return;
 
         if ((sender as FrameworkElement)?.DataContext is ProfileFolder { IsLocked: false } folder)
@@ -199,7 +207,7 @@ public sealed partial class ProfilesPage
 
     private async void AddFolder_Click(object sender, RoutedEventArgs args)
     {
-        if (SelectedProfile is not { } profile)
+        if (SelectedProfile is not { } profile || !_runAccess.CanModify(profile))
             return;
 
         LoadOrderErrorText.Visibility = Visibility.Collapsed;
@@ -214,6 +222,9 @@ public sealed partial class ProfilesPage
 
             var folder = await picker.PickSingleFolderAsync();
             if (folder is null)
+                return;
+
+            if (!_runAccess.CanModify(profile))
                 return;
 
             if (profile.Folders.Any(item => string.Equals(item.Path, folder.Path, StringComparison.OrdinalIgnoreCase)))
@@ -241,11 +252,14 @@ public sealed partial class ProfilesPage
 
     private async Task InstallModAsync(Profile profile, ModEntry mod)
     {
+        if (!_runAccess.CanModify(profile))
+            return;
+
         SetLoadOrderBusy(true);
         try
         {
             var fomodModule = AppServices.ModInstallService.TryParseFomod(mod);
-            string folderPath;
+            ModInstallation installation;
 
             if (fomodModule is not null)
             {
@@ -254,8 +268,8 @@ public sealed partial class ProfilesPage
                 if (await wizard.ShowAsync() != ContentDialogResult.Primary)
                     return;
 
-                folderPath = await AppServices.ModInstallService.FindOrCreateFomodInstallationAsync(
-                    mod, wizard.ResolvedFiles, wizard.SelectionSignature, DescribeSelections(wizard.Selections));
+                installation = await AppServices.ModInstallService.FindOrCreateFomodInstallationAsync(
+                    mod, wizard.ResolvedFiles, wizard.SelectionSignature, DescribeSelections(wizard.Selections), wizard.Selections);
             }
             else
             {
@@ -264,7 +278,7 @@ public sealed partial class ProfilesPage
                 if (await destinationDialog.ShowAsync() != ContentDialogResult.Primary)
                     return;
 
-                folderPath = await AppServices.ModInstallService.FindOrCreateManualInstallationAsync(
+                installation = await AppServices.ModInstallService.FindOrCreateManualInstallationAsync(
                     mod, destinationDialog.SourceRootRelativePath, destinationDialog.DestinationRelativePath);
 
                 if (destinationDialog.RememberPath)
@@ -277,12 +291,15 @@ public sealed partial class ProfilesPage
                 return;
             }
 
-            await ExtractAndSaveDependenciesAsync(mod, fomodModule, folderPath);
+            if (!_runAccess.CanModify(profile))
+                return;
 
-            var launcherExecutable = await PickGameLauncherExecutableAsync(folderPath, currentSelection: null);
+            await ExtractAndSaveDependenciesAsync(mod, fomodModule, installation.FolderPath);
+
+            var launcherExecutable = await PickGameLauncherExecutableAsync(installation.FolderPath, currentSelection: null);
             if (launcherExecutable is not null && string.IsNullOrWhiteSpace(mod.ProvidedGameVersion))
             {
-                mod.ProvidedGameVersion = GameVersionInspector.ReadVersion(System.IO.Path.Combine(folderPath, launcherExecutable));
+                mod.ProvidedGameVersion = GameVersionInspector.ReadVersion(System.IO.Path.Combine(installation.FolderPath, launcherExecutable));
                 await AppServices.ModStore.UpsertAsync(mod);
             }
 
@@ -291,9 +308,10 @@ public sealed partial class ProfilesPage
             {
                 Id = Guid.NewGuid().ToString("N"),
                 Name = mod.Name,
-                Path = folderPath,
+                Path = installation.FolderPath,
                 Kind = ProfileFolderKind.Mod,
                 ModId = mod.Id,
+                ModInstallationId = installation.Id,
                 IsEnabled = true,
                 LauncherExecutableRelativePath = launcherExecutable
             };
@@ -344,13 +362,16 @@ public sealed partial class ProfilesPage
     // from the branch row's "more" menu, without requiring a reinstall.
     private async void DesignateGameLauncher_Click(object sender, RoutedEventArgs args)
     {
-        if ((sender as FrameworkElement)?.DataContext is not ProfileFolder { Kind: ProfileFolderKind.Mod } folder)
+        if (SelectedProfile is not { } profile || !_runAccess.CanModify(profile) ||
+            (sender as FrameworkElement)?.DataContext is not ProfileFolder { Kind: ProfileFolderKind.Mod } folder)
             return;
 
         var launcherExecutable = await PickGameLauncherExecutableAsync(folder.Path, folder.LauncherExecutableRelativePath);
+        if (!_runAccess.CanModify(profile))
+            return;
         folder.LauncherExecutableRelativePath = launcherExecutable;
         if (launcherExecutable is not null)
-            ClearOtherLauncherDesignations(SelectedProfile!, folder.Id);
+            ClearOtherLauncherDesignations(profile, folder.Id);
         Save("Save load order");
     }
 
