@@ -154,44 +154,15 @@
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}" Text="Assistant"
                        VerticalAlignment="Center" />
-            <Button Grid.Column="1"
-                    Background="Transparent"
-                    BorderThickness="0"
-                    Padding="4,0"
-                    AutomationProperties.Name="{x:Bind Model.CurrentModeDescription, Mode=OneWay}"
-                    ToolTipService.ToolTip="Change assistant mode">
-                <StackPanel Orientation="Horizontal" Spacing="4">
-                    <TextBlock Text="{x:Bind Model.CurrentModeLabel, Mode=OneWay}"
-                               Style="{StaticResource CaptionTextBlockStyle}"
-                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                               TextTrimming="CharacterEllipsis"
-                               VerticalAlignment="Center" />
-                    <FontIcon Glyph="&#xE70D;"
-                              FontSize="10"
-                              Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                              VerticalAlignment="Center" />
-                </StackPanel>
-                <Button.Flyout>
-                    <MenuFlyout Opening="OptionsFlyout_Opening">
-                        <RadioMenuFlyoutItem x:Name="ChatModeItem" Text="Chat only"
-                                             GroupName="AssistantMode" Click="Mode_Click" />
-                        <RadioMenuFlyoutItem x:Name="AskFirstModeItem" Text="Ask before every action"
-                                             GroupName="AssistantMode" Click="Mode_Click" />
-                        <RadioMenuFlyoutItem x:Name="AgentModeItem" Text="Look things up freely"
-                                             GroupName="AssistantMode" Click="Mode_Click" />
-                    </MenuFlyout>
-                </Button.Flyout>
-            </Button>
-            <ProgressRing Grid.Column="2"
+            <ProgressRing Grid.Column="1"
                           Width="16" Height="16"
                           VerticalAlignment="Center"
                           IsActive="{x:Bind Model.IsBusy, Mode=OneWay}"
                           AutomationProperties.Name="The assistant is working" />
-            <Button Grid.Column="3"
+            <Button Grid.Column="2"
                     Background="Transparent"
                     BorderThickness="0"
                     AutomationProperties.Name="More assistant options"
@@ -205,7 +176,7 @@
                     </MenuFlyout>
                 </Button.Flyout>
             </Button>
-            <Button Grid.Column="4"
+            <Button Grid.Column="3"
                     Background="Transparent"
                     BorderThickness="0"
                     Click="Close_Click"
@@ -273,47 +244,106 @@
             </InfoBar.ActionButton>
         </InfoBar>
 
-        <Grid Grid.Row="3" ColumnSpacing="8">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-            </Grid.ColumnDefinitions>
-            <Grid>
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
-                </Grid.RowDefinitions>
-                <ListView x:Name="SuggestionList"
-                          Grid.Row="0"
-                          MaxHeight="180"
-                          IsItemClickEnabled="True"
-                          ItemClick="SuggestionList_ItemClick"
-                          Visibility="Collapsed"
-                          AutomationProperties.Name="Reference suggestions" />
+        <Grid Grid.Row="3" RowSpacing="4">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" />
+            </Grid.RowDefinitions>
+            <ListView x:Name="SuggestionList"
+                      Grid.Row="0"
+                      MaxHeight="180"
+                      IsItemClickEnabled="True"
+                      ItemClick="SuggestionList_ItemClick"
+                      Visibility="Collapsed"
+                      AutomationProperties.Name="Reference suggestions" />
+            <Border Grid.Row="1"
+                    Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    Padding="8">
+                <Grid RowSpacing="8">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
                 <TextBox x:Name="PromptBox"
-                         Grid.Row="1"
                          PlaceholderText="Ask about your profiles and mods; type @ to reference one"
                          MaxHeight="120"
                          TextWrapping="Wrap"
                          AcceptsReturn="True"
+                         Background="Transparent"
+                         BorderThickness="0"
+                         Padding="4"
                          AutomationProperties.Name="Message to the assistant"
                          TextChanged="PromptBox_TextChanged"
                          PreviewKeyDown="PromptBox_PreviewKeyDown" />
-            </Grid>
-            <Grid Grid.Column="1" VerticalAlignment="Bottom">
-                <Button x:Name="SendButton"
-                        Content="Send"
-                        Click="Send_Click"
-                        IsEnabled="{x:Bind Model.CanSend, Mode=OneWay}"
-                        Visibility="{x:Bind Model.IsBusy, Mode=OneWay, Converter={StaticResource InverseBoolToVisibilityConverter}}"
-                        Style="{StaticResource AccentButtonStyle}"
-                        AutomationProperties.Name="Send the message" />
-                <Button x:Name="StopButton"
-                        Content="Stop"
-                        Click="Stop_Click"
-                        Visibility="{x:Bind Model.IsBusy, Mode=OneWay}"
-                        AutomationProperties.Name="Stop the assistant" />
-            </Grid>
+                    <Grid Grid.Row="1">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Button Background="Transparent"
+                                BorderThickness="0"
+                            Height="32"
+                                Padding="4,2"
+                                HorizontalAlignment="Left"
+                            VerticalAlignment="Center"
+                                AutomationProperties.Name="{x:Bind Model.CurrentModeDescription, Mode=OneWay}"
+                                ToolTipService.ToolTip="Change assistant mode">
+                            <StackPanel Orientation="Horizontal" Spacing="4">
+                                <TextBlock Text="{x:Bind Model.CurrentModeLabel, Mode=OneWay}"
+                                           Style="{StaticResource CaptionTextBlockStyle}"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                           TextTrimming="CharacterEllipsis"
+                                           VerticalAlignment="Center" />
+                                <FontIcon Glyph="&#xE70D;"
+                                          FontSize="10"
+                                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                          VerticalAlignment="Center" />
+                            </StackPanel>
+                            <Button.Flyout>
+                                <MenuFlyout Opening="OptionsFlyout_Opening">
+                                    <RadioMenuFlyoutItem x:Name="ChatModeItem" Text="Chat only"
+                                                         GroupName="AssistantMode" Click="Mode_Click" />
+                                    <RadioMenuFlyoutItem x:Name="AskFirstModeItem" Text="Ask before every action"
+                                                         GroupName="AssistantMode" Click="Mode_Click" />
+                                    <RadioMenuFlyoutItem x:Name="AgentModeItem" Text="Look things up freely"
+                                                         GroupName="AssistantMode" Click="Mode_Click" />
+                                </MenuFlyout>
+                            </Button.Flyout>
+                        </Button>
+                        <Grid Grid.Column="1">
+                            <Button x:Name="SendButton"
+                                    Width="32"
+                                    Height="32"
+                                    Padding="0"
+                                    CornerRadius="16"
+                                VerticalAlignment="Center"
+                                    Click="Send_Click"
+                                    IsEnabled="{x:Bind Model.CanSend, Mode=OneWay}"
+                                    Visibility="{x:Bind Model.IsBusy, Mode=OneWay, Converter={StaticResource InverseBoolToVisibilityConverter}}"
+                                    Style="{StaticResource AccentButtonStyle}"
+                                    AutomationProperties.Name="Send the message"
+                                    ToolTipService.ToolTip="Send (Enter)">
+                                <SymbolIcon Symbol="Up" />
+                            </Button>
+                            <Button x:Name="StopButton"
+                                    Width="32"
+                                    Height="32"
+                                    Padding="0"
+                                    CornerRadius="16"
+                                VerticalAlignment="Center"
+                                    Click="Stop_Click"
+                                    Visibility="{x:Bind Model.IsBusy, Mode=OneWay}"
+                                    AutomationProperties.Name="Stop the assistant"
+                                    ToolTipService.ToolTip="Stop the assistant">
+                                <SymbolIcon Symbol="Stop" />
+                            </Button>
+                        </Grid>
+                    </Grid>
+                </Grid>
+            </Border>
         </Grid>
     </Grid>
 </UserControl>
