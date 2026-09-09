@@ -143,7 +143,8 @@ public sealed record ChatToolCall(string Id, string ToolName, string ArgumentsJs
 
 public sealed record ChatUsage(int InputTokens, int OutputTokens, int TotalTokens);
 
-/// <summary>One streamed fragment: either text, or the tool calls a finished turn asked for.</summary>
+/// <summary>One streamed fragment: text, the tool calls a finished turn asked for, or notice that the
+/// provider is being retried after a rate limit/transient error.</summary>
 public sealed record ChatCompletionUpdate
 {
     public string? TextDelta { get; init; }
@@ -152,11 +153,20 @@ public sealed record ChatCompletionUpdate
 
     public ChatUsage? Usage { get; init; }
 
+    public TimeSpan? RetryDelay { get; init; }
+
+    public int RetryAttempt { get; init; }
+
+    public int RetryMaxAttempts { get; init; }
+
     public static ChatCompletionUpdate Text(string delta) => new() { TextDelta = delta };
 
     public static ChatCompletionUpdate Calls(IReadOnlyList<ChatToolCall> calls) => new() { ToolCalls = calls };
 
     public static ChatCompletionUpdate UsageUpdate(ChatUsage usage) => new() { Usage = usage };
+
+    public static ChatCompletionUpdate RetryScheduled(TimeSpan delay, int attempt, int maxAttempts) =>
+        new() { RetryDelay = delay, RetryAttempt = attempt, RetryMaxAttempts = maxAttempts };
 }
 
 /// <summary>The seam a model provider implements.</summary>

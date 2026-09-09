@@ -4,6 +4,8 @@ using System.ClientModel.Primitives;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Runtime.ExceptionServices;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -63,38 +65,211 @@ public sealed class OpenAiCompatibleChatCompletionClient : IChatCompletionClient
         var client = await GetClientAsync(cancellationToken);
         var options = BuildOptions(request);
         var accumulator = new ChatToolCallAccumulator();
+        var messages = BuildMessages(request);
 
-        var updates = client.CompleteChatStreamingAsync(
-            BuildMessages(request), options, cancellationToken);
-
-        await foreach (var update in updates.WithCancellation(cancellationToken))
+        IAsyncEnumerator<OpenAiChat.StreamingChatCompletionUpdate>? enumerator = null;
+        var hasFirst = false;
+        for (var attempt = 1; enumerator is null; attempt++)
         {
-            foreach (var part in update.ContentUpdate)
+            var outcome = await TryConnectAsync(client, messages, options, attempt, cancellationToken);
+            switch (outcome)
             {
-                if (!string.IsNullOrEmpty(part.Text))
-                    yield return ChatCompletionUpdate.Text(part.Text);
+                case ConnectOutcome.Connected connected:
+                    enumerator = connected.Enumerator;
+                    hasFirst = connected.HasFirst;
+                    break;
+                case ConnectOutcome.Retrying retrying:
+                    // The wait itself happens here, outside any yield, so Stop/Escape cancels it for free.
+                    yield return ChatCompletionUpdate.RetryScheduled(retrying.Delay, attempt, MaxRetryAttempts);
+                    await Task.Delay(retrying.Delay, cancellationToken);
+                    break;
+                case ConnectOutcome.Failed failed:
+                    ExceptionDispatchInfo.Capture(failed.Exception).Throw();
+                    break;
             }
+        }
 
-            foreach (var call in update.ToolCallUpdates)
-            {
-                accumulator.Add(new ToolCallFragment(
-                    call.Index,
-                    call.ToolCallId,
-                    call.FunctionName,
-                    call.FunctionArgumentsUpdate?.ToString()));
-            }
+        if (!hasFirst)
+        {
+            await enumerator.DisposeAsync();
+            yield break;
+        }
 
-            if (update.Usage is not null)
+        try
+        {
+            do
             {
-                yield return ChatCompletionUpdate.UsageUpdate(new ChatUsage(
-                    update.Usage.InputTokenCount,
-                    update.Usage.OutputTokenCount,
-                    update.Usage.TotalTokenCount));
+                var update = enumerator.Current;
+                foreach (var part in update.ContentUpdate)
+                {
+                    if (!string.IsNullOrEmpty(part.Text))
+                        yield return ChatCompletionUpdate.Text(part.Text);
+                }
+
+                foreach (var call in update.ToolCallUpdates)
+                {
+                    accumulator.Add(new ToolCallFragment(
+                        call.Index,
+                        call.ToolCallId,
+                        call.FunctionName,
+                        call.FunctionArgumentsUpdate?.ToString()));
+                }
+
+                if (update.Usage is not null)
+                {
+                    yield return ChatCompletionUpdate.UsageUpdate(new ChatUsage(
+                        update.Usage.InputTokenCount,
+                        update.Usage.OutputTokenCount,
+                        update.Usage.TotalTokenCount));
+                }
             }
+            while (await enumerator.MoveNextAsync());
+        }
+        finally
+        {
+            await enumerator.DisposeAsync();
         }
 
         if (accumulator.HasCalls)
             yield return ChatCompletionUpdate.Calls(accumulator.Complete());
+    }
+
+    /// <summary>Opens the stream and awaits its first element, so a 429/5xx failing to even connect can
+    /// be reported for retry - once any element is returned, retrying would duplicate output.</summary>
+    private static async Task<ConnectOutcome> TryConnectAsync(
+        OpenAiChat.ChatClient client,
+        List<OpenAiChat.ChatMessage> messages,
+        OpenAiChat.ChatCompletionOptions options,
+        int attempt,
+        CancellationToken cancellationToken)
+    {
+        var enumerator = client.CompleteChatStreamingAsync(messages, options, cancellationToken)
+            .GetAsyncEnumerator(cancellationToken);
+        try
+        {
+            var hasFirst = await enumerator.MoveNextAsync();
+            return new ConnectOutcome.Connected(enumerator, hasFirst);
+        }
+        catch (ClientResultException exception) when (IsRetryable(exception))
+        {
+            await enumerator.DisposeAsync();
+            // A hard quota/billing limit reads as a 429 too, and so does a fully used-up free-tier
+            // daily/per-minute cap - neither recovers within our backoff window, so don't burn retries.
+            var noPointRetrying = IsQuotaExhausted(exception) || IsRateLimitWindowExhausted(exception);
+            return !noPointRetrying && attempt < MaxRetryAttempts
+                ? new ConnectOutcome.Retrying(GetRetryDelay(exception, attempt))
+                : new ConnectOutcome.Failed(exception);
+        }
+    }
+
+    private const int MaxRetryAttempts = 4;
+    private static readonly TimeSpan RetryBaseDelay = TimeSpan.FromSeconds(1);
+    private static readonly TimeSpan RetryMaxDelay = TimeSpan.FromSeconds(20);
+
+    // OpenAI's documented convention for a billing/plan limit, also followed by most "OpenAI-compatible"
+    // providers - not universal (e.g. Azure OpenAI and local servers rarely send a structured body).
+    // "payment_required" additionally covers OpenRouter's typed error_type for the same condition.
+    private static readonly string[] QuotaExhaustedErrorCodes =
+        ["insufficient_quota", "billing_hard_limit_reached", "payment_required"];
+
+    private static bool IsRetryable(ClientResultException exception) =>
+        exception.Status is 429 or 500 or 502 or 503 or 504;
+
+    /// <summary>402 Payment Required is OpenRouter's (and several other providers') direct HTTP signal for
+    /// "no credits left" - checked before the JSON body, since OpenRouter's error shape doesn't match the
+    /// OpenAI string-code convention `TryGetErrorCode` otherwise looks for.</summary>
+    private static bool IsQuotaExhausted(ClientResultException exception) =>
+        exception.Status == 402
+        || (TryGetErrorCode(exception) is { } code
+            && QuotaExhaustedErrorCodes.Contains(code, StringComparer.OrdinalIgnoreCase));
+
+    /// <summary>OpenRouter's free-model platform rate limit (requests/minute or requests/day) surfaces as
+    /// a plain 429/`rate_limit_exceeded` - indistinguishable by error code from a short transient burst -
+    /// but carries `X-RateLimit-Remaining: 0` on the response. A day-long cap won't clear inside any
+    /// backoff window this client would wait, so treat a fully consumed window as non-retryable too.</summary>
+    private static bool IsRateLimitWindowExhausted(ClientResultException exception)
+    {
+        var headers = exception.GetRawResponse()?.Headers;
+        return headers is not null
+            && headers.TryGetValue("X-RateLimit-Remaining", out var remaining)
+            && remaining?.Trim() == "0";
+    }
+
+    /// <summary>Reads a provider's typed error code when it sends one. Checks OpenAI's shape
+    /// (`error.code`/`error.type` as strings) and OpenRouter's (`error.metadata.error_type`, alongside a
+    /// numeric `error.code` that echoes the HTTP status). Not every provider sends a structured body at
+    /// all (Ollama/LM Studio in particular), in which case this quietly returns null and callers fall
+    /// back to status-code-only handling.</summary>
+    private static string? TryGetErrorCode(ClientResultException exception)
+    {
+        try
+        {
+            var content = exception.GetRawResponse()?.Content;
+            if (content is null)
+                return null;
+
+            using var document = JsonDocument.Parse(content);
+            if (!document.RootElement.TryGetProperty("error", out var error))
+                return null;
+
+            if (error.TryGetProperty("code", out var code) && code.ValueKind == JsonValueKind.String)
+                return code.GetString();
+
+            if (error.TryGetProperty("type", out var type) && type.ValueKind == JsonValueKind.String)
+                return type.GetString();
+
+            if (error.TryGetProperty("metadata", out var metadata)
+                && metadata.TryGetProperty("error_type", out var errorType)
+                && errorType.ValueKind == JsonValueKind.String)
+                return errorType.GetString();
+        }
+        catch (JsonException)
+        {
+            // Not a JSON error body at all - nothing to key off besides the status code.
+        }
+
+        return null;
+    }
+
+    /// <summary>Honors the provider's own Retry-After when it sends one, otherwise backs off exponentially.</summary>
+    private static TimeSpan GetRetryDelay(ClientResultException exception, int attempt)
+    {
+        if (exception.GetRawResponse()?.Headers.TryGetValue("Retry-After", out var retryAfter) == true
+            && double.TryParse(retryAfter, out var seconds))
+            return TimeSpan.FromSeconds(Math.Clamp(seconds, 0, RetryMaxDelay.TotalSeconds));
+
+        var exponential = RetryBaseDelay * Math.Pow(2, attempt - 1);
+        var jitter = TimeSpan.FromMilliseconds(System.Security.Cryptography.RandomNumberGenerator.GetInt32(0, 250));
+        var delay = exponential + jitter;
+        return delay < RetryMaxDelay ? delay : RetryMaxDelay;
+    }
+
+    /// <summary>Formats `X-RateLimit-Reset` (epoch seconds or milliseconds - the exact unit isn't
+    /// consistently documented) into a local time for the error message, when the header is present and
+    /// parseable.</summary>
+    private static string DescribeRateLimitReset(ClientResultException exception)
+    {
+        var headers = exception.GetRawResponse()?.Headers;
+        if (headers is null
+            || !headers.TryGetValue("X-RateLimit-Reset", out var resetHeader)
+            || !long.TryParse(resetHeader, out var resetValue))
+            return string.Empty;
+
+        var resetAt = resetValue > 10_000_000_000
+            ? DateTimeOffset.FromUnixTimeMilliseconds(resetValue)
+            : DateTimeOffset.FromUnixTimeSeconds(resetValue);
+        return $" (resets {resetAt.ToLocalTime():t})";
+    }
+
+    private abstract record ConnectOutcome
+    {
+        public sealed record Connected(
+            IAsyncEnumerator<OpenAiChat.StreamingChatCompletionUpdate> Enumerator,
+            bool HasFirst) : ConnectOutcome;
+
+        public sealed record Retrying(TimeSpan Delay) : ConnectOutcome;
+
+        public sealed record Failed(ClientResultException Exception) : ConnectOutcome;
     }
 
     public async Task<AgentToolResult> TestAsync(CancellationToken cancellationToken)
@@ -136,6 +311,11 @@ public sealed class OpenAiCompatibleChatCompletionClient : IChatCompletionClient
             "The provider rejected the API key. Check the key in Settings.",
         ClientResultException { Status: 404 } =>
             "The endpoint or model was not found. Check the endpoint address and the model name.",
+        ClientResultException clientException when IsQuotaExhausted(clientException) =>
+            "This account has no remaining quota. Check your plan and billing, then try again.",
+        ClientResultException clientException when IsRateLimitWindowExhausted(clientException) =>
+            $"The request limit for this key has been used up{DescribeRateLimitReset(clientException)}. " +
+            "Wait for it to reset, or use a different provider/key.",
         ClientResultException { Status: 429 } =>
             "The provider is rate limiting this key. Wait a moment and try again.",
         ClientResultException { Status: >= 500 } =>

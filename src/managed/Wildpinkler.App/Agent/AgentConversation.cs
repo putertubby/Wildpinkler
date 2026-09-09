@@ -21,6 +21,10 @@ public abstract record AgentTurnEvent
 
     public sealed record Usage(ChatUsage Value) : AgentTurnEvent;
 
+    /// <summary>The provider is being retried after a rate limit or transient error; UI can show a
+    /// countdown for the wait.</summary>
+    public sealed record RetryScheduled(TimeSpan Delay, int Attempt, int MaxAttempts) : AgentTurnEvent;
+
     public sealed record ToolDeclined(ChatToolCall Call) : AgentTurnEvent;
 
     public sealed record ToolFinished(ChatToolCall Call, AgentToolResult Result) : AgentTurnEvent;
@@ -140,6 +144,10 @@ public sealed class AgentConversation
 
                 if (update.Usage is not null)
                     yield return new AgentTurnEvent.Usage(update.Usage);
+
+                if (update.RetryDelay is not null)
+                    yield return new AgentTurnEvent.RetryScheduled(
+                        update.RetryDelay.Value, update.RetryAttempt, update.RetryMaxAttempts);
             }
 
             if (failure is not null)

@@ -13,6 +13,7 @@ public enum ChatEntryKind
     Tool,
     Approval,
     Notice,
+    Retrying,
 }
 
 /// <summary>
@@ -28,6 +29,8 @@ public sealed class ChatEntry : ObservableObject
     private string _header = string.Empty;
     private string _detail = string.Empty;
     private bool _isAwaitingAnswer;
+    private bool _showProgress;
+    private double _progressMaximum;
 
     public ChatEntry(string id, ChatEntryKind kind, string text)
     {
@@ -75,6 +78,19 @@ public sealed class ChatEntry : ObservableObject
     {
         get => _isAwaitingAnswer;
         set => SetProperty(ref _isAwaitingAnswer, value);
+    }
+
+    /// <summary>Generic progress fields (currently only used by the retry countdown row).</summary>
+    public bool ShowProgress
+    {
+        get => _showProgress;
+        set => SetProperty(ref _showProgress, value);
+    }
+
+    public double ProgressMaximum
+    {
+        get => _progressMaximum;
+        set => SetProperty(ref _progressMaximum, value);
     }
 
     public void Append(string delta) => Text += delta;

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
@@ -14,6 +15,7 @@ public sealed partial class AssistantMarkdown : UserControl
 {
     private static readonly FontFamily CodeFont = new("Consolas");
     private static readonly string[] BulletGlyphs = ["\u2022", "\u25E6", "\u25AA", "\u25AA"];
+    private static readonly TimeSpan RenderDebounce = TimeSpan.FromMilliseconds(50);
 
     public static readonly DependencyProperty TextProperty = DependencyProperty.Register(
         nameof(Text),
@@ -21,9 +23,18 @@ public sealed partial class AssistantMarkdown : UserControl
         typeof(AssistantMarkdown),
         new PropertyMetadata(string.Empty, OnTextChanged));
 
+    private readonly DispatcherQueueTimer _renderTimer;
+    private string _pendingText = string.Empty;
+
     public AssistantMarkdown()
     {
         InitializeComponent();
+
+        _renderTimer = DispatcherQueue.CreateTimer();
+        _renderTimer.Interval = RenderDebounce;
+        _renderTimer.IsRepeating = false;
+        _renderTimer.Tick += (_, _) => Render(_pendingText);
+        Unloaded += (_, _) => _renderTimer.Stop();
 
         // Brushes are resolved in code, so a theme switch needs an explicit rebuild.
         ActualThemeChanged += (_, _) => Render(Text);
@@ -35,9 +46,19 @@ public sealed partial class AssistantMarkdown : UserControl
         set => SetValue(TextProperty, value);
     }
 
-    private static void OnTextChanged(DependencyObject sender, DependencyPropertyChangedEventArgs args)
+    private static void OnTextChanged(DependencyObject sender, DependencyPropertyChangedEventArgs args) =>
+        ((AssistantMarkdown)sender).ScheduleRender((string?)args.NewValue ?? string.Empty);
+
+    /// <summary>Streaming rewrites Text many times a second; rebuilding the whole visual tree that often
+    /// is what causes the flicker, so updates are coalesced and only the first paint renders immediately.</summary>
+    private void ScheduleRender(string markdown)
     {
-        ((AssistantMarkdown)sender).Render((string?)args.NewValue ?? string.Empty);
+        _pendingText = markdown;
+        _renderTimer.Stop();
+        if (ContentRoot.Children.Count == 0)
+            Render(markdown);
+        else
+            _renderTimer.Start();
     }
 
     private void Render(string markdown)

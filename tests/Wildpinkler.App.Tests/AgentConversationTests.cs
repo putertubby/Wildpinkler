@@ -26,6 +26,25 @@ public sealed class AgentConversationTests
     }
 
     [Fact]
+    public async Task SendAsync_RetryScheduledUpdate_ForwardsRetryEventBeforeAnswer()
+    {
+        var client = new FakeChatCompletionClient(
+        [
+            [ChatCompletionUpdate.RetryScheduled(TimeSpan.FromSeconds(2), 1, 4), ChatCompletionUpdate.Text("Hi there")],
+        ]);
+        var conversation = Build(client, out _, out _, out _);
+
+        var events = await Collect(conversation, "hello");
+
+        var retry = Assert.Single(events.OfType<AgentTurnEvent.RetryScheduled>());
+        Assert.Equal(TimeSpan.FromSeconds(2), retry.Delay);
+        Assert.Equal(1, retry.Attempt);
+        Assert.Equal(4, retry.MaxAttempts);
+        Assert.True(events.IndexOf(retry) < events.IndexOf(events.OfType<AgentTurnEvent.TextDelta>().First()));
+        Assert.Contains(events, turnEvent => turnEvent is AgentTurnEvent.TurnCompleted);
+    }
+
+    [Fact]
     public async Task SendAsync_ReadOnlyToolCall_InvokesToolWithoutApproval()
     {
         var tool = new FakeAgentTool("list_mods", isDestructive: false, AgentToolResult.Ok("12"));

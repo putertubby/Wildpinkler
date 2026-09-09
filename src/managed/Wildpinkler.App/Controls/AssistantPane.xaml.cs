@@ -11,6 +11,7 @@ using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Animation;
 using Wildpinkler.App.Agent;
 using Wildpinkler.App.Services;
 
@@ -41,6 +42,14 @@ public sealed partial class AssistantPane : UserControl, IDisposable, IAgentTool
     private CancellationTokenSource? _inFlight;
     private string? _lastPrompt;
     private bool _disposed;
+    private bool _stickToBottom = true;
+    private bool _autoScrolling;
+    private ChatEntry? _retryEntry;
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer? _retryTimer;
+    private DateTimeOffset _retryStartedAt;
+    private TimeSpan _retryTotalDelay;
+    private ProgressBar? _retryProgressBar;
+    private Storyboard? _retryProgressStoryboard;
 
     public AssistantPane()
     {
@@ -58,7 +67,12 @@ public sealed partial class AssistantPane : UserControl, IDisposable, IAgentTool
         _model.PropertyChanged += Model_PropertyChanged;
         _transcript.Cleared += Transcript_Cleared;
         _configuration.Changed += Configuration_Changed;
-        TranscriptList.Loaded += (_, _) => _transcriptScroll = FindScrollViewer(TranscriptList);
+        TranscriptList.Loaded += (_, _) =>
+        {
+            _transcriptScroll = FindScrollViewer(TranscriptList);
+            if (_transcriptScroll is not null)
+                _transcriptScroll.ViewChanged += TranscriptScroll_ViewChanged;
+        };
         Unloaded += (_, _) => CancelInFlight();
 
         UiTask.Run(RestoreAsync, nameof(RestoreAsync), ShowUnexpectedFailure);
@@ -470,7 +484,6 @@ public sealed partial class AssistantPane : UserControl, IDisposable, IAgentTool
 
     public Task<bool> RequestAsync(IAgentTool tool, string argumentsJson, string? preview, CancellationToken cancellationToken)
     {
-        var wasAtBottom = IsScrolledToBottom();
         var entry = _model.Add(ChatEntryKind.Approval, "Waiting for your answer.");
         entry.Header = tool.IsDestructive
             ? $"Allow '{tool.Name}'? This changes your setup."
@@ -479,7 +492,7 @@ public sealed partial class AssistantPane : UserControl, IDisposable, IAgentTool
             ? Prettify(argumentsJson)
             : $"Preview:\n{preview}\n\nArguments:\n{Prettify(argumentsJson)}";
         entry.IsAwaitingAnswer = true;
-        ScrollToEnd(wasAtBottom);
+        ScrollToEnd(_stickToBottom);
 
         var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         _pendingApprovals[entry.Id] = completion;
@@ -547,6 +560,7 @@ public sealed partial class AssistantPane : UserControl, IDisposable, IAgentTool
         _model.Add(ChatEntryKind.User, prompt, $"m{_transcript.Messages.Count}");
         _model.HideStatus();
         _model.IsBusy = true;
+        _stickToBottom = true;
         ScrollToEnd(true);
 
         CancelInFlight();
@@ -560,7 +574,9 @@ public sealed partial class AssistantPane : UserControl, IDisposable, IAgentTool
             _references.Clear();
             await foreach (var turnEvent in _conversation.SendAsync(prompt, references, token))
             {
-                var wasAtBottom = IsScrolledToBottom();
+                if (turnEvent is not AgentTurnEvent.RetryScheduled)
+                    ClearRetryCountdown();
+
                 switch (turnEvent)
                 {
                     case AgentTurnEvent.TextDelta delta:
@@ -580,6 +596,9 @@ public sealed partial class AssistantPane : UserControl, IDisposable, IAgentTool
                         _model.Add(ChatEntryKind.Notice,
                             $"Usage: {usage.Value.InputTokens:N0} input + {usage.Value.OutputTokens:N0} output = {usage.Value.TotalTokens:N0} tokens.");
                         break;
+                    case AgentTurnEvent.RetryScheduled retry:
+                        ShowRetryCountdown(retry.Delay, retry.Attempt, retry.MaxAttempts);
+                        break;
                     case AgentTurnEvent.ToolDeclined:
                         answer = null;
                         break;
@@ -593,15 +612,17 @@ public sealed partial class AssistantPane : UserControl, IDisposable, IAgentTool
                         break;
                 }
 
-                ScrollToEnd(wasAtBottom);
+                ScrollToEnd(_stickToBottom);
             }
         }
         catch (OperationCanceledException)
         {
+            ClearRetryCountdown();
             _model.Add(ChatEntryKind.Notice, "Stopped.");
         }
         catch (Exception exception)
         {
+            ClearRetryCountdown();
             AppDiagnostics.Write("The assistant request failed.", exception);
             _model.ShowStatus("The assistant could not answer", exception.Message, ChatStatusAction.Retry);
         }
@@ -677,10 +698,164 @@ public sealed partial class AssistantPane : UserControl, IDisposable, IAgentTool
         _transcriptScroll is null
         || _transcriptScroll.ScrollableHeight - _transcriptScroll.VerticalOffset < 32;
 
-    private void ScrollToEnd(bool wasAtBottom)
+    /// <summary>Our own animated scroll takes a while to settle; ignore the ViewChanged it raises and
+    /// only treat a settled view change as the user's own scroll for updating the stick-to-bottom flag.</summary>
+    private void TranscriptScroll_ViewChanged(object? sender, ScrollViewerViewChangedEventArgs args)
     {
-        if (wasAtBottom && _model.Entries.Count > 0)
+        if (args.IsIntermediate)
+            return;
+
+        if (_autoScrolling)
+        {
+            _autoScrolling = false;
+            return;
+        }
+
+        _stickToBottom = IsScrolledToBottom();
+    }
+
+    /// <summary>Animates to the new bottom as the response grows, instead of teleporting there, so the
+    /// list appears to smoothly make room for it. Keeps animating on every call while the caller wants to
+    /// stick to bottom, rather than relying on a since-lapsed snapshot of the scroll position.</summary>
+    private void ScrollToEnd(bool stickToBottom)
+    {
+        if (!stickToBottom || _model.Entries.Count == 0)
+            return;
+
+        if (_transcriptScroll is null)
+        {
             TranscriptList.ScrollIntoView(_model.Entries[^1]);
+            return;
+        }
+
+        TranscriptList.UpdateLayout();
+        _autoScrolling = true;
+        _transcriptScroll.ChangeView(null, _transcriptScroll.ScrollableHeight, null, disableAnimation: false);
+    }
+
+    /// <summary>Quick fade-in for a freshly realized entry; disabled list transitions mean this is the
+    /// only entrance animation a new row gets.</summary>
+    private void Entry_Loaded(object sender, RoutedEventArgs args)
+    {
+        if (sender is not FrameworkElement element)
+            return;
+
+        element.Opacity = 0;
+        var fade = new DoubleAnimation
+        {
+            From = 0,
+            To = 1,
+            Duration = new Duration(TimeSpan.FromMilliseconds(120)),
+            EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut },
+        };
+        Storyboard.SetTarget(fade, element);
+        Storyboard.SetTargetProperty(fade, "Opacity");
+        var storyboard = new Storyboard();
+        storyboard.Children.Add(fade);
+        storyboard.Begin();
+    }
+
+    /// <summary>Below this wait, only the subtle text row is shown; a progress bar for a sub-second
+    /// retry would just be visual noise.</summary>
+    private static readonly TimeSpan NoticeableRetryWait = TimeSpan.FromSeconds(1.5);
+
+    /// <summary>Shows (or updates in place) a single transient row while a rate-limited/transient request
+    /// is retried, with a live countdown bar for waits long enough to be worth showing one.</summary>
+    private void ShowRetryCountdown(TimeSpan delay, int attempt, int maxAttempts)
+    {
+        _retryEntry ??= _model.Add(ChatEntryKind.Retrying, string.Empty);
+        _retryEntry.Header = attempt <= 1
+            ? "The provider is rate limiting this request."
+            : $"Still rate limited \u2014 retry {attempt} of {maxAttempts}.";
+        _retryEntry.ShowProgress = delay >= NoticeableRetryWait;
+        _retryEntry.ProgressMaximum = delay.TotalSeconds;
+        ScrollToEnd(_stickToBottom);
+
+        _retryStartedAt = DateTimeOffset.UtcNow;
+        _retryTotalDelay = delay;
+        UpdateRetryCountdownText();
+        AnimateRetryProgress(delay);
+
+        _retryTimer ??= CreateRetryTimer();
+        _retryTimer.Start();
+    }
+
+    /// <summary>Called once when the progress bar for the current retry row is realized, so a countdown
+    /// already in flight (the row existed before this container did) picks up mid-animation.</summary>
+    private void RetryProgress_Loaded(object sender, RoutedEventArgs args)
+    {
+        if (sender is not ProgressBar bar)
+            return;
+
+        _retryProgressBar = bar;
+        if (_retryEntry is not null)
+            AnimateRetryProgress(RemainingRetryDelay());
+    }
+
+    /// <summary>Drives the bar with one continuous Storyboard animation for the whole wait instead of
+    /// stepping `Value` on a timer tick, which is what was causing the visible flicker.</summary>
+    private void AnimateRetryProgress(TimeSpan remaining)
+    {
+        if (_retryProgressBar is null)
+            return;
+
+        _retryProgressStoryboard?.Stop();
+        _retryProgressBar.Value = remaining.TotalSeconds;
+
+        var animation = new DoubleAnimation
+        {
+            From = remaining.TotalSeconds,
+            To = 0,
+            Duration = new Duration(remaining),
+            EnableDependentAnimation = true,
+        };
+        Storyboard.SetTarget(animation, _retryProgressBar);
+        Storyboard.SetTargetProperty(animation, "Value");
+
+        _retryProgressStoryboard = new Storyboard();
+        _retryProgressStoryboard.Children.Add(animation);
+        _retryProgressStoryboard.Begin();
+    }
+
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer CreateRetryTimer()
+    {
+        var timer = DispatcherQueue.CreateTimer();
+        timer.Interval = TimeSpan.FromMilliseconds(100);
+        timer.IsRepeating = true;
+        timer.Tick += (_, _) => UpdateRetryCountdownText();
+        return timer;
+    }
+
+    private TimeSpan RemainingRetryDelay()
+    {
+        var remaining = _retryTotalDelay - (DateTimeOffset.UtcNow - _retryStartedAt);
+        return remaining < TimeSpan.Zero ? TimeSpan.Zero : remaining;
+    }
+
+    /// <summary>Only the countdown text is polled; the bar itself is animated, not stepped.</summary>
+    private void UpdateRetryCountdownText()
+    {
+        if (_retryEntry is null)
+            return;
+
+        var remaining = RemainingRetryDelay();
+        _retryEntry.Detail = remaining > TimeSpan.Zero
+            ? $"Retrying in {Math.Ceiling(remaining.TotalSeconds):0}s\u2026"
+            : "Reconnecting\u2026";
+
+        if (remaining == TimeSpan.Zero)
+            _retryTimer?.Stop();
+    }
+
+    private void ClearRetryCountdown()
+    {
+        _retryTimer?.Stop();
+        _retryProgressStoryboard?.Stop();
+        if (_retryEntry is null)
+            return;
+
+        _model.Entries.Remove(_retryEntry);
+        _retryEntry = null;
     }
 
     private void CancelInFlight()
@@ -689,6 +864,7 @@ public sealed partial class AssistantPane : UserControl, IDisposable, IAgentTool
             pending.TrySetResult(false);
         _pendingApprovals.Clear();
 
+        _retryTimer?.Stop();
         _inFlight?.Cancel();
         _inFlight?.Dispose();
         _inFlight = null;
@@ -703,6 +879,8 @@ public sealed partial class AssistantPane : UserControl, IDisposable, IAgentTool
         _model.PropertyChanged -= Model_PropertyChanged;
         _transcript.Cleared -= Transcript_Cleared;
         _configuration.Changed -= Configuration_Changed;
+        if (_transcriptScroll is not null)
+            _transcriptScroll.ViewChanged -= TranscriptScroll_ViewChanged;
         CancelInFlight();
     }
 }

@@ -17,7 +17,8 @@
                     CornerRadius="8"
                     Padding="12,8"
                     Margin="24,4,0,4"
-                    HorizontalAlignment="Right">
+                    HorizontalAlignment="Right"
+                    Loaded="Entry_Loaded">
                 <StackPanel Spacing="6">
                     <TextBlock Text="{x:Bind Text, Mode=OneWay}"
                                TextWrapping="Wrap"
@@ -34,14 +35,16 @@
         <DataTemplate x:Key="AssistantEntryTemplate" x:DataType="agent:ChatEntry">
             <controls:AssistantMarkdown Text="{x:Bind Text, Mode=OneWay}"
                                          Margin="0,4,24,4"
-                                         AutomationProperties.Name="Assistant response" />
+                                         AutomationProperties.Name="Assistant response"
+                                         Loaded="Entry_Loaded" />
         </DataTemplate>
 
         <DataTemplate x:Key="ToolEntryTemplate" x:DataType="agent:ChatEntry">
             <Expander HorizontalAlignment="Stretch"
                       HorizontalContentAlignment="Stretch"
                       Margin="0,4"
-                      IsExpanded="{x:Bind IsExpanded, Mode=TwoWay}">
+                      IsExpanded="{x:Bind IsExpanded, Mode=TwoWay}"
+                      Loaded="Entry_Loaded">
                 <Expander.Header>
                     <StackPanel Orientation="Horizontal" Spacing="8">
                         <ProgressRing Width="16"
@@ -67,7 +70,8 @@
                     BorderThickness="1"
                     CornerRadius="8"
                     Padding="12"
-                    Margin="0,4">
+                    Margin="0,4"
+                    Loaded="Entry_Loaded">
                 <StackPanel Spacing="8">
                     <TextBlock Text="{x:Bind Header, Mode=OneWay}"
                                Style="{StaticResource BodyStrongTextBlockStyle}"
@@ -99,7 +103,27 @@
                        TextWrapping="Wrap"
                        Margin="0,4"
                        Style="{StaticResource CaptionTextBlockStyle}"
-                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                       Loaded="Entry_Loaded" />
+        </DataTemplate>
+
+        <DataTemplate x:Key="RetryingEntryTemplate" x:DataType="agent:ChatEntry">
+            <StackPanel Spacing="4" Margin="0,4" Loaded="Entry_Loaded">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <FontIcon Glyph="&#xE916;"
+                              FontSize="12"
+                              Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <TextBlock Text="{x:Bind Header, Mode=OneWay}"
+                               TextWrapping="Wrap"
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                </StackPanel>
+                <ProgressBar Minimum="0"
+                             Maximum="{x:Bind ProgressMaximum, Mode=OneWay}"
+                             Visibility="{x:Bind ShowProgress, Mode=OneWay}"
+                             AutomationProperties.Name="{x:Bind Detail, Mode=OneWay}"
+                             Loaded="RetryProgress_Loaded" />
+            </StackPanel>
         </DataTemplate>
 
         <controls:ChatEntryTemplateSelector x:Key="EntryTemplates"
@@ -107,7 +131,8 @@
                                             Assistant="{StaticResource AssistantEntryTemplate}"
                                             Tool="{StaticResource ToolEntryTemplate}"
                                             Approval="{StaticResource ApprovalEntryTemplate}"
-                                            Notice="{StaticResource NoticeEntryTemplate}" />
+                                            Notice="{StaticResource NoticeEntryTemplate}"
+                                            Retrying="{StaticResource RetryingEntryTemplate}" />
     </UserControl.Resources>
 
     <Grid Background="{ThemeResource LayerFillColorDefaultBrush}"
@@ -201,6 +226,11 @@
                         <Setter Property="Padding" Value="0" />
                     </Style>
                 </ListView.ItemContainerStyle>
+                <!-- Default entrance/reorder transitions fight with the synchronous ScrollIntoView on
+                     every streamed update, which is what reads as flicker; a chat log needs neither. -->
+                <ListView.ItemContainerTransitions>
+                    <TransitionCollection />
+                </ListView.ItemContainerTransitions>
             </ListView>
 
             <StackPanel VerticalAlignment="Center"

@@ -17,6 +17,8 @@ public sealed class ChatEntryTemplateSelector : DataTemplateSelector
 
     public DataTemplate? Notice { get; set; }
 
+    public DataTemplate? Retrying { get; set; }
+
     protected override DataTemplate? SelectTemplateCore(object item) => item is ChatEntry entry
         ? entry.Kind switch
         {
@@ -24,6 +26,7 @@ public sealed class ChatEntryTemplateSelector : DataTemplateSelector
             ChatEntryKind.Tool => Tool,
             ChatEntryKind.Approval => Approval,
             ChatEntryKind.Notice => Notice,
+            ChatEntryKind.Retrying => Retrying,
             _ => Assistant,
         }
         : Assistant;
