@@ -28,6 +28,7 @@ public sealed partial class ToolsPage : PageBase
     private List<Profile> _profiles = new();
     private IReadOnlyList<ToolDefinition> _definitions = Array.Empty<ToolDefinition>();
     private double _listDetailsWidth;
+    private long _profilesRevision;
 
     private bool _isLoading = true;
     private string? _loadErrorMessage;
@@ -61,6 +62,7 @@ public sealed partial class ToolsPage : PageBase
         ToolList.ItemsSource = _visibleTools;
         DetailsColumnDef.RegisterPropertyChangedCallback(ColumnDefinition.WidthProperty, DetailsColumnDef_WidthChanged);
         _queue.Changed += Queue_Changed;
+        _profileStore.Changed += ProfileStore_Changed;
         _ = LoadAsync();
     }
 
@@ -128,6 +130,7 @@ public sealed partial class ToolsPage : PageBase
             foreach (var tool in await _store.LoadAsync())
                 _allTools.Add(tool);
 
+            _profilesRevision = _profileStore.Revision;
             _profiles = (await _profileStore.LoadAsync()).ToList();
             ApplyUsageCounts();
 
@@ -167,6 +170,29 @@ public sealed partial class ToolsPage : PageBase
     {
         foreach (var tool in _allTools)
             tool.UsageCount = _profiles.Count(profile => profile.Tools.Any(bound => bound.ToolEntryId == tool.Id));
+    }
+
+    private void ProfileStore_Changed(object? sender, EventArgs args) => DispatcherQueue.TryEnqueue(() => _ = SyncUsageCountsAsync());
+
+    // Profiles are owned by ProfilesPage, so a cached ToolsPage instance only sees new usage counts by
+    // re-reading them here - relying on the constructor's one-time load would keep showing whatever
+    // was true the first time this page was ever navigated to. This can be triggered by the user
+    // editing a profile OR by an agent action.
+    private async Task SyncUsageCountsAsync()
+    {
+        if (IsLoading || _profileStore.Revision == _profilesRevision)
+            return;
+
+        try
+        {
+            _profilesRevision = _profileStore.Revision;
+            _profiles = (await _profileStore.LoadAsync()).ToList();
+            ApplyUsageCounts();
+        }
+        catch (Exception exception)
+        {
+            ShowInfo($"Unable to refresh usage counts. {exception.Message}", InfoBarSeverity.Warning);
+        }
     }
 
     private void ApplyDefinitions()

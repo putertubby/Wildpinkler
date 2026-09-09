@@ -15,6 +15,7 @@ public sealed record RemoteFileListDto(string ModId, string SiteId, IReadOnlyLis
 public sealed record RemoteHashMatchDto(string ModId, string SiteId, string Name, string? Author, string? Version, string FileKey, string FileName, string? FileVersion, long? SizeInBytes, DateTimeOffset? UpdatedAt);
 public sealed record RemoteTrackedModDto(string SiteId, string GameKey, string ModKey, string Name, string? Author, string? Version, DateTimeOffset? UpdatedAt);
 public sealed record RemoteRateLimitDto(string SiteId, int? HourlyRemaining, int? DailyRemaining, DateTimeOffset? HourlyReset, DateTimeOffset? DailyReset, bool IsExhausted);
+public sealed record RemoteGameDto(string SiteId, string GameKey, string Name, string? Genre);
 
 public sealed record GetRemoteModCommand(string ModId) : IAppCommand<RemoteModDto>;
 public sealed record GetRemoteModFilesCommand(string ModId) : IAppCommand<RemoteFileListDto>;
@@ -22,6 +23,8 @@ public sealed record GetRemoteFileCommand(string ModId, string FileKey) : IAppCo
 public sealed record IdentifyRemoteArchiveCommand(string ModId) : IAppCommand<RemoteHashMatchDto?>;
 public sealed record GetTrackedRemoteModsCommand : IAppCommand<IReadOnlyList<RemoteTrackedModDto>>;
 public sealed record GetRemoteRateLimitsCommand : IAppCommand<IReadOnlyList<RemoteRateLimitDto>>;
+public sealed record GetRemoteGamesCommand : IAppCommand<IReadOnlyList<RemoteGameDto>>;
+public sealed record CheckModForUpdateCommand(string ModId, string Period = "1w") : IAppCommand<ModUpdateCheckResult>;
 
 public sealed class GetRemoteModHandler : IAppCommandHandler<GetRemoteModCommand, RemoteModDto>
 {
@@ -141,6 +144,51 @@ public sealed class GetRemoteRateLimitsHandler : IAppCommandHandler<GetRemoteRat
                 provider.LastRateLimit.IsExhausted))
             .ToList();
         return Task.FromResult(result);
+    }
+}
+
+public sealed class GetRemoteGamesHandler : IAppCommandHandler<GetRemoteGamesCommand, IReadOnlyList<RemoteGameDto>>
+{
+    private readonly RemoteSiteRegistry _registry;
+    private readonly RemoteGameCatalog _catalog;
+
+    public GetRemoteGamesHandler(RemoteSiteRegistry registry, RemoteGameCatalog catalog) =>
+        (_registry, _catalog) = (registry, catalog);
+
+    public async Task<IReadOnlyList<RemoteGameDto>> HandleAsync(GetRemoteGamesCommand command, CancellationToken cancellationToken)
+    {
+        var results = new List<RemoteGameDto>();
+        foreach (var provider in _registry.Providers.Where(item => item.Capabilities.SupportsGameCatalog))
+        {
+            var games = await _catalog.GetGamesAsync(provider, cancellationToken);
+            results.AddRange(games.Select(game => new RemoteGameDto(provider.SiteId, game.GameKey, game.Name, game.Genre)));
+        }
+
+        return results;
+    }
+}
+
+public sealed class CheckModForUpdateHandler : IAppCommandHandler<CheckModForUpdateCommand, ModUpdateCheckResult>
+{
+    private readonly ModStore _mods;
+    private readonly UpdateCheckService _updates;
+
+    public CheckModForUpdateHandler(ModStore mods, UpdateCheckService updates) => (_mods, _updates) = (mods, updates);
+
+    public async Task<ModUpdateCheckResult> HandleAsync(CheckModForUpdateCommand command, CancellationToken cancellationToken)
+    {
+        var mod = (await _mods.LoadAsync()).FirstOrDefault(candidate => string.Equals(candidate.Id, command.ModId, StringComparison.Ordinal))
+            ?? throw new InvalidOperationException($"Mod '{command.ModId}' was not found.");
+        if (mod.Remote is null)
+            throw new InvalidOperationException($"'{mod.Name}' has no upstream site record.");
+
+        // The site API only reports updates per site/game, not per mod, so one sweep is still made -
+        // this just narrows the result to the mod the caller asked about.
+        var result = await _updates.CheckForUpdatesAsync(command.Period, cancellationToken);
+        var candidates = result.Candidates.Where(candidate => candidate.Entry.Id == mod.Id).ToList();
+        var failures = result.Failures.Where(failure =>
+            failure.SiteId == mod.Remote.SiteId && failure.GameKey == mod.Remote.GameKey).ToList();
+        return new ModUpdateCheckResult(candidates, failures);
     }
 }
 

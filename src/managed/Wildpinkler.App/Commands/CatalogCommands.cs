@@ -62,6 +62,25 @@ public sealed class ListModsHandler : IAppCommandHandler<ListModsCommand, IReadO
             mod.Remote?.SiteId, mod.Remote?.ModKey, mod.ProfileCount, mod.DependencyState)).ToList();
 }
 
+public sealed record GetModCommand(string ModId) : IAppCommand<ModSummaryDto>;
+
+public sealed class GetModHandler : IAppCommandHandler<GetModCommand, ModSummaryDto>
+{
+    private readonly ModStore _mods;
+
+    public GetModHandler(ModStore mods) => _mods = mods;
+
+    public async Task<ModSummaryDto> HandleAsync(GetModCommand command, CancellationToken cancellationToken)
+    {
+        var mods = await _mods.LoadAsync();
+        var mod = mods.FirstOrDefault(candidate => string.Equals(candidate.Id, command.ModId, StringComparison.Ordinal))
+            ?? throw new InvalidOperationException($"Mod '{command.ModId}' was not found.");
+        return new ModSummaryDto(
+            mod.Id, mod.Name, mod.Game, mod.Version, mod.Source, mod.Status,
+            mod.Remote?.SiteId, mod.Remote?.ModKey, mod.ProfileCount, mod.DependencyState);
+    }
+}
+
 public sealed record CheckForUpdatesCommand(string Period = "1w") : IAppCommand<ModUpdateCheckResult>;
 
 public sealed class CheckForUpdatesHandler : IAppCommandHandler<CheckForUpdatesCommand, ModUpdateCheckResult>

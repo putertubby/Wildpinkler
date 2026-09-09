@@ -130,9 +130,10 @@ public sealed partial class ProfilesPage : PageBase
         DispatcherQueue.TryEnqueue(() => _ = SyncProfilesAsync());
 
     /// <summary>
-    /// Re-reads the store when its revision moved past what this page last loaded. Only a changed
-    /// set of profiles refreshes the UI: this page's own saves bump the revision too, and refreshing
-    /// on those would re-enter the workspace refresh that triggered the save in the first place.
+    /// Re-reads the store when its revision moved past what this page last loaded. Always reconciles
+    /// each profile's own content (not just which profiles exist), because a save can come from
+    /// somewhere other than this page's own edits - for example an agent action - and change only a
+    /// folder's enabled state or a tool binding without adding or removing any profile.
     /// </summary>
     private async Task SyncProfilesAsync()
     {
@@ -151,12 +152,8 @@ public sealed partial class ProfilesPage : PageBase
             return;
         }
 
-        var storedIds = stored.Select(profile => profile.Id).ToHashSet(StringComparer.Ordinal);
-        if (storedIds.SetEquals(_allProfiles.Select(profile => profile.Id)))
-            return;
-
         var selected = SelectedProfile;
-        CollectionReconciler.Reconcile(_allProfiles, stored, profile => profile.Id);
+        CollectionReconciler.Reconcile(_allProfiles, stored, profile => profile.Id, MergeProfileContent);
         ApplyGameNames();
         RefreshProfiles();
 
@@ -164,6 +161,23 @@ public sealed partial class ProfilesPage : PageBase
             ProfileList.SelectedItems.Clear();
 
         UpdateSelectedProfileDetails();
+
+        // The load-order card refreshed its content above, but the advisory dependency panel below it
+        // is computed separately and would otherwise keep showing whatever it last saw.
+        if (SelectedProfile is { } refreshedProfile)
+            UiTask.Run(() => RefreshDependencyIssuesAsync(refreshedProfile), nameof(SyncProfilesAsync), ShowLoadOrderError);
+    }
+
+    // Copies a freshly loaded profile's mutable content into the one already bound to the UI, in
+    // place, so external changes surface without resetting selection, scroll or expansion state.
+    private static void MergeProfileContent(Profile target, Profile source)
+    {
+        target.Name = source.Name;
+        CollectionReconciler.Reconcile(target.LoadOrder, source.LoadOrder, folder => folder.Id, (current, desired) => current.UpdateFrom(desired));
+        CollectionReconciler.Reconcile(target.Tools, source.Tools, tool => tool.ToolEntryId, (current, desired) => current.UpdateFrom(desired));
+        target.Variables = source.Variables;
+        target.MergedViews = source.MergedViews;
+        target.NotifySummaryChanged();
     }
 
     private void LaunchService_LaunchCompleted(LaunchCompletion completion) => DispatcherQueue.TryEnqueue(() =>

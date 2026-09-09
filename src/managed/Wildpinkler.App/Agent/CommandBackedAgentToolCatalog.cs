@@ -56,6 +56,9 @@ public sealed class CommandBackedAgentToolCatalog : IAgentToolCatalog
 internal sealed class CommandAgentTool : IAgentTool
 {
     private static readonly JsonSerializerOptions ResultOptions = new() { WriteIndented = false };
+    // Tool schemas advertise camelCase parameter names, but command records are PascalCase - without
+    // this, every argument silently fails to bind and the command runs with default(T) for every field.
+    private static readonly JsonSerializerOptions ArgumentOptions = new() { PropertyNameCaseInsensitive = true };
 
     private readonly AppCommandDescriptor _descriptor;
     private readonly IAppCommandDispatcher _dispatcher;
@@ -92,7 +95,8 @@ internal sealed class CommandAgentTool : IAgentTool
         {
             command = JsonSerializer.Deserialize(
                 string.IsNullOrWhiteSpace(argumentsJson) ? "{}" : argumentsJson,
-                _descriptor.CommandType);
+                _descriptor.CommandType,
+                ArgumentOptions);
         }
         catch (JsonException exception)
         {

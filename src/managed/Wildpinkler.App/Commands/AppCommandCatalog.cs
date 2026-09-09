@@ -53,6 +53,22 @@ public sealed class AppCommandCatalog : IAppCommandCatalog
             Parameters: []),
 
         new AppCommandDescriptor(
+            "mods.get",
+            "Fetches full detail for one locally known mod.",
+            typeof(GetModCommand), typeof(ModSummaryDto),
+            Group: "core",
+            IsDestructive: false, RequiresConfirmation: false,
+            Parameters: [new AppCommandParameter("modId", "string", "The local Wildpinkler mod id.", IsRequired: true)]),
+
+        new AppCommandDescriptor(
+            "profiles.getLoadOrder",
+            "Lists a profile's load-order folders in priority order, including which are enabled or pinned.",
+            typeof(GetLoadOrderCommand), typeof(IReadOnlyList<ProfileFolderDto>),
+            Group: "core",
+            IsDestructive: false, RequiresConfirmation: false,
+            Parameters: [new AppCommandParameter("profileId", "string", "The profile to inspect.", IsRequired: true)]),
+
+        new AppCommandDescriptor(
             "mods.checkForUpdates",
             "Asks each configured site which tracked mods have newer files.",
             typeof(CheckForUpdatesCommand), typeof(ModUpdateCheckResult),
@@ -121,13 +137,72 @@ public sealed class AppCommandCatalog : IAppCommandCatalog
             Parameters: []),
 
         new AppCommandDescriptor(
+            "remote.getGames",
+            "Lists the games each configured remote site supports, with the site's own game key.",
+            typeof(GetRemoteGamesCommand), typeof(IReadOnlyList<RemoteGameDto>),
+            Group: "remote",
+            IsDestructive: false, RequiresConfirmation: false,
+            Parameters: []),
+
+        new AppCommandDescriptor(
+            "remote.checkModForUpdate",
+            "Checks whether one locally known, site-linked mod has a newer upstream file.",
+            typeof(CheckModForUpdateCommand), typeof(ModUpdateCheckResult),
+            Group: "remote",
+            IsDestructive: false, RequiresConfirmation: false,
+            Parameters:
+            [
+                new AppCommandParameter("modId", "string", "The local Wildpinkler mod id.", IsRequired: true),
+                new AppCommandParameter("period", "string", "Look-back window, for example 1d, 1w or 1m.", IsRequired: false)
+            ]),
+
+        new AppCommandDescriptor(
             "profiles.delete",
             "Deletes a profile and its folders. This cannot be undone.",
             typeof(DeleteProfileCommand), typeof(IReadOnlyList<string>),
             Group: "profiles",
             IsDestructive: true, RequiresConfirmation: true,
             SupportsDryRun: true,
-            Parameters: [new AppCommandParameter("profileId", "string", "The id of the profile to delete.", IsRequired: true)])
+            Parameters: [new AppCommandParameter("profileId", "string", "The id of the profile to delete.", IsRequired: true)]),
+
+        new AppCommandDescriptor(
+            "profiles.setModEnabled",
+            "Enables or disables one mod folder in a profile's load order.",
+            typeof(SetModEnabledCommand), typeof(bool),
+            Group: "profiles",
+            IsDestructive: false, RequiresConfirmation: false,
+            Parameters:
+            [
+                new AppCommandParameter("profileId", "string", "The profile to change.", IsRequired: true),
+                new AppCommandParameter("folderId", "string", "The load-order folder id, from profiles.getLoadOrder.", IsRequired: true),
+                new AppCommandParameter("enabled", "boolean", "Whether the folder should be enabled.", IsRequired: true)
+            ]),
+
+        new AppCommandDescriptor(
+            "profiles.setToolEnabled",
+            "Enables or disables a tool bound to a profile.",
+            typeof(SetToolEnabledCommand), typeof(bool),
+            Group: "profiles",
+            IsDestructive: false, RequiresConfirmation: false,
+            Parameters:
+            [
+                new AppCommandParameter("profileId", "string", "The profile to change.", IsRequired: true),
+                new AppCommandParameter("toolEntryId", "string", "The tool id to enable or disable.", IsRequired: true),
+                new AppCommandParameter("enabled", "boolean", "Whether the tool should be enabled.", IsRequired: true)
+            ]),
+
+        new AppCommandDescriptor(
+            "profiles.reorderMod",
+            "Moves one load-order folder to a new position. Pinned folders cannot be moved or moved past.",
+            typeof(ReorderModCommand), typeof(IReadOnlyList<string>),
+            Group: "profiles",
+            IsDestructive: false, RequiresConfirmation: false,
+            Parameters:
+            [
+                new AppCommandParameter("profileId", "string", "The profile to change.", IsRequired: true),
+                new AppCommandParameter("folderId", "string", "The load-order folder id, from profiles.getLoadOrder.", IsRequired: true),
+                new AppCommandParameter("newIndex", "integer", "The desired zero-based position among the unpinned folders.", IsRequired: true)
+            ])
     ];
 }
 
@@ -143,6 +218,8 @@ public static class CommandRegistration
         services.AddSingleton<IAppCommandHandler<ListGamesCommand, IReadOnlyList<GameSummaryDto>>, ListGamesHandler>();
         services.AddSingleton<IAppCommandHandler<ListProfilesCommand, IReadOnlyList<ProfileSummaryDto>>, ListProfilesHandler>();
         services.AddSingleton<IAppCommandHandler<ListModsCommand, IReadOnlyList<ModSummaryDto>>, ListModsHandler>();
+        services.AddSingleton<IAppCommandHandler<GetModCommand, ModSummaryDto>, GetModHandler>();
+        services.AddSingleton<IAppCommandHandler<GetLoadOrderCommand, IReadOnlyList<ProfileFolderDto>>, GetLoadOrderHandler>();
         services.AddSingleton<IAppCommandHandler<CheckForUpdatesCommand, ModUpdateCheckResult>, CheckForUpdatesHandler>();
         services.AddSingleton<IAppCommandHandler<DiagnoseProfileDependenciesCommand, IReadOnlyList<DependencyIssue>>, DiagnoseProfileDependenciesHandler>();
         services.AddSingleton<IAppCommandHandler<GetRemoteModCommand, RemoteModDto>, GetRemoteModHandler>();
@@ -151,7 +228,12 @@ public static class CommandRegistration
         services.AddSingleton<IAppCommandHandler<IdentifyRemoteArchiveCommand, RemoteHashMatchDto?>, IdentifyRemoteArchiveHandler>();
         services.AddSingleton<IAppCommandHandler<GetTrackedRemoteModsCommand, IReadOnlyList<RemoteTrackedModDto>>, GetTrackedRemoteModsHandler>();
         services.AddSingleton<IAppCommandHandler<GetRemoteRateLimitsCommand, IReadOnlyList<RemoteRateLimitDto>>, GetRemoteRateLimitsHandler>();
+        services.AddSingleton<IAppCommandHandler<GetRemoteGamesCommand, IReadOnlyList<RemoteGameDto>>, GetRemoteGamesHandler>();
+        services.AddSingleton<IAppCommandHandler<CheckModForUpdateCommand, ModUpdateCheckResult>, CheckModForUpdateHandler>();
         services.AddSingleton<IAppCommandHandler<DeleteProfileCommand, IReadOnlyList<string>>, DeleteProfileHandler>();
+        services.AddSingleton<IAppCommandHandler<SetModEnabledCommand, bool>, SetModEnabledHandler>();
+        services.AddSingleton<IAppCommandHandler<SetToolEnabledCommand, bool>, SetToolEnabledHandler>();
+        services.AddSingleton<IAppCommandHandler<ReorderModCommand, IReadOnlyList<string>>, ReorderModHandler>();
         return services;
     }
 }

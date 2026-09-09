@@ -31,6 +31,7 @@ public sealed partial class GamesPage : PageBase
     private List<Profile> _profiles = new();
     private IReadOnlyList<GameDefinition> _definitions = Array.Empty<GameDefinition>();
     private double _listDetailsWidth;
+    private long _profilesRevision;
 
     private bool _isLoading = true;
     private string? _loadErrorMessage;
@@ -122,6 +123,7 @@ public sealed partial class GamesPage : PageBase
         GameList.ItemsSource = _visibleGames;
         DetailsColumnDef.RegisterPropertyChangedCallback(ColumnDefinition.WidthProperty, DetailsColumnDef_WidthChanged);
         _queue.Changed += Queue_Changed;
+        _profileStore.Changed += ProfileStore_Changed;
         _ = LoadAsync();
     }
 
@@ -133,6 +135,7 @@ public sealed partial class GamesPage : PageBase
             foreach (var game in await _store.LoadAsync())
                 _allGames.Add(game);
 
+            _profilesRevision = _profileStore.Revision;
             _profiles = (await _profileStore.LoadAsync()).ToList();
             ApplyProfileCounts();
 
@@ -172,6 +175,29 @@ public sealed partial class GamesPage : PageBase
     {
         foreach (var game in _allGames)
             game.ProfileCount = _profiles.Count(profile => profile.GameId == game.Id);
+    }
+
+    private void ProfileStore_Changed(object? sender, EventArgs args) => DispatcherQueue.TryEnqueue(() => _ = SyncProfileCountsAsync());
+
+    // Profiles are owned by ProfilesPage, so a cached GamesPage instance only sees new counts by
+    // re-reading them here - relying on the constructor's one-time load would keep showing whatever
+    // was true the first time this page was ever navigated to (see UI Design Reference "Page lifetime
+    // and cross-page data"). This can be triggered by the user editing a profile OR by an agent action.
+    private async Task SyncProfileCountsAsync()
+    {
+        if (IsLoading || _profileStore.Revision == _profilesRevision)
+            return;
+
+        try
+        {
+            _profilesRevision = _profileStore.Revision;
+            _profiles = (await _profileStore.LoadAsync()).ToList();
+            ApplyProfileCounts();
+        }
+        catch (Exception exception)
+        {
+            ShowInfo($"Unable to refresh profile counts. {exception.Message}", InfoBarSeverity.Warning);
+        }
     }
 
     private void ApplyDefinitions()

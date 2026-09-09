@@ -207,6 +207,21 @@ public sealed class AgentToolCatalogTests
         Assert.Contains("approve", result.Content, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Fact]
+    public async Task ExecuteAsync_BindsCamelCaseArgumentsToThePascalCaseCommandProperties()
+    {
+        var dispatcher = new RecordingDispatcher();
+        var tools = new CommandBackedAgentToolCatalog(new AppCommandCatalog(), dispatcher);
+        Assert.True(tools.TryGet("profiles_setModEnabled", out var tool));
+
+        await tool.ExecuteAsync("""{"profileId":"p1","folderId":"f1","enabled":true}""", TestContext.Current.CancellationToken);
+
+        var command = Assert.IsType<SetModEnabledCommand>(dispatcher.LastCommand);
+        Assert.Equal("p1", command.ProfileId);
+        Assert.Equal("f1", command.FolderId);
+        Assert.True(command.Enabled);
+    }
+
     private sealed class ThrowingDispatcher : IAppCommandDispatcher
     {
         public Task<TResult> SendAsync<TResult>(IAppCommand<TResult> command, CancellationToken cancellationToken) =>
@@ -217,5 +232,16 @@ public sealed class AgentToolCatalogTests
     {
         public Task<TResult> SendAsync<TResult>(IAppCommand<TResult> command, CancellationToken cancellationToken) =>
             throw new AppCommandDeclinedException("profiles.delete");
+    }
+
+    private sealed class RecordingDispatcher : IAppCommandDispatcher
+    {
+        public object? LastCommand { get; private set; }
+
+        public Task<TResult> SendAsync<TResult>(IAppCommand<TResult> command, CancellationToken cancellationToken)
+        {
+            LastCommand = command;
+            return Task.FromResult(default(TResult)!);
+        }
     }
 }

@@ -34,4 +34,16 @@ public sealed partial class ProfileTool : ObservableObject
     // Not persisted: resolved from the tool list after load, purely for display.
     [JsonIgnore]
     public ToolEntry? Tool { get; set; }
+
+    /// <summary>Copies another load of the same binding's mutable state in place (identity field untouched).</summary>
+    public void UpdateFrom(ProfileTool source)
+    {
+        IsEnabled = source.IsEnabled;
+        LaunchArgumentsOverride = source.LaunchArgumentsOverride;
+        OutputFolderId = source.OutputFolderId;
+        OutputVersion = source.OutputVersion;
+        UseOutputOverlay = source.UseOutputOverlay;
+        VariableOverrides = source.VariableOverrides;
+        MergedViewOverrides = source.MergedViewOverrides;
+    }
 }

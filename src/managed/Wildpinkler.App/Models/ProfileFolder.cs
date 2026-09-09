@@ -68,6 +68,15 @@ public sealed partial class ProfileFolder : ObservableObject
     [JsonIgnore]
     public bool IsGameLauncher => LauncherExecutableRelativePath is { Length: > 0 };
 
+    /// <summary>Copies another load of the same folder's mutable state in place (identity fields untouched).</summary>
+    public void UpdateFrom(ProfileFolder source)
+    {
+        Name = source.Name;
+        Path = source.Path;
+        IsEnabled = source.IsEnabled;
+        LauncherExecutableRelativePath = source.LauncherExecutableRelativePath;
+    }
+
     // Not persisted: 1-based display position, rewritten whenever the load order changes.
     [JsonIgnore]
     public int Order { get => _order; set => SetProperty(ref _order, value); }
