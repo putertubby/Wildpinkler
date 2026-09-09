@@ -19,7 +19,8 @@ public partial class App : Application
 
     public App()
     {
-        AppDiagnostics.Initialize();
+        // Logging is already initialized by Program.Main; calling Initialize() again here would
+        // open a second same-second log file and silently drop every write after the first line.
         AppHost.Initialize(services => services.AddSingleton<IAppCommandConfirmation>(
             _ => new DialogCommandConfirmation(() => (_window?.Content as FrameworkElement)?.XamlRoot, _window?.DispatcherQueue)));
         AppDiagnostics.Verbosity.Level = AppServices.AppSettings.LogLevel;
@@ -83,7 +84,7 @@ public partial class App : Application
 
         // Activation arrives on a background thread; the manager needs the UI queue before any job.
         AppServices.DownloadQueueCoordinator.AttachDispatcher(_window.DispatcherQueue);
-        _windowReady.SetResult();
+        SignalWindowReadyWhenXamlRootAvailable();
         try
         {
             AppServices.NxmProtocolRegistrar.Register();
@@ -94,6 +95,28 @@ public partial class App : Application
             RejectLink(RemoteLink.ForUnsupported("nxm", "Wildpinkler could not register itself to handle nxm: links. Check the diagnostics log for details."));
         }
         _ = RouteInitialActivationAsync();
+    }
+
+    /// <summary>
+    /// Activation can outrun the first layout pass, so the confirmation dialog's XamlRoot isn't
+    /// ready the instant the window is activated; wait for the content to actually load before
+    /// letting any queued activation proceed.
+    /// </summary>
+    private void SignalWindowReadyWhenXamlRootAvailable()
+    {
+        if (_window?.Content is not FrameworkElement content || content.XamlRoot is not null)
+        {
+            _windowReady.TrySetResult();
+            return;
+        }
+
+        content.Loaded += OnContentLoaded;
+
+        void OnContentLoaded(object sender, RoutedEventArgs e)
+        {
+            content.Loaded -= OnContentLoaded;
+            _windowReady.TrySetResult();
+        }
     }
 
     public static async Task ShutdownAsync()

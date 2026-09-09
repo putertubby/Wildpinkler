@@ -21,7 +21,10 @@ public sealed class RemoteActivationRouter
     public Task RouteAsync(Uri? uri)
     {
         if (uri is null)
+        {
+            AppDiagnostics.Write("Activation carried no resolvable nxm URI.");
             return Task.CompletedTask;
+        }
 
         if (!_registry.TryGetForUri(uri, out var provider) || provider.ProtocolHandler is null)
         {

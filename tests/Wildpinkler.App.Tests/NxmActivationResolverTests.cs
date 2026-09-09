@@ -10,7 +10,7 @@ public class NxmActivationResolverTests
     [Fact]
     public void ResolvesColdStartProcessArgument()
     {
-        var uri = NxmActivationResolver.FromProcessArguments(["Wildpinkler.App.exe", Link]);
+        var uri = NxmActivationResolver.FromProcessArguments([Link]);
 
         Assert.Equal(Link, uri?.OriginalString);
     }
@@ -19,6 +19,14 @@ public class NxmActivationResolverTests
     public void ResolvesQuotedLaunchArgument()
     {
         var uri = NxmActivationResolver.FromLaunchArguments($"\"{Link}\"");
+
+        Assert.Equal(Link, uri?.OriginalString);
+    }
+
+    [Fact]
+    public void ResolvesLaunchArgumentContainingFullCommandLine()
+    {
+        var uri = NxmActivationResolver.FromLaunchArguments($"\"C:\\Program Files\\Wildpinkler.App.exe\" \"{Link}\"");
 
         Assert.Equal(Link, uri?.OriginalString);
     }
