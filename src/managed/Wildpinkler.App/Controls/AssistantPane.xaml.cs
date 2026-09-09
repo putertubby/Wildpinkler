@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.Linq;
 using System.Text.Json;
 using System.Threading;
@@ -32,6 +33,9 @@ public sealed partial class AssistantPane : UserControl, IDisposable, IAgentTool
     private readonly AppSettings _settings;
     private readonly AgentConversation _conversation;
     private readonly Dictionary<string, TaskCompletionSource<bool>> _pendingApprovals = [];
+    private readonly Dictionary<string, ChatEntry> _runningTools = [];
+    private readonly List<ChatReference> _references = [];
+    private readonly ObservableCollection<ReferenceSuggestion> _suggestions = [];
 
     private ScrollViewer? _transcriptScroll;
     private CancellationTokenSource? _inFlight;
@@ -50,6 +54,7 @@ public sealed partial class AssistantPane : UserControl, IDisposable, IAgentTool
         _conversation = AppHost.Get<AgentConversationFactory>().Create(_transcript, this);
 
         TranscriptList.ItemsSource = _model.Entries;
+        PromptBox.ItemsSource = _suggestions;
         _model.PropertyChanged += Model_PropertyChanged;
         _transcript.Cleared += Transcript_Cleared;
         _configuration.Changed += Configuration_Changed;
@@ -145,6 +150,7 @@ public sealed partial class AssistantPane : UserControl, IDisposable, IAgentTool
 
     private async Task RestoreAsync()
     {
+        await LoadReferenceSuggestionsAsync();
         if (_settings.AssistantPersistTranscript && _transcript.Messages.Count == 0)
         {
             var stored = await _transcriptStore.LoadAsync();
@@ -248,6 +254,34 @@ public sealed partial class AssistantPane : UserControl, IDisposable, IAgentTool
     private void ClearConversation_Click(object sender, RoutedEventArgs args) =>
         UiTask.Run(ClearConversationAsync, nameof(ClearConversation_Click), ShowUnexpectedFailure);
 
+    private void Regenerate_Click(object sender, RoutedEventArgs args) =>
+        UiTask.Run(RegenerateAsync, nameof(Regenerate_Click), ShowUnexpectedFailure);
+
+    private async Task RegenerateAsync()
+    {
+        if (_model.IsBusy)
+            return;
+
+        var lastUserIndex = -1;
+        for (var index = _transcript.Messages.Count - 1; index >= 0; index--)
+        {
+            if (_transcript.Messages[index].Role == ChatRole.User)
+            {
+                lastUserIndex = index;
+                break;
+            }
+        }
+
+        if (lastUserIndex < 0)
+            return;
+
+        var prompt = _transcript.Messages[lastUserIndex].Content;
+        _transcript.TruncateFrom(lastUserIndex);
+        ReconcileVisibleTranscript();
+        await _transcriptStore.SaveAsync(_transcript.Messages);
+        await SendAsync(prompt);
+    }
+
     private async Task ClearConversationAsync()
     {
         CancelInFlight();
@@ -257,8 +291,54 @@ public sealed partial class AssistantPane : UserControl, IDisposable, IAgentTool
         ReportConfiguration();
     }
 
-    private void PromptBox_TextChanged(object sender, TextChangedEventArgs args) =>
+    private void ReconcileVisibleTranscript()
+    {
+        var entries = _transcript.Messages
+            .Select((message, index) => ToEntry(message, index))
+            .Where(entry => entry is not null)
+            .Select(entry => entry!)
+            .ToList();
+        _model.Reconcile(entries);
+    }
+
+    private void PromptBox_TextChanged(object sender, AutoSuggestBoxTextChangedEventArgs args)
+    {
         _model.PromptText = PromptBox.Text;
+        if (args.Reason != AutoSuggestionBoxTextChangeReason.UserInput)
+            return;
+
+        var at = PromptBox.Text.LastIndexOf('@');
+        var query = at >= 0 ? PromptBox.Text[(at + 1)..] : string.Empty;
+        PromptBox.ItemsSource = string.IsNullOrEmpty(query)
+            ? _suggestions
+            : _suggestions.Where(item => item.Name.Contains(query, StringComparison.OrdinalIgnoreCase)).ToList();
+    }
+
+    private void PromptBox_SuggestionChosen(AutoSuggestBox sender, AutoSuggestBoxSuggestionChosenEventArgs args)
+    {
+        if (args.SelectedItem is not ReferenceSuggestion suggestion)
+            return;
+
+        var at = PromptBox.Text.LastIndexOf('@');
+        var prefix = at >= 0 ? PromptBox.Text[..at] : PromptBox.Text;
+        PromptBox.Text = $"{prefix}@{suggestion.Name} ";
+        _references.RemoveAll(reference => reference.Id == suggestion.Id);
+        _references.Add(new ChatReference(suggestion.Kind, suggestion.Id, suggestion.Name));
+    }
+
+    private async Task LoadReferenceSuggestionsAsync()
+    {
+        var games = await AppServices.GameStore.LoadAsync();
+        var profiles = await AppServices.ProfileStore.LoadAsync();
+        var mods = await AppServices.ModStore.LoadAsync();
+
+        foreach (var game in games)
+            _suggestions.Add(new ReferenceSuggestion("game", game.Id, game.Name));
+        foreach (var profile in profiles)
+            _suggestions.Add(new ReferenceSuggestion("profile", profile.Id, profile.Name));
+        foreach (var mod in mods)
+            _suggestions.Add(new ReferenceSuggestion("mod", mod.Id, mod.Name));
+    }
 
     private void PromptBox_PreviewKeyDown(object sender, KeyRoutedEventArgs args)
     {
@@ -278,6 +358,38 @@ public sealed partial class AssistantPane : UserControl, IDisposable, IAgentTool
 
     private void Send_Click(object sender, RoutedEventArgs args) =>
         UiTask.Run(() => SendAsync(), nameof(Send_Click), ShowUnexpectedFailure);
+
+    private void Starter_Click(object sender, RoutedEventArgs args)
+    {
+        if (sender is not FrameworkElement { Tag: string prompt })
+            return;
+
+        PromptBox.Text = prompt;
+        UiTask.Run(() => SendAsync(), nameof(Starter_Click), ShowUnexpectedFailure);
+    }
+
+    private void EditMessage_Click(object sender, RoutedEventArgs args) =>
+        UiTask.Run(() => EditMessageAsync(sender), nameof(EditMessage_Click), ShowUnexpectedFailure);
+
+    private async Task EditMessageAsync(object sender)
+    {
+        if (_model.IsBusy || sender is not FrameworkElement { Tag: string id }
+            || !id.StartsWith('m')
+            || !int.TryParse(id[1..], out var index)
+            || index < 0
+            || index >= _transcript.Messages.Count
+            || _transcript.Messages[index].Role != ChatRole.User)
+            return;
+
+        var message = _transcript.Messages[index];
+        _transcript.TruncateFrom(index);
+        _references.Clear();
+        _references.AddRange(message.References);
+        PromptBox.Text = message.Content;
+        ReconcileVisibleTranscript();
+        await _transcriptStore.SaveAsync(_transcript.Messages);
+        PromptBox.Focus(FocusState.Programmatic);
+    }
 
     private void Stop_Click(object sender, RoutedEventArgs args) => CancelInFlight();
 
@@ -302,13 +414,18 @@ public sealed partial class AssistantPane : UserControl, IDisposable, IAgentTool
     }
 
     public Task<bool> RequestAsync(IAgentTool tool, string argumentsJson, CancellationToken cancellationToken)
+        => RequestAsync(tool, argumentsJson, null, cancellationToken);
+
+    public Task<bool> RequestAsync(IAgentTool tool, string argumentsJson, string? preview, CancellationToken cancellationToken)
     {
         var wasAtBottom = IsScrolledToBottom();
         var entry = _model.Add(ChatEntryKind.Approval, "Waiting for your answer.");
         entry.Header = tool.IsDestructive
             ? $"Allow '{tool.Name}'? This changes your setup."
             : $"Allow '{tool.Name}'?";
-        entry.Detail = Prettify(argumentsJson);
+        entry.Detail = string.IsNullOrWhiteSpace(preview)
+            ? Prettify(argumentsJson)
+            : $"Preview:\n{preview}\n\nArguments:\n{Prettify(argumentsJson)}";
         entry.IsAwaitingAnswer = true;
         ScrollToEnd(wasAtBottom);
 
@@ -375,7 +492,7 @@ public sealed partial class AssistantPane : UserControl, IDisposable, IAgentTool
         if (retryPrompt is null)
             PromptBox.Text = string.Empty;
         PromptBox.Focus(FocusState.Programmatic);
-        _model.Add(ChatEntryKind.User, prompt);
+        _model.Add(ChatEntryKind.User, prompt, $"m{_transcript.Messages.Count}");
         _model.HideStatus();
         _model.IsBusy = true;
         ScrollToEnd(true);
@@ -387,7 +504,9 @@ public sealed partial class AssistantPane : UserControl, IDisposable, IAgentTool
         ChatEntry? answer = null;
         try
         {
-            await foreach (var turnEvent in _conversation.SendAsync(prompt, token))
+            var references = _references.ToList();
+            _references.Clear();
+            await foreach (var turnEvent in _conversation.SendAsync(prompt, references, token))
             {
                 var wasAtBottom = IsScrolledToBottom();
                 switch (turnEvent)
@@ -397,11 +516,17 @@ public sealed partial class AssistantPane : UserControl, IDisposable, IAgentTool
                         answer.Append(delta.Text);
                         break;
                     case AgentTurnEvent.ToolProposed proposed when !proposed.NeedsApproval:
-                        _model.Add(ChatEntryKind.Notice, $"Running '{proposed.Call.ToolName}'\u2026");
+                        break;
+                    case AgentTurnEvent.ToolStarted started:
+                        StartTool(started.Call);
                         break;
                     case AgentTurnEvent.ToolFinished finished:
-                        ShowToolResult(finished);
+                        FinishTool(finished);
                         answer = null;
+                        break;
+                    case AgentTurnEvent.Usage usage when _settings.AssistantShowUsage:
+                        _model.Add(ChatEntryKind.Notice,
+                            $"Usage: {usage.Value.InputTokens:N0} input + {usage.Value.OutputTokens:N0} output = {usage.Value.TotalTokens:N0} tokens.");
                         break;
                     case AgentTurnEvent.ToolDeclined:
                         answer = null;
@@ -443,13 +568,27 @@ public sealed partial class AssistantPane : UserControl, IDisposable, IAgentTool
         return entry;
     }
 
-    private void ShowToolResult(AgentTurnEvent.ToolFinished finished)
+    private void StartTool(ChatToolCall call)
     {
         var entry = _model.Add(ChatEntryKind.Tool, string.Empty);
+        entry.Header = $"Running '{call.ToolName}'\u2026";
+        entry.Detail = "Working";
+        entry.IsStreaming = true;
+        _runningTools[call.Id] = entry;
+    }
+
+    private void FinishTool(AgentTurnEvent.ToolFinished finished)
+    {
+        if (!_runningTools.Remove(finished.Call.Id, out var entry))
+        {
+            entry = _model.Add(ChatEntryKind.Tool, string.Empty);
+        }
+
         entry.Header = finished.Result.Succeeded
             ? $"Ran '{finished.Call.ToolName}'"
             : $"'{finished.Call.ToolName}' failed";
         entry.Detail = Prettify(finished.Result.Content);
+        entry.IsStreaming = false;
     }
 
     /// <summary>Model output is arbitrary text, so unreadable JSON is shown verbatim rather than rejected.</summary>
@@ -514,4 +653,22 @@ public sealed partial class AssistantPane : UserControl, IDisposable, IAgentTool
         _configuration.Changed -= Configuration_Changed;
         CancelInFlight();
     }
+}
+
+internal sealed class ReferenceSuggestion
+{
+    public ReferenceSuggestion(string kind, string id, string name)
+    {
+        Kind = kind;
+        Id = id;
+        Name = name;
+    }
+
+    public string Kind { get; }
+
+    public string Id { get; }
+
+    public string Name { get; }
+
+    public override string ToString() => $"{Kind}: {Name}";
 }

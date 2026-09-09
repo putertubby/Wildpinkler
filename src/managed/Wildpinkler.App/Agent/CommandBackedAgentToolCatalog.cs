@@ -1,11 +1,11 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.ExceptionServices;
-using System.Text;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
@@ -21,18 +21,34 @@ namespace Wildpinkler.App.Agent;
 public sealed class CommandBackedAgentToolCatalog : IAgentToolCatalog
 {
     private readonly Dictionary<string, IAgentTool> _byName;
+    private readonly Dictionary<string, IReadOnlyList<IAgentTool>> _byGroup;
 
     public CommandBackedAgentToolCatalog(IAppCommandCatalog commands, IAppCommandDispatcher dispatcher)
     {
         ArgumentNullException.ThrowIfNull(commands);
 
-        Tools = commands.Commands
+        var commandTools = commands.Commands
             .Select(descriptor => (IAgentTool)new CommandAgentTool(descriptor, dispatcher))
             .ToList();
+        var groups = commands.Commands
+            .Select(descriptor => descriptor.Group)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(group => group, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var discovery = new AgentGroupDiscoveryTool(groups);
+        Tools = commandTools.Append<IAgentTool>(discovery).ToList();
         _byName = Tools.ToDictionary(tool => tool.Name, StringComparer.OrdinalIgnoreCase);
+        _byGroup = commandTools
+            .GroupBy(tool => tool.Group, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => (IReadOnlyList<IAgentTool>)group.ToList(), StringComparer.OrdinalIgnoreCase);
     }
 
     public IReadOnlyList<IAgentTool> Tools { get; }
+
+    public IReadOnlyList<string> Groups => _byGroup.Keys.OrderBy(group => group, StringComparer.OrdinalIgnoreCase).ToList();
+
+    public IReadOnlyList<IAgentTool> ToolsForGroups(ISet<string> groups) =>
+        Tools.Where(tool => tool.Group == "core" || tool is AgentGroupDiscoveryTool || groups.Contains(tool.Group, StringComparer.OrdinalIgnoreCase)).ToList();
 
     public bool TryGet(string name, out IAgentTool tool) => _byName.TryGetValue(name, out tool!);
 }
@@ -55,13 +71,21 @@ internal sealed class CommandAgentTool : IAgentTool
 
     public string Name { get; }
 
+    public string Group => _descriptor.Group;
+
     public string Description => _descriptor.Description;
 
     public string ParameterSchema { get; }
 
     public bool IsDestructive => _descriptor.IsDestructive;
 
-    public async Task<AgentToolResult> ExecuteAsync(string argumentsJson, CancellationToken cancellationToken)
+    public Task<AgentToolResult> PreviewAsync(string argumentsJson, CancellationToken cancellationToken) =>
+        ExecuteCoreAsync(argumentsJson, dryRun: true, cancellationToken);
+
+    public Task<AgentToolResult> ExecuteAsync(string argumentsJson, CancellationToken cancellationToken) =>
+        ExecuteCoreAsync(argumentsJson, dryRun: false, cancellationToken);
+
+    private async Task<AgentToolResult> ExecuteCoreAsync(string argumentsJson, bool dryRun, CancellationToken cancellationToken)
     {
         object? command;
         try
@@ -80,6 +104,12 @@ internal sealed class CommandAgentTool : IAgentTool
 
         try
         {
+            if (dryRun && (!_descriptor.SupportsDryRun || command is not IDryRunCommand))
+                return AgentToolResult.Error("A preview is not available for this action.");
+
+            if (dryRun && command is IDryRunCommand dryRunCommand)
+                dryRunCommand.DryRun = true;
+
             var result = await SendAsync(command, cancellationToken);
             return AgentToolResult.Ok(JsonSerializer.Serialize(result, ResultOptions));
         }
@@ -124,21 +154,82 @@ internal sealed class CommandAgentTool : IAgentTool
 
     private static string BuildSchema(AppCommandDescriptor descriptor)
     {
-        var properties = new StringBuilder();
-        var required = new List<string>();
-
-        foreach (var parameter in descriptor.Parameters)
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
         {
-            if (properties.Length > 0)
-                properties.Append(',');
-            properties.Append(string.Create(CultureInfo.InvariantCulture,
-                $"{JsonSerializer.Serialize(parameter.Name)}:{{\"type\":{JsonSerializer.Serialize(parameter.JsonType)},\"description\":{JsonSerializer.Serialize(parameter.Description)}}}"));
-            if (parameter.IsRequired)
-                required.Add(parameter.Name);
+            writer.WriteStartObject();
+            writer.WriteString("type", "object");
+            writer.WriteStartObject("properties");
+
+            foreach (var parameter in descriptor.Parameters)
+            {
+                writer.WriteStartObject(parameter.Name);
+                if (parameter.ItemType is null)
+                    writer.WriteString("type", parameter.JsonType);
+                else
+                {
+                    writer.WriteString("type", "array");
+                    writer.WriteStartObject("items");
+                    writer.WriteString("type", parameter.ItemType);
+                    writer.WriteEndObject();
+                }
+
+                writer.WriteString("description", parameter.Description);
+                if (parameter.EnumValues is { Count: > 0 })
+                {
+                    writer.WriteStartArray("enum");
+                    foreach (var value in parameter.EnumValues)
+                        writer.WriteStringValue(value);
+                    writer.WriteEndArray();
+                }
+
+                writer.WriteEndObject();
+            }
+
+            writer.WriteEndObject();
+            writer.WriteStartArray("required");
+            foreach (var parameter in descriptor.Parameters.Where(parameter => parameter.IsRequired))
+                writer.WriteStringValue(parameter.Name);
+            writer.WriteEndArray();
+            writer.WriteEndObject();
         }
 
-        return string.Create(CultureInfo.InvariantCulture,
-            $"{{\"type\":\"object\",\"properties\":{{{properties}}},\"required\":{JsonSerializer.Serialize(required)}}}");
+        return System.Text.Encoding.UTF8.GetString(stream.ToArray());
+    }
+}
+
+internal sealed class AgentGroupDiscoveryTool : IAgentTool
+{
+    private static readonly string[] RequiredGroup = ["group"];
+    private readonly IReadOnlyList<string> _groups;
+    private readonly string _schema;
+
+    public AgentGroupDiscoveryTool(IReadOnlyList<string> groups)
+    {
+        _groups = groups;
+        _schema = JsonSerializer.Serialize(new
+        {
+            type = "object",
+            properties = new { group = new { type = "string", @enum = groups } },
+            required = RequiredGroup
+        });
+    }
+
+    public string Name => "tools_enable";
+
+    public string Group => "core";
+
+    public string Description => $"Enables one command group for this conversation. Available groups: {string.Join(", ", _groups)}.";
+
+    public string ParameterSchema => _schema;
+
+    public bool IsDestructive => false;
+
+    public Task<AgentToolResult> ExecuteAsync(string argumentsJson, CancellationToken cancellationToken)
+    {
+        using var document = JsonDocument.Parse(argumentsJson);
+        var group = document.RootElement.TryGetProperty("group", out var value) ? value.GetString() : null;
+        return Task.FromResult(AgentToolResult.Ok($"Group '{group}' is available. Call the action you need next."));
     }
 }
 
@@ -196,6 +287,7 @@ public static class AgentRegistration
         services.AddSingleton<AiModelCatalog>();
         services.AddSingleton<IChatCompletionClient, OpenAiCompatibleChatCompletionClient>();
         services.AddSingleton<AgentConversationFactory>();
+        services.AddSingleton<RemoteCallBudget>();
         services.AddSingleton<ChatTranscriptStore>();
         services.AddSingleton<ChatTranscript>();
         return services;

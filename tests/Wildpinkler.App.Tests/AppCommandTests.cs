@@ -127,8 +127,10 @@ public sealed class AgentToolCatalogTests
         var commands = new AppCommandCatalog();
         var tools = new CommandBackedAgentToolCatalog(commands, new ThrowingDispatcher());
 
-        Assert.Equal(commands.Commands.Count, tools.Tools.Count);
+        Assert.Equal(commands.Commands.Count + 1, tools.Tools.Count);
         Assert.All(tools.Tools, tool => Assert.DoesNotContain('.', tool.Name));
+        Assert.True(tools.TryGet("tools_enable", out var discoveryTool));
+        Assert.False(discoveryTool.IsDestructive);
     }
 
     [Fact]
@@ -141,6 +143,32 @@ public sealed class AgentToolCatalogTests
         Assert.True(tools.TryGet("games_list", out var listTool));
         Assert.False(listTool.IsDestructive);
     }
+
+        [Fact]
+        public void ToolsForGroups_Core_IncludesCoreToolsAndDiscoveryOnly()
+        {
+            var catalog = new CommandBackedAgentToolCatalog(new AppCommandCatalog(), new ThrowingDispatcher());
+
+            var tools = catalog.ToolsForGroups(new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "core" });
+
+            Assert.Contains(tools, tool => tool.Name == "tools_enable");
+            Assert.Contains(tools, tool => tool.Name == "games_list");
+            Assert.DoesNotContain(tools, tool => tool.Name == "profiles_delete");
+        }
+
+        [Fact]
+        public void ToolsForGroups_Diagnostics_IncludesDiagnosticCommands()
+        {
+            var catalog = new CommandBackedAgentToolCatalog(new AppCommandCatalog(), new ThrowingDispatcher());
+
+            var tools = catalog.ToolsForGroups(new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            {
+                "core",
+                "diagnostics"
+            });
+
+            Assert.Contains(tools, tool => tool.Name == "profiles_diagnoseDependencies");
+        }
 
     [Fact]
     public void ParameterSchema_IsValidJsonSchemaWithRequiredFields()

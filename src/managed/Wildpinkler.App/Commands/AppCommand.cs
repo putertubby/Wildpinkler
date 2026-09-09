@@ -13,6 +13,11 @@ public interface IAppCommand<TResult>
 {
 }
 
+public interface IDryRunCommand
+{
+    bool DryRun { get; set; }
+}
+
 /// <summary>Executes one command type. Handlers hold the domain services; commands stay plain data.</summary>
 public interface IAppCommandHandler<TCommand, TResult> where TCommand : IAppCommand<TResult>
 {
@@ -28,12 +33,20 @@ public sealed record AppCommandDescriptor(
     string Description,
     Type CommandType,
     Type ResultType,
+    string Group,
     bool IsDestructive,
     bool RequiresConfirmation,
-    IReadOnlyList<AppCommandParameter> Parameters);
+    IReadOnlyList<AppCommandParameter> Parameters,
+    bool SupportsDryRun = false);
 
 /// <summary>One command input, in the shape a JSON tool schema needs.</summary>
-public sealed record AppCommandParameter(string Name, string JsonType, string Description, bool IsRequired);
+public sealed record AppCommandParameter(
+    string Name,
+    string JsonType,
+    string Description,
+    bool IsRequired,
+    IReadOnlyList<string>? EnumValues = null,
+    string? ItemType = null);
 
 /// <summary>Sends a command to its handler through the configured decorators.</summary>
 public interface IAppCommandDispatcher

@@ -83,6 +83,14 @@ public sealed class OpenAiCompatibleChatCompletionClient : IChatCompletionClient
                     call.FunctionName,
                     call.FunctionArgumentsUpdate?.ToString()));
             }
+
+            if (update.Usage is not null)
+            {
+                yield return ChatCompletionUpdate.UsageUpdate(new ChatUsage(
+                    update.Usage.InputTokenCount,
+                    update.Usage.OutputTokenCount,
+                    update.Usage.TotalTokenCount));
+            }
         }
 
         if (accumulator.HasCalls)
@@ -201,7 +209,7 @@ public sealed class OpenAiCompatibleChatCompletionClient : IChatCompletionClient
                     messages.Add(new OpenAiChat.SystemChatMessage(message.Content));
                     break;
                 case ChatRole.User:
-                    messages.Add(new OpenAiChat.UserChatMessage(message.Content));
+                    messages.Add(new OpenAiChat.UserChatMessage(BuildUserContent(message)));
                     break;
                 case ChatRole.Tool:
                     messages.Add(new OpenAiChat.ToolChatMessage(message.ToolCallId!, message.Content));
@@ -216,6 +224,17 @@ public sealed class OpenAiCompatibleChatCompletionClient : IChatCompletionClient
         }
 
         return messages;
+    }
+
+    internal static string BuildUserContent(ChatMessage message)
+    {
+        if (message.References.Count == 0)
+            return message.Content;
+
+        var references = string.Join(
+            Environment.NewLine,
+            message.References.Select(reference => $"- {reference.Kind}: {reference.Name} (id: {reference.Id})"));
+        return $"{message.Content}\n\nSelected local items:\n{references}";
     }
 
     /// <summary>

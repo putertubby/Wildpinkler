@@ -55,6 +55,7 @@ public sealed class ChatTranscriptStore : IDisposable
                     ToolName = message.ToolName,
                     ToolCallId = message.ToolCallId,
                     ToolCalls = message.ToolCalls ?? [],
+                    References = message.References ?? [],
                 })
                 .ToList();
         }
@@ -86,6 +87,7 @@ public sealed class ChatTranscriptStore : IDisposable
                     ToolName = message.ToolName,
                     ToolCallId = message.ToolCallId,
                     ToolCalls = message.ToolCalls.Count == 0 ? null : message.ToolCalls,
+                    References = message.References.Count == 0 ? null : message.References,
                 }).ToList(),
             };
 
@@ -142,5 +144,7 @@ public sealed class ChatTranscriptStore : IDisposable
         public string? ToolCallId { get; set; }
 
         public IReadOnlyList<ChatToolCall>? ToolCalls { get; set; }
+
+        public IReadOnlyList<ChatReference>? References { get; set; }
     }
 }

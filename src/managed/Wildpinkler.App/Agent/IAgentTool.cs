@@ -13,6 +13,8 @@ public interface IAgentTool
 {
     string Name { get; }
 
+    string Group { get; }
+
     string Description { get; }
 
     /// <summary>JSON Schema for the tool arguments, in the shape function-calling APIs expect.</summary>
@@ -22,6 +24,9 @@ public interface IAgentTool
     bool IsDestructive { get; }
 
     Task<AgentToolResult> ExecuteAsync(string argumentsJson, CancellationToken cancellationToken);
+
+    Task<AgentToolResult> PreviewAsync(string argumentsJson, CancellationToken cancellationToken) =>
+        Task.FromResult(AgentToolResult.Error("A preview is not available for this action."));
 }
 
 public sealed record AgentToolResult(bool Succeeded, string Content)
@@ -36,6 +41,10 @@ public interface IAgentToolCatalog
 {
     IReadOnlyList<IAgentTool> Tools { get; }
 
+    IReadOnlyList<string> Groups { get; }
+
+    IReadOnlyList<IAgentTool> ToolsForGroups(ISet<string> groups);
+
     bool TryGet(string name, out IAgentTool tool);
 }
 
@@ -47,6 +56,9 @@ public interface IAgentToolCatalog
 public interface IAgentToolApproval
 {
     Task<bool> RequestAsync(IAgentTool tool, string argumentsJson, CancellationToken cancellationToken);
+
+    Task<bool> RequestAsync(IAgentTool tool, string argumentsJson, string? preview, CancellationToken cancellationToken) =>
+        RequestAsync(tool, argumentsJson, cancellationToken);
 }
 
 /// <summary>A read-only summary of the workspace, given to the model as background.</summary>
@@ -86,7 +98,11 @@ public sealed record ChatMessage(ChatRole Role, string Content)
 
     /// <summary>Set on an assistant turn that asked for tools, so the turn can be replayed to the model.</summary>
     public IReadOnlyList<ChatToolCall> ToolCalls { get; init; } = [];
+
+    public IReadOnlyList<ChatReference> References { get; init; } = [];
 }
+
+public sealed record ChatReference(string Kind, string Id, string Name);
 
 /// <summary>An ordered conversation. Kept separate from any provider so it can be persisted or replayed.</summary>
 public sealed class ChatTranscript
@@ -101,6 +117,14 @@ public sealed class ChatTranscript
     public void Add(ChatMessage message) => _messages.Add(message);
 
     public void AddRange(IEnumerable<ChatMessage> messages) => _messages.AddRange(messages);
+
+    public void TruncateFrom(int index)
+    {
+        if (index < 0 || index > _messages.Count)
+            throw new ArgumentOutOfRangeException(nameof(index));
+
+        _messages.RemoveRange(index, _messages.Count - index);
+    }
 
     public void Clear()
     {
@@ -117,6 +141,8 @@ public sealed record ChatCompletionRequest(
 
 public sealed record ChatToolCall(string Id, string ToolName, string ArgumentsJson);
 
+public sealed record ChatUsage(int InputTokens, int OutputTokens, int TotalTokens);
+
 /// <summary>One streamed fragment: either text, or the tool calls a finished turn asked for.</summary>
 public sealed record ChatCompletionUpdate
 {
@@ -124,9 +150,13 @@ public sealed record ChatCompletionUpdate
 
     public IReadOnlyList<ChatToolCall> ToolCalls { get; init; } = [];
 
+    public ChatUsage? Usage { get; init; }
+
     public static ChatCompletionUpdate Text(string delta) => new() { TextDelta = delta };
 
     public static ChatCompletionUpdate Calls(IReadOnlyList<ChatToolCall> calls) => new() { ToolCalls = calls };
+
+    public static ChatCompletionUpdate UsageUpdate(ChatUsage usage) => new() { Usage = usage };
 }
 
 /// <summary>The seam a model provider implements.</summary>

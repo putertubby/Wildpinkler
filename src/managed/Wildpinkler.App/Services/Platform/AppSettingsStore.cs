@@ -45,6 +45,8 @@ public sealed class AppSettings
     public string? AssistantModelId { get; set; }
     public bool AssistantPersistTranscript { get; set; } = true;
     public Agent.AssistantMode AssistantMode { get; set; } = Agent.AssistantMode.Agent;
+    public bool AssistantOffersAllTools { get; set; }
+    public bool AssistantShowUsage { get; set; }
 
     // Hosts the user has agreed may receive conversation content. Loopback is never listed.
     public List<string> AssistantAcceptedRemoteHosts { get; set; } = [];

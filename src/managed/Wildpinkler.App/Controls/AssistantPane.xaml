@@ -18,19 +18,23 @@
                     Padding="12,8"
                     Margin="24,4,0,4"
                     HorizontalAlignment="Right">
-                <TextBlock Text="{x:Bind Text, Mode=OneWay}"
-                           TextWrapping="Wrap"
-                           IsTextSelectionEnabled="True"
-                           Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+                <StackPanel Spacing="6">
+                    <TextBlock Text="{x:Bind Text, Mode=OneWay}"
+                               TextWrapping="Wrap"
+                               IsTextSelectionEnabled="True"
+                               Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+                    <Button Content="Edit"
+                            Tag="{x:Bind Id}"
+                            Click="EditMessage_Click"
+                            HorizontalAlignment="Left" />
+                </StackPanel>
             </Border>
         </DataTemplate>
 
         <DataTemplate x:Key="AssistantEntryTemplate" x:DataType="agent:ChatEntry">
-            <TextBlock Text="{x:Bind Text, Mode=OneWay}"
-                       TextWrapping="Wrap"
-                       IsTextSelectionEnabled="True"
-                       Margin="0,4,24,4"
-                       Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+            <controls:AssistantMarkdown Text="{x:Bind Text, Mode=OneWay}"
+                                         Margin="0,4,24,4"
+                                         AutomationProperties.Name="Assistant response" />
         </DataTemplate>
 
         <DataTemplate x:Key="ToolEntryTemplate" x:DataType="agent:ChatEntry">
@@ -39,9 +43,15 @@
                       Margin="0,4"
                       IsExpanded="{x:Bind IsExpanded, Mode=TwoWay}">
                 <Expander.Header>
-                    <TextBlock Text="{x:Bind Header, Mode=OneWay}"
-                               Style="{StaticResource BodyStrongTextBlockStyle}"
-                               TextTrimming="CharacterEllipsis" />
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <ProgressRing Width="16"
+                                      Height="16"
+                                      IsActive="{x:Bind IsStreaming, Mode=OneWay}"
+                                      AutomationProperties.Name="Action in progress" />
+                        <TextBlock Text="{x:Bind Header, Mode=OneWay}"
+                                   Style="{StaticResource BodyStrongTextBlockStyle}"
+                                   TextTrimming="CharacterEllipsis" />
+                    </StackPanel>
                 </Expander.Header>
                 <TextBlock Text="{x:Bind Detail, Mode=OneWay}"
                            TextWrapping="Wrap"
@@ -142,6 +152,7 @@
                                              GroupName="AssistantMode" Click="Mode_Click" />
                         <MenuFlyoutSeparator />
                         <MenuFlyoutItem Text="Clear conversation" Click="ClearConversation_Click" />
+                        <MenuFlyoutItem Text="Regenerate last answer" Click="Regenerate_Click" />
                         <MenuFlyoutItem Text="Assistant settings" Click="OpenSettings_Click" />
                     </MenuFlyout>
                 </Button.Flyout>
@@ -187,6 +198,17 @@
                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                            TextAlignment="Center"
                            TextWrapping="Wrap" />
+                <StackPanel Spacing="4" Margin="0,8,0,0">
+                    <Button Content="Why will my game not launch?"
+                        Tag="Why will my game not launch?"
+                        Click="Starter_Click" />
+                    <Button Content="Check my profile dependencies"
+                        Tag="Check my profile dependencies"
+                        Click="Starter_Click" />
+                    <Button Content="Which tracked mods have updates?"
+                        Tag="Which tracked mods have updates?"
+                        Click="Starter_Click" />
+                </StackPanel>
             </StackPanel>
         </Grid>
 
@@ -203,14 +225,13 @@
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-            <TextBox x:Name="PromptBox"
-                     PlaceholderText="Ask about your profiles and mods"
-                     AcceptsReturn="True"
-                     TextWrapping="Wrap"
-                     MaxHeight="120"
-                     AutomationProperties.Name="Message to the assistant"
-                     TextChanged="PromptBox_TextChanged"
-                     PreviewKeyDown="PromptBox_PreviewKeyDown" />
+            <AutoSuggestBox x:Name="PromptBox"
+                            PlaceholderText="Ask about your profiles and mods; type @ to reference one"
+                            MaxHeight="120"
+                            AutomationProperties.Name="Message to the assistant"
+                            TextChanged="PromptBox_TextChanged"
+                            SuggestionChosen="PromptBox_SuggestionChosen"
+                            PreviewKeyDown="PromptBox_PreviewKeyDown" />
             <Grid Grid.Column="1" VerticalAlignment="Bottom">
                 <Button x:Name="SendButton"
                         Content="Send"

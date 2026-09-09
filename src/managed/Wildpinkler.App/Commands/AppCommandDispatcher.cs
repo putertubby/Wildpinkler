@@ -54,7 +54,8 @@ public sealed class AppCommandDispatcher : IAppCommandDispatcher
             ["CorrelationId"] = correlationId
         });
 
-        if (descriptor.RequiresConfirmation &&
+        var isDryRun = command is IDryRunCommand { DryRun: true };
+        if (!isDryRun && descriptor.RequiresConfirmation &&
             !await _confirmation.ConfirmAsync(descriptor, command.ToString() ?? descriptor.Name, cancellationToken))
         {
             _logger.LogInformation("Command {CommandName} was declined ({CorrelationId}).", descriptor.Name, correlationId);

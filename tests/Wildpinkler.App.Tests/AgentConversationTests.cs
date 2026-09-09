@@ -64,6 +64,26 @@ public sealed class AgentConversationTests
     }
 
     [Fact]
+    public async Task SendAsync_DestructiveToolCall_PassesPreviewToApproval()
+    {
+        var tool = new FakeAgentTool("delete_profile", isDestructive: true, AgentToolResult.Ok("done"))
+        {
+            Preview = AgentToolResult.Ok("Would remove profile folder.")
+        };
+        var client = new FakeChatCompletionClient(
+        [
+            [ChatCompletionUpdate.Calls([new ChatToolCall("c1", "delete_profile", "{}")])],
+            [ChatCompletionUpdate.Text("Deleted.")],
+        ]);
+        var conversation = Build(client, out _, out var approval, out _, tool);
+        approval.Answer = true;
+
+        await Collect(conversation, "delete it");
+
+        Assert.Equal("Would remove profile folder.", approval.LastPreview);
+    }
+
+    [Fact]
     public async Task SendAsync_ApprovalDeclined_ReportsDeclineAndDoesNotInvoke()
     {
         var tool = new FakeAgentTool("delete_profile", isDestructive: true, AgentToolResult.Ok("done"));
@@ -438,6 +458,10 @@ public sealed class AgentConversationTests
 
         public IReadOnlyList<IAgentTool> Tools { get; }
 
+        public IReadOnlyList<string> Groups => ["core"];
+
+        public IReadOnlyList<IAgentTool> ToolsForGroups(ISet<string> groups) => Tools;
+
         public bool TryGet(string name, out IAgentTool tool) => _byName.TryGetValue(name, out tool!);
     }
 
@@ -454,6 +478,8 @@ public sealed class AgentConversationTests
 
         public string Name { get; }
 
+        public string Group => "core";
+
         public string Description => "A test action.";
 
         public string ParameterSchema => "{\"type\":\"object\",\"properties\":{},\"required\":[]}";
@@ -461,6 +487,8 @@ public sealed class AgentConversationTests
         public bool IsDestructive { get; }
 
         public Exception? Failure { get; init; }
+
+        public AgentToolResult? Preview { get; init; }
 
         public int Invocations { get; private set; }
 
@@ -471,11 +499,16 @@ public sealed class AgentConversationTests
                 throw Failure;
             return Task.FromResult(_result);
         }
+
+        public Task<AgentToolResult> PreviewAsync(string argumentsJson, CancellationToken cancellationToken) =>
+            Task.FromResult(Preview ?? AgentToolResult.Error("No preview."));
     }
 
     private sealed class FakeApproval : IAgentToolApproval
     {
         public bool Answer { get; set; } = true;
+
+        public string? LastPreview { get; private set; }
 
         public int Requests { get; private set; }
 
@@ -493,6 +526,12 @@ public sealed class AgentConversationTests
             }
 
             return Task.FromResult(Answer);
+        }
+
+        public Task<bool> RequestAsync(IAgentTool tool, string argumentsJson, string? preview, CancellationToken cancellationToken)
+        {
+            LastPreview = preview;
+            return RequestAsync(tool, argumentsJson, cancellationToken);
         }
     }
 

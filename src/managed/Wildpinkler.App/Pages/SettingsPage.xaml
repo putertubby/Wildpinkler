@@ -157,6 +157,14 @@
                             <RadioButton Content="Ask before every action" />
                             <RadioButton Content="Look things up freely, ask before changing anything" />
                         </RadioButtons>
+                       
+                            <ToggleSwitch x:Name="AssistantOffersAllToolsToggle" Header="Offer every action at once"
+                                          OnContent="Send all action descriptions" OffContent="Discover actions as needed"
+                                          Toggled="AssistantOffersAllTools_Toggled" />
+
+                            <ToggleSwitch x:Name="AssistantShowUsageToggle" Header="Show token usage"
+                                          OnContent="Show usage after each response" OffContent="Keep usage hidden"
+                                          Toggled="AssistantShowUsage_Toggled" />
 
                         <ToggleSwitch x:Name="AssistantPersistToggle" Header="Remember conversations"
                                       OnContent="Restore the last conversation" OffContent="Start fresh each time"

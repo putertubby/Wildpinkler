@@ -38,6 +38,8 @@ public sealed partial class SettingsPage
             // Item order matches the AssistantMode members.
             AssistantModeSelector.SelectedIndex = (int)AppServices.AppSettings.AssistantMode;
             AssistantPersistToggle.IsOn = AppServices.AppSettings.AssistantPersistTranscript;
+            AssistantOffersAllToolsToggle.IsOn = AppServices.AppSettings.AssistantOffersAllTools;
+            AssistantShowUsageToggle.IsOn = AppServices.AppSettings.AssistantShowUsage;
 
             await ApplyPresetChromeAsync();
         }
@@ -52,12 +54,32 @@ public sealed partial class SettingsPage
     private void LoadAssistant() =>
         UiTask.Run(LoadAssistantAsync, nameof(LoadAssistant), ShowAssistantError);
 
+    private void AssistantOffersAllTools_Toggled(object sender, RoutedEventArgs args)
+    {
+        if (_isApplyingAssistantState)
+            return;
+
+        AppServices.AppSettings.AssistantOffersAllTools = AssistantOffersAllToolsToggle.IsOn;
+        AppServices.AppSettingsStore.Save(AppServices.AppSettings);
+    }
+
+    private void AssistantShowUsage_Toggled(object sender, RoutedEventArgs args)
+    {
+        if (_isApplyingAssistantState)
+            return;
+
+        AppServices.AppSettings.AssistantShowUsage = AssistantShowUsageToggle.IsOn;
+        AppServices.AppSettingsStore.Save(AppServices.AppSettings);
+    }
+
     // The pane can change the mode too, so it is re-read on every visit rather than only at construction.
     protected override void OnNavigatedTo(Microsoft.UI.Xaml.Navigation.NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
         _isApplyingAssistantState = true;
         AssistantModeSelector.SelectedIndex = (int)AppServices.AppSettings.AssistantMode;
+        AssistantOffersAllToolsToggle.IsOn = AppServices.AppSettings.AssistantOffersAllTools;
+        AssistantShowUsageToggle.IsOn = AppServices.AppSettings.AssistantShowUsage;
         _isApplyingAssistantState = false;
     }
 

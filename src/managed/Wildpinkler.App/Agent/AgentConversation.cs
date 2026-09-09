@@ -17,6 +17,10 @@ public abstract record AgentTurnEvent
 
     public sealed record ToolProposed(ChatToolCall Call, bool NeedsApproval) : AgentTurnEvent;
 
+    public sealed record ToolStarted(ChatToolCall Call) : AgentTurnEvent;
+
+    public sealed record Usage(ChatUsage Value) : AgentTurnEvent;
+
     public sealed record ToolDeclined(ChatToolCall Call) : AgentTurnEvent;
 
     public sealed record ToolFinished(ChatToolCall Call, AgentToolResult Result) : AgentTurnEvent;
@@ -44,6 +48,8 @@ public sealed class AgentConversation
     private readonly IAgentToolApproval _approval;
     private readonly AppSettings _settings;
     private readonly ChatTranscript _transcript;
+    private readonly RemoteCallBudget _remoteBudget;
+    private readonly HashSet<string> _activeGroups = new(StringComparer.OrdinalIgnoreCase);
 
     public AgentConversation(
         IChatCompletionClient client,
@@ -51,7 +57,8 @@ public sealed class AgentConversation
         IAgentContextProvider context,
         AppSettings settings,
         ChatTranscript transcript,
-        IAgentToolApproval approval)
+        IAgentToolApproval approval,
+        RemoteCallBudget? remoteBudget = null)
     {
         _client = client;
         _tools = tools;
@@ -59,6 +66,7 @@ public sealed class AgentConversation
         _settings = settings;
         _transcript = transcript;
         _approval = approval;
+        _remoteBudget = remoteBudget ?? new RemoteCallBudget();
     }
 
     public ChatTranscript Transcript => _transcript;
@@ -67,14 +75,31 @@ public sealed class AgentConversation
         string prompt,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
-        _transcript.Add(new ChatMessage(ChatRole.User, prompt));
+        await foreach (var @event in SendAsync(prompt, [], cancellationToken))
+            yield return @event;
+    }
+
+    public async IAsyncEnumerable<AgentTurnEvent> SendAsync(
+        string prompt,
+        IReadOnlyList<ChatReference> references,
+        [EnumeratorCancellation] CancellationToken cancellationToken)
+    {
+        _transcript.Add(new ChatMessage(ChatRole.User, prompt) { References = references });
+        _remoteBudget.BeginTurn();
+        _activeGroups.Clear();
+        _activeGroups.Add("core");
+        if (_settings.AssistantOffersAllTools)
+        {
+            foreach (var group in _tools.Groups)
+                _activeGroups.Add(group);
+        }
         var systemPrompt = await BuildSystemPromptAsync(cancellationToken);
         var mode = _settings.AssistantMode;
-        var tools = mode == AssistantMode.Chat ? [] : _tools.Tools;
 
         for (var roundTrip = 0; ; roundTrip++)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            var tools = mode == AssistantMode.Chat ? [] : _tools.ToolsForGroups(_activeGroups);
 
             var text = new StringBuilder();
             IReadOnlyList<ChatToolCall> calls = [];
@@ -112,6 +137,9 @@ public sealed class AgentConversation
 
                 if (update.ToolCalls.Count > 0)
                     calls = update.ToolCalls;
+
+                if (update.Usage is not null)
+                    yield return new AgentTurnEvent.Usage(update.Usage);
             }
 
             if (failure is not null)
@@ -165,6 +193,44 @@ public sealed class AgentConversation
         HashSet<string> answered,
         [EnumeratorCancellation] CancellationToken cancellationToken)
     {
+        if (string.Equals(call.ToolName, "tools_enable", StringComparison.OrdinalIgnoreCase))
+        {
+            var group = ReadStringArgument(call.ArgumentsJson, "group");
+            if (group is null || !_tools.Groups.Contains(group, StringComparer.OrdinalIgnoreCase))
+            {
+                const string invalid = "That tool group is not available.";
+                yield return new AgentTurnEvent.ToolFinished(call, AgentToolResult.Error(invalid));
+                RecordToolResult(call, answered, invalid);
+                yield break;
+            }
+
+            _activeGroups.Add(group);
+            var enabled = $"The '{group}' actions are now available. Call the action you need next.";
+            yield return new AgentTurnEvent.ToolFinished(call, AgentToolResult.Ok(enabled));
+            RecordToolResult(call, answered, enabled);
+            yield break;
+        }
+
+        if (_tools.TryGet(call.ToolName, out var requestedTool)
+            && requestedTool.Group != "core"
+            && !_activeGroups.Contains(requestedTool.Group))
+        {
+            _activeGroups.Add(requestedTool.Group);
+            var message = $"The '{requestedTool.Group}' actions are now available. Call '{call.ToolName}' again.";
+            yield return new AgentTurnEvent.ToolFinished(call, AgentToolResult.Error(message));
+            RecordToolResult(call, answered, message);
+            yield break;
+        }
+
+        if (call.ToolName.StartsWith("remote_", StringComparison.OrdinalIgnoreCase)
+            && !_remoteBudget.TryConsume())
+        {
+            const string message = "Three online lookups already happened this turn. Ask the user to continue with a new question.";
+            yield return new AgentTurnEvent.ToolFinished(call, AgentToolResult.Error(message));
+            RecordToolResult(call, answered, message);
+            yield break;
+        }
+
         if (!_tools.TryGet(call.ToolName, out var tool))
         {
             yield return new AgentTurnEvent.ToolFinished(call,
@@ -176,12 +242,21 @@ public sealed class AgentConversation
         var needsApproval = tool.IsDestructive || _settings.AssistantMode != AssistantMode.Agent;
         yield return new AgentTurnEvent.ToolProposed(call, needsApproval);
 
-        if (needsApproval && !await _approval.RequestAsync(tool, call.ArgumentsJson, cancellationToken))
+        string? preview = null;
+        if (needsApproval && tool.IsDestructive)
+        {
+            var previewResult = await tool.PreviewAsync(call.ArgumentsJson, cancellationToken);
+            preview = previewResult.Succeeded ? previewResult.Content : $"Preview unavailable: {previewResult.Content}";
+        }
+
+        if (needsApproval && !await _approval.RequestAsync(tool, call.ArgumentsJson, preview, cancellationToken))
         {
             yield return new AgentTurnEvent.ToolDeclined(call);
             RecordToolResult(call, answered, "The user declined this action. Do not retry it; ask what they would prefer.");
             yield break;
         }
+
+        yield return new AgentTurnEvent.ToolStarted(call);
 
         AgentToolResult result;
         try
@@ -199,6 +274,19 @@ public sealed class AgentConversation
 
         yield return new AgentTurnEvent.ToolFinished(call, result);
         RecordToolResult(call, answered, result.Succeeded ? result.Content : $"The action failed: {result.Content}");
+    }
+
+    private static string? ReadStringArgument(string argumentsJson, string propertyName)
+    {
+        try
+        {
+            using var document = System.Text.Json.JsonDocument.Parse(argumentsJson);
+            return document.RootElement.TryGetProperty(propertyName, out var value) ? value.GetString() : null;
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            return null;
+        }
     }
 
     public IReadOnlyList<ChatMessage> BuildPrompt() =>
@@ -238,8 +326,8 @@ public sealed class AgentConversation
             $"Today is {DateTimeOffset.Now:yyyy-MM-dd}. Reply in the language the user writes in.",
             string.Empty,
             "Style:",
-            // The pane renders replies in a plain TextBlock, so markup would be shown literally.
-            "- Write plain text only. No markdown, no asterisks for emphasis, no headings, no code fences.",
+            "- Use short, safe markdown when it improves clarity: lists, headings, inline code and fenced code blocks.",
+            "- Do not use images, links, raw HTML or tables.",
             "- Answer in two or three sentences unless the user asks for more.",
             "- Use short lines starting with '- ' when a list genuinely helps.",
         };
@@ -290,19 +378,22 @@ public sealed class AgentConversationFactory
     private readonly IAgentToolCatalog _tools;
     private readonly IAgentContextProvider _context;
     private readonly AppSettings _settings;
+    private readonly RemoteCallBudget _remoteBudget;
 
     public AgentConversationFactory(
         IChatCompletionClient client,
         IAgentToolCatalog tools,
         IAgentContextProvider context,
-        AppSettings settings)
+        AppSettings settings,
+        RemoteCallBudget remoteBudget)
     {
         _client = client;
         _tools = tools;
         _context = context;
         _settings = settings;
+        _remoteBudget = remoteBudget;
     }
 
     public AgentConversation Create(ChatTranscript transcript, IAgentToolApproval approval) =>
-        new(_client, _tools, _context, _settings, transcript, approval);
+        new(_client, _tools, _context, _settings, transcript, approval, _remoteBudget);
 }

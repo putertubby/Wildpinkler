@@ -28,9 +28,9 @@ public static class AiProviderPresets
 
     private static readonly IReadOnlyList<AiProviderPreset> Presets =
     [
-        new("ollama", "Ollama (local)", "http://localhost:11434/v1", false, "qwen3:8b",
+        new("ollama", "Ollama (local)", "http://localhost:11434/v1", false, "qwen3:14b",
             "https://ollama.com/download",
-            "Runs entirely on this machine at no cost. Install Ollama, then run 'ollama pull qwen3:8b'."),
+            "Runs entirely on this machine at no cost. Install Ollama, then run 'ollama pull qwen3:14b'. Smaller models may choose actions less reliably."),
         new("openrouter", "OpenRouter", "https://openrouter.ai/api/v1", true,
             "meta-llama/llama-3.3-70b-instruct:free",
             "https://openrouter.ai/settings/keys",
