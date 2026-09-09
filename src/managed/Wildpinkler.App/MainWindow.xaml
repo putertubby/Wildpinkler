@@ -26,7 +26,11 @@
                   IsPaneToggleButtonVisible="True"
                   PaneToggleRequested="AppTitleBar_PaneToggleRequested" />
 
-        <Grid Grid.Row="1">
+        <Grid x:Name="ShellGrid" Grid.Row="1" SizeChanged="ShellGrid_SizeChanged">
+            <Grid.KeyboardAccelerators>
+                <KeyboardAccelerator Key="F6" Invoked="CycleRegion_Invoked" />
+                <KeyboardAccelerator Key="F6" Modifiers="Shift" Invoked="CycleRegion_Invoked" />
+            </Grid.KeyboardAccelerators>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" MinWidth="320" />
                 <ColumnDefinition Width="Auto" />
@@ -38,6 +42,7 @@
                 IsBackButtonVisible="Collapsed"
                 IsPaneToggleButtonVisible="False"
                 IsSettingsVisible="True"
+                AutomationProperties.Name="Navigation"
                 ItemInvoked="NavView_ItemInvoked">
                 <NavigationView.FooterMenuItems>
                     <NavigationViewItem x:Name="AssistantNavItem"
@@ -51,7 +56,7 @@
                         </NavigationViewItem.Icon>
                     </NavigationViewItem>
                 </NavigationView.FooterMenuItems>
-                <Frame x:Name="ContentFrame" />
+                <Frame x:Name="ContentFrame" AutomationProperties.Name="Page content" />
             </NavigationView>
 
             <controlsToolkit:GridSplitter x:Name="AssistantSplitter" Grid.Column="1" Width="8"
@@ -63,6 +68,7 @@
             <!-- Populated on demand; the pane stays out of the visual tree until it is opened. -->
             <ContentPresenter x:Name="AssistantHost"
                               Grid.Column="2"
+                              AutomationProperties.Name="Assistant"
                               Visibility="Collapsed" />
         </Grid>
     </Grid>

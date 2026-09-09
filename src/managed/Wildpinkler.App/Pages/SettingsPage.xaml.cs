@@ -129,7 +129,7 @@ public sealed partial class SettingsPage : PageBase
         _isApplyingHandlerState = false;
 
         _ = LoadSitesAsync();
-        _ = LoadAssistantAsync();
+        LoadAssistant();
     }
 
     // Item order matches the LogLevelBox entries.

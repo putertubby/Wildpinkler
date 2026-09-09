@@ -48,6 +48,9 @@ public sealed partial class SettingsPage
         await ReportLocalEndpointAsync();
     }
 
+    private void LoadAssistant() =>
+        UiTask.Run(LoadAssistantAsync, nameof(LoadAssistant), ShowAssistantError);
+
     private async Task ApplyPresetChromeAsync()
     {
         var preset = SelectedPreset;
@@ -86,11 +89,16 @@ public sealed partial class SettingsPage
             InfoBarSeverity.Informational);
     }
 
-    private async void AssistantProvider_SelectionChanged(object sender, SelectionChangedEventArgs args)
+    private void AssistantProvider_SelectionChanged(object sender, SelectionChangedEventArgs args)
     {
         if (_isApplyingAssistantState)
             return;
 
+        UiTask.Run(ApplyProviderChangeAsync, nameof(AssistantProvider_SelectionChanged), ShowAssistantError);
+    }
+
+    private async Task ApplyProviderChangeAsync()
+    {
         var preset = SelectedPreset;
         _isApplyingAssistantState = true;
         AssistantEndpointBox.Text = preset.Endpoint;
@@ -104,28 +112,28 @@ public sealed partial class SettingsPage
         await SaveAssistantAsync();
     }
 
-    private async void AssistantModel_SelectionChanged(object sender, SelectionChangedEventArgs args)
+    private void AssistantModel_SelectionChanged(object sender, SelectionChangedEventArgs args)
     {
         if (_isApplyingAssistantState || args.AddedItems.Count == 0)
             return;
 
-        await SaveAssistantAsync();
+        UiTask.Run(() => SaveAssistantAsync(), nameof(AssistantModel_SelectionChanged), ShowAssistantError);
     }
 
-    private async void AssistantField_LostFocus(object sender, RoutedEventArgs args)
+    private void AssistantField_LostFocus(object sender, RoutedEventArgs args)
     {
         if (_isApplyingAssistantState)
             return;
 
-        await SaveAssistantAsync();
+        UiTask.Run(() => SaveAssistantAsync(), nameof(AssistantField_LostFocus), ShowAssistantError);
     }
 
-    private async void AssistantToggle_Toggled(object sender, RoutedEventArgs args)
+    private void AssistantToggle_Toggled(object sender, RoutedEventArgs args)
     {
         if (_isApplyingAssistantState)
             return;
 
-        await SaveAssistantAsync();
+        UiTask.Run(() => SaveAssistantAsync(), nameof(AssistantToggle_Toggled), ShowAssistantError);
     }
 
     private void AssistantKey_PasswordChanged(object sender, RoutedEventArgs args)
@@ -171,7 +179,10 @@ public sealed partial class SettingsPage
         return true;
     }
 
-    private async void RefreshAssistantModels_Click(object sender, RoutedEventArgs args)
+    private void RefreshAssistantModels_Click(object sender, RoutedEventArgs args) =>
+        UiTask.Run(RefreshAssistantModelsAsync, nameof(RefreshAssistantModels_Click), ShowAssistantError);
+
+    private async Task RefreshAssistantModelsAsync()
     {
         if (!await SaveAssistantAsync())
             return;
@@ -193,23 +204,42 @@ public sealed partial class SettingsPage
         ShowAssistantInfo($"Found {models.Count} models.", InfoBarSeverity.Success);
     }
 
-    private async void TestAssistant_Click(object sender, RoutedEventArgs args)
+    private void TestAssistant_Click(object sender, RoutedEventArgs args) =>
+        UiTask.Run(TestAssistantAsync, nameof(TestAssistant_Click), ShowAssistantError);
+
+    private async Task TestAssistantAsync()
     {
         if (!await SaveAssistantAsync())
             return;
 
         ShowAssistantInfo("Contacting the provider\u2026", InfoBarSeverity.Informational);
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
-        var result = await AppHost.Get<IChatCompletionClient>().TestAsync(timeout.Token);
+        AgentToolResult result;
+        try
+        {
+            result = await AppHost.Get<IChatCompletionClient>().TestAsync(timeout.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            // The client rethrows cancellation, and a timeout here is an answer rather than a fault.
+            result = AgentToolResult.Error("The provider did not answer within a minute.");
+        }
+
         ShowAssistantInfo(result.Content, result.Succeeded ? InfoBarSeverity.Success : InfoBarSeverity.Error);
     }
 
-    private async void ClearAssistantHistory_Click(object sender, RoutedEventArgs args)
+    private void ClearAssistantHistory_Click(object sender, RoutedEventArgs args) =>
+        UiTask.Run(ClearAssistantHistoryAsync, nameof(ClearAssistantHistory_Click), ShowAssistantError);
+
+    private async Task ClearAssistantHistoryAsync()
     {
         AppHost.Get<ChatTranscript>().Clear();
         await AppHost.Get<ChatTranscriptStore>().ClearAsync();
         ShowAssistantInfo("The saved conversation was removed.", InfoBarSeverity.Success);
     }
+
+    private void ShowAssistantError(Exception exception) =>
+        ShowAssistantInfo($"The assistant settings could not be applied. {exception.Message}", InfoBarSeverity.Error);
 
     private void ShowAssistantInfo(string message, InfoBarSeverity severity)
     {

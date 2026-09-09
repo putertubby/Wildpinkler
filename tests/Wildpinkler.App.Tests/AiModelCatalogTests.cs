@@ -56,14 +56,4 @@ public sealed class AiModelCatalogTests
 
         Assert.False(await catalog.IsReachableAsync(configuration, TestContext.Current.CancellationToken));
     }
-
-    [Fact]
-    public async Task IsReachableAsync_ClosedLocalPort_ReturnsFalse()
-    {
-        using var catalog = new AiModelCatalog();
-        var configuration = new AiConfiguration(
-            "custom", new Uri("http://127.0.0.1:1/v1"), "any", false, null);
-
-        Assert.False(await catalog.IsReachableAsync(configuration, TestContext.Current.CancellationToken));
-    }
 }

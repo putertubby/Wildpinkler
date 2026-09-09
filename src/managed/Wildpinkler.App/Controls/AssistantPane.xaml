@@ -123,11 +123,11 @@
                           IsActive="{x:Bind Model.IsBusy, Mode=OneWay}"
                           AutomationProperties.Name="The assistant is working" />
             <Button Grid.Column="2"
-                    Content="&#xE712;"
-                    FontFamily="{ThemeResource SymbolThemeFontFamily}"
                     Background="Transparent"
                     BorderThickness="0"
-                    AutomationProperties.Name="More assistant options">
+                    AutomationProperties.Name="More assistant options"
+                    ToolTipService.ToolTip="More assistant options">
+                <FontIcon Glyph="&#xE712;" />
                 <Button.Flyout>
                     <MenuFlyout>
                         <MenuFlyoutItem Text="Clear conversation" Click="ClearConversation_Click" />
@@ -136,12 +136,13 @@
                 </Button.Flyout>
             </Button>
             <Button Grid.Column="3"
-                    Content="&#xE711;"
-                    FontFamily="{ThemeResource SymbolThemeFontFamily}"
                     Background="Transparent"
                     BorderThickness="0"
                     Click="Close_Click"
-                    AutomationProperties.Name="Close the assistant pane" />
+                    AutomationProperties.Name="Close the assistant pane"
+                    ToolTipService.ToolTip="Close the assistant pane">
+                <FontIcon Glyph="&#xE711;" />
+            </Button>
         </Grid>
 
         <Grid Grid.Row="1">

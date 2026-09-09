@@ -5,6 +5,8 @@ using System.Linq;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Navigation;
 using Windows.Graphics;
 using Wildpinkler.App.Controls;
@@ -49,7 +51,7 @@ public sealed partial class MainWindow : Window
 
         NavigateToStartupPage();
         if (_settings.IsAssistantPaneOpen)
-            SetAssistantPaneVisible(true);
+            ApplyAssistantPaneState();
     }
 
     public static MainWindow? Instance { get; private set; }
@@ -58,12 +60,20 @@ public sealed partial class MainWindow : Window
     /// Shows or hides the assistant pane. The control is only created on first use, so nothing about
     /// the assistant costs anything until a user asks for it.
     /// </summary>
-    public void ToggleAssistantPane() =>
-        SetAssistantPaneVisible(AssistantHost.Visibility != Visibility.Visible);
-
-    private void SetAssistantPaneVisible(bool visible)
+    public void ToggleAssistantPane()
     {
-        _settings.IsAssistantPaneOpen = visible;
+        _settings.IsAssistantPaneOpen = AssistantHost.Visibility != Visibility.Visible;
+        ApplyAssistantPaneState();
+    }
+
+    /// <summary>
+    /// The pane is side-by-side only while the shell is wide enough for it; below that the user's
+    /// preference is remembered but the content keeps the whole width.
+    /// </summary>
+    private void ApplyAssistantPaneState()
+    {
+        var fits = ShellGrid.ActualWidth <= 0 || ShellGrid.ActualWidth >= Layout.SideBySideThreshold;
+        var visible = _settings.IsAssistantPaneOpen && fits;
 
         if (!visible)
         {
@@ -82,7 +92,7 @@ public sealed partial class MainWindow : Window
         if (AssistantHost.Content is null)
         {
             var pane = new AssistantPane();
-            pane.CloseRequested += (_, _) => SetAssistantPaneVisible(false);
+            pane.CloseRequested += (_, _) => ToggleAssistantPane();
             AssistantHost.Content = pane;
         }
 
@@ -91,6 +101,42 @@ public sealed partial class MainWindow : Window
             Math.Max(_settings.AssistantPaneWidth ?? DefaultAssistantPaneWidth, MinimumAssistantPaneWidth));
         AssistantHost.Visibility = Visibility.Visible;
         AssistantSplitter.Visibility = Visibility.Visible;
+    }
+
+    private void ShellGrid_SizeChanged(object sender, SizeChangedEventArgs args) => ApplyAssistantPaneState();
+
+    private void CycleRegion_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        args.Handled = MoveToNextRegion(!sender.Modifiers.HasFlag(Windows.System.VirtualKeyModifiers.Shift));
+    }
+
+    private bool MoveToNextRegion(bool forward)
+    {
+        var regions = new List<DependencyObject> { NavView, ContentFrame };
+        if (AssistantHost.Visibility == Visibility.Visible)
+            regions.Add(AssistantHost);
+
+        var focused = FocusManager.GetFocusedElement(ShellGrid.XamlRoot) as DependencyObject;
+        var current = regions.FindIndex(region => Contains(region, focused));
+        var next = current < 0
+            ? 0
+            : (current + (forward ? 1 : regions.Count - 1)) % regions.Count;
+
+        return FocusManager.FindFirstFocusableElement(regions[next]) is FrameworkElement target
+            && target.Focus(FocusState.Keyboard);
+    }
+
+    private static bool Contains(DependencyObject region, DependencyObject? element)
+    {
+        while (element is not null)
+        {
+            if (ReferenceEquals(element, region))
+                return true;
+
+            element = VisualTreeHelper.GetParent(element);
+        }
+
+        return false;
     }
 
     public void NavigateToSettings()

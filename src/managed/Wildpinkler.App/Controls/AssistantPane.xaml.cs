@@ -56,7 +56,7 @@ public sealed partial class AssistantPane : UserControl, IDisposable, IAgentTool
         TranscriptList.Loaded += (_, _) => _transcriptScroll = FindScrollViewer(TranscriptList);
         Unloaded += (_, _) => CancelInFlight();
 
-        _ = RestoreAsync();
+        UiTask.Run(RestoreAsync, nameof(RestoreAsync), ShowUnexpectedFailure);
     }
 
     public event EventHandler? CloseRequested;
@@ -72,11 +72,17 @@ public sealed partial class AssistantPane : UserControl, IDisposable, IAgentTool
         });
 
     private void Configuration_Changed(object? sender, EventArgs args) =>
-        DispatcherQueue.TryEnqueue(async () =>
-        {
-            await _client.RefreshAsync(CancellationToken.None);
-            ReportConfiguration();
-        });
+        DispatcherQueue.TryEnqueue(() => UiTask.Run(
+            async () =>
+            {
+                await _client.RefreshAsync(CancellationToken.None);
+                ReportConfiguration();
+            },
+            nameof(Configuration_Changed),
+            ShowUnexpectedFailure));
+
+    private void ShowUnexpectedFailure(Exception exception) =>
+        _model.ShowStatus("The assistant could not answer", exception.Message, ChatStatusAction.Retry);
 
     private static ScrollViewer? FindScrollViewer(DependencyObject root)
     {
@@ -132,7 +138,7 @@ public sealed partial class AssistantPane : UserControl, IDisposable, IAgentTool
                 break;
             case ChatStatusAction.Retry when _lastPrompt is { Length: > 0 } prompt:
                 _model.HideStatus();
-                _ = SendAsync(prompt);
+                UiTask.Run(() => SendAsync(prompt), nameof(StatusAction_Click), ShowUnexpectedFailure);
                 break;
         }
     }
@@ -197,7 +203,10 @@ public sealed partial class AssistantPane : UserControl, IDisposable, IAgentTool
     private void OpenSettings_Click(object sender, RoutedEventArgs args) =>
         MainWindow.Instance?.NavigateToSettings();
 
-    private async void ClearConversation_Click(object sender, RoutedEventArgs args)
+    private void ClearConversation_Click(object sender, RoutedEventArgs args) =>
+        UiTask.Run(ClearConversationAsync, nameof(ClearConversation_Click), ShowUnexpectedFailure);
+
+    private async Task ClearConversationAsync()
     {
         CancelInFlight();
         _transcript.Clear();
@@ -229,10 +238,11 @@ public sealed partial class AssistantPane : UserControl, IDisposable, IAgentTool
             return;
 
         args.Handled = true;
-        _ = SendAsync();
+        UiTask.Run(() => SendAsync(), nameof(PromptBox_PreviewKeyDown), ShowUnexpectedFailure);
     }
 
-    private void Send_Click(object sender, RoutedEventArgs args) => _ = SendAsync();
+    private void Send_Click(object sender, RoutedEventArgs args) =>
+        UiTask.Run(() => SendAsync(), nameof(Send_Click), ShowUnexpectedFailure);
 
     private void Stop_Click(object sender, RoutedEventArgs args) => CancelInFlight();
 

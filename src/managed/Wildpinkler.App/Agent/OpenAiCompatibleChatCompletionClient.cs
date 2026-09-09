@@ -22,7 +22,8 @@ public sealed class OpenAiCompatibleChatCompletionClient : IChatCompletionClient
     private readonly ILogger<OpenAiCompatibleChatCompletionClient> _logger;
     private readonly object _gate = new();
 
-    private AiConfiguration? _resolved;
+    // Read from the UI thread while the streaming path writes it, so publication has to be ordered.
+    private volatile AiConfiguration? _resolved;
     private AiConfiguration? _clientConfiguration;
     private OpenAiChat.ChatClient? _client;
 
