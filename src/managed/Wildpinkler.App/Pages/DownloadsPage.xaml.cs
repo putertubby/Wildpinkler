@@ -14,7 +14,7 @@ using Wildpinkler.Remote;
 
 namespace Wildpinkler.App.Pages;
 
-public sealed partial class DownloadsPage : Page, INotifyPropertyChanged
+public sealed partial class DownloadsPage : PageBase
 {
     private enum StateFilter
     {
@@ -38,8 +38,6 @@ public sealed partial class DownloadsPage : Page, INotifyPropertyChanged
     private double _detailsWidth = AppServices.AppSettings.DownloadsDetailsWidth ?? 360;
     private double _listDetailsWidth;
     private bool _isUpdatingLayoutState;
-
-    public event PropertyChangedEventHandler? PropertyChanged;
 
     public DownloadsPage()
     {
@@ -339,15 +337,4 @@ public sealed partial class DownloadsPage : Page, INotifyPropertyChanged
         StateFilter.Failed => "Failed",
         _ => "All"
     };
-
-    private void OnPropertyChanged(string name) => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
-
-    private bool SetProperty<T>(ref T storage, T value, [System.Runtime.CompilerServices.CallerMemberName] string? propertyName = null)
-    {
-        if (EqualityComparer<T>.Default.Equals(storage, value))
-            return false;
-        storage = value;
-        OnPropertyChanged(propertyName!);
-        return true;
-    }
 }

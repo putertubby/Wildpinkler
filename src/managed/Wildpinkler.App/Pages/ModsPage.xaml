@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<Page
+<pages:PageBase
     x:Class="Wildpinkler.App.Pages.ModsPage"
     x:Name="RootPage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -308,4 +308,4 @@
             <TextBlock x:Name="QueueStatus" HorizontalAlignment="Right" Opacity="0.72" />
         </Grid>
     </Grid>
-</Page>
+</pages:PageBase>

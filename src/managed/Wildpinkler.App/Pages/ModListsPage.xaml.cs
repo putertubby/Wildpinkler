@@ -21,7 +21,7 @@ using Wildpinkler.App.Formatting;
 namespace Wildpinkler.App.Pages;
 
 [SuppressMessage("Design", "CA1001:Types that own disposable fields should be disposable", Justification = "The build cancellation source is scoped to a single build and disposed in ResumeBuild's finally block.")]
-public sealed partial class ModListsPage : Page, INotifyPropertyChanged
+public sealed partial class ModListsPage : PageBase
 {
     private enum GradeFilter
     {
@@ -69,8 +69,6 @@ public sealed partial class ModListsPage : Page, INotifyPropertyChanged
         DetailsColumnDef.RegisterPropertyChangedCallback(ColumnDefinition.WidthProperty, DetailsColumnDef_WidthChanged);
         _coordinator.BuildChanged += Coordinator_BuildChanged;
     }
-
-    public event PropertyChangedEventHandler? PropertyChanged;
 
     public string ResultCountText { get => _resultCountText; private set => SetProperty(ref _resultCountText, value); }
     public bool IsLoading { get => _isLoading; private set => SetProperty(ref _isLoading, value); }
@@ -693,16 +691,4 @@ public sealed partial class ModListsPage : Page, INotifyPropertyChanged
             _isUpdatingLayoutState = false;
         }
     }
-
-    private bool SetProperty<T>(ref T field, T value, [CallerMemberName] string? propertyName = null)
-    {
-        if (EqualityComparer<T>.Default.Equals(field, value))
-            return false;
-        field = value;
-        OnPropertyChanged(propertyName);
-        return true;
-    }
-
-    private void OnPropertyChanged([CallerMemberName] string? propertyName = null) =>
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
 }

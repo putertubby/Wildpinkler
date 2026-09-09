@@ -19,21 +19,8 @@ using Wildpinkler.App.Formatting;
 
 namespace Wildpinkler.App.Pages;
 
-public sealed partial class GamesPage : Page, INotifyPropertyChanged
+public sealed partial class GamesPage : PageBase
 {
-    public event PropertyChangedEventHandler? PropertyChanged;
-
-    private bool SetProperty<T>(ref T storage, T value, [System.Runtime.CompilerServices.CallerMemberName] string? propertyName = null)
-    {
-        if (EqualityComparer<T>.Default.Equals(storage, value))
-            return false;
-        storage = value;
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-        return true;
-    }
-
-    private void OnPropertyChanged([System.Runtime.CompilerServices.CallerMemberName] string? propertyName = null) =>
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     private readonly GameStore _store = AppServices.GameStore;
     private readonly GameDefinitionStore _definitionStore = AppServices.GameDefinitionStore;
     private readonly ProfileStore _profileStore = AppServices.ProfileStore;

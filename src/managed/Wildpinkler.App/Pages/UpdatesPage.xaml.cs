@@ -16,21 +16,8 @@ using Wildpinkler.App.Formatting;
 
 namespace Wildpinkler.App.Pages;
 
-public sealed partial class UpdatesPage : Page, INotifyPropertyChanged
+public sealed partial class UpdatesPage : PageBase
 {
-    public event PropertyChangedEventHandler? PropertyChanged;
-
-    private bool SetProperty<T>(ref T storage, T value, [System.Runtime.CompilerServices.CallerMemberName] string? propertyName = null)
-    {
-        if (EqualityComparer<T>.Default.Equals(storage, value))
-            return false;
-        storage = value;
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-        return true;
-    }
-
-    private void OnPropertyChanged([System.Runtime.CompilerServices.CallerMemberName] string? propertyName = null) =>
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     public ObservableCollection<AvailableUpdateRow> Updates { get; } = new();
     public ObservableCollection<TrackedModRow> TrackedMods { get; } = new();
     private bool _isLoading;
@@ -83,7 +70,7 @@ public sealed partial class UpdatesPage : Page, INotifyPropertyChanged
 
     private async Task LoadUpdatesAsync()
     {
-        var result = await AppServices.UpdateCheckService.CheckForUpdatesAsync();
+        var result = await AppServices.UpdateCheckService.CheckForUpdatesAsync(cancellationToken: PageToken);
         var desired = result.Candidates.Select(item => new AvailableUpdateRow
         {
             Id = item.Entry.Id,
@@ -113,7 +100,7 @@ public sealed partial class UpdatesPage : Page, INotifyPropertyChanged
 
     private async Task LoadTrackedModsAsync()
     {
-        var tracked = await AppServices.TrackedModsService.GetTrackedModsAsync();
+        var tracked = await AppServices.TrackedModsService.GetTrackedModsAsync(PageToken);
         var desired = tracked.Select(mod => new TrackedModRow
         {
             Id = $"{mod.Ref.SiteId}:{mod.Ref.GameKey}:{mod.Ref.ModKey}",

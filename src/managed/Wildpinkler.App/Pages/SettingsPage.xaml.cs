@@ -98,9 +98,8 @@ internal sealed class SiteRow : ObservableObject
     };
 }
 
-public sealed partial class SettingsPage : Page, INotifyPropertyChanged
+public sealed partial class SettingsPage : PageBase
 {
-    public event PropertyChangedEventHandler? PropertyChanged;
 
     private readonly RemoteSiteStore _siteStore = AppServices.RemoteSiteStore;
     private readonly ObservableCollection<SiteRow> _sites = new();
@@ -352,14 +351,5 @@ public sealed partial class SettingsPage : Page, INotifyPropertyChanged
         PageInfoBar.Severity = severity;
         PageInfoBar.Message = message;
         PageInfoBar.IsOpen = true;
-    }
-
-    private bool SetProperty<T>(ref T storage, T value, [System.Runtime.CompilerServices.CallerMemberName] string? propertyName = null)
-    {
-        if (EqualityComparer<T>.Default.Equals(storage, value))
-            return false;
-        storage = value;
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-        return true;
     }
 }

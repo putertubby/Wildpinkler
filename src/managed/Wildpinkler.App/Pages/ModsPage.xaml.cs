@@ -21,21 +21,8 @@ using Wildpinkler.App.Formatting;
 namespace Wildpinkler.App.Pages;
 
 // Second page (after GamesPage) using CommunityToolkit.Mvvm source generators at the page level.
-public sealed partial class ModsPage : Page, INotifyPropertyChanged
+public sealed partial class ModsPage : PageBase
 {
-    public event PropertyChangedEventHandler? PropertyChanged;
-
-    private bool SetProperty<T>(ref T storage, T value, [System.Runtime.CompilerServices.CallerMemberName] string? propertyName = null)
-    {
-        if (EqualityComparer<T>.Default.Equals(storage, value))
-            return false;
-        storage = value;
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-        return true;
-    }
-
-    private void OnPropertyChanged([System.Runtime.CompilerServices.CallerMemberName] string? propertyName = null) =>
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     private readonly ModStore _store = AppServices.ModStore;
     private readonly BackgroundOperationQueue _queue = AppServices.BackgroundOperationQueue;
     private readonly ObservableCollection<ModEntry> _allMods = new();

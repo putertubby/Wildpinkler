@@ -17,26 +17,11 @@ using Wildpinkler.App.Services;
 
 namespace Wildpinkler.App.Pages;
 
-// Mirrors GamesPage/ToolsPage: [INotifyPropertyChanged] rather than the ObservableObject base class,
-// because Page is already the base class. Split into ProfilesPage.LoadOrder/.AvailableMods/.Tools/
-// .CustomViews/.MergedContent.cs partial files - this file owns page lifecycle, the list, search,
-// add/delete, layout, the header (including inline rename) and the single launch target every
-// workspace section is scoped to.
-public sealed partial class ProfilesPage : Page, INotifyPropertyChanged
+// Split into ProfilesPage.LoadOrder/.AvailableMods/.Tools/.CustomViews/.MergedContent.cs partial
+// files - this file owns page lifecycle, the list, search, add/delete, layout, the header (including
+// inline rename) and the single launch target every workspace section is scoped to.
+public sealed partial class ProfilesPage : PageBase
 {
-    public event PropertyChangedEventHandler? PropertyChanged;
-
-    private bool SetProperty<T>(ref T storage, T value, [System.Runtime.CompilerServices.CallerMemberName] string? propertyName = null)
-    {
-        if (EqualityComparer<T>.Default.Equals(storage, value))
-            return false;
-        storage = value;
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-        return true;
-    }
-
-    private void OnPropertyChanged([System.Runtime.CompilerServices.CallerMemberName] string? propertyName = null) =>
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     private readonly ProfileStore _store = AppServices.ProfileStore;
     private readonly GameStore _gameStore = AppServices.GameStore;
     private readonly GameDefinitionStore _gameDefinitionStore = AppServices.GameDefinitionStore;

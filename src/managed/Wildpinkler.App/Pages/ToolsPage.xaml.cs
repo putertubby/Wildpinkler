@@ -17,23 +17,8 @@ using Wildpinkler.App.Services;
 
 namespace Wildpinkler.App.Pages;
 
-// Mirrors GamesPage: [INotifyPropertyChanged] rather than the ObservableObject base class,
-// because Page is already the base class.
-public sealed partial class ToolsPage : Page, INotifyPropertyChanged
+public sealed partial class ToolsPage : PageBase
 {
-    public event PropertyChangedEventHandler? PropertyChanged;
-
-    private bool SetProperty<T>(ref T storage, T value, [System.Runtime.CompilerServices.CallerMemberName] string? propertyName = null)
-    {
-        if (EqualityComparer<T>.Default.Equals(storage, value))
-            return false;
-        storage = value;
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-        return true;
-    }
-
-    private void OnPropertyChanged([System.Runtime.CompilerServices.CallerMemberName] string? propertyName = null) =>
-        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
     private readonly ToolStore _store = AppServices.ToolStore;
     private readonly ToolDefinitionStore _definitionStore = AppServices.ToolDefinitionStore;
     private readonly ProfileStore _profileStore = AppServices.ProfileStore;
