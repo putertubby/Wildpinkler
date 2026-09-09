@@ -146,7 +146,7 @@ internal sealed class CommandAgentTool : IAgentTool
 /// Read-only views an agent can consult before proposing anything, so it never has to reach into a
 /// page's private state to know what is installed.
 /// </summary>
-public sealed class AgentContextProvider
+public sealed class AgentContextProvider : IAgentContextProvider
 {
     private readonly IAppCommandDispatcher _dispatcher;
     private readonly AppCommandJournal _journal;
@@ -178,7 +178,12 @@ public static class AgentRegistration
     {
         services.AddSingleton<IAgentToolCatalog, CommandBackedAgentToolCatalog>();
         services.AddSingleton<AgentContextProvider>();
-        services.AddSingleton<IChatCompletionClient, UnconfiguredChatCompletionClient>();
+        services.AddSingleton<IAgentContextProvider>(provider => provider.GetRequiredService<AgentContextProvider>());
+        services.AddSingleton<AiConfigurationStore>();
+        services.AddSingleton<AiModelCatalog>();
+        services.AddSingleton<IChatCompletionClient, OpenAiCompatibleChatCompletionClient>();
+        services.AddSingleton<AgentConversationFactory>();
+        services.AddSingleton<ChatTranscriptStore>();
         services.AddSingleton<ChatTranscript>();
         return services;
     }

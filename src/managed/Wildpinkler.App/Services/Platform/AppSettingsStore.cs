@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -35,19 +36,40 @@ public sealed class AppSettings
     public double? ProfilesListWidth { get; set; }
     public string? ActivePageTag { get; set; }
     public Microsoft.Extensions.Logging.LogLevel LogLevel { get; set; } = Microsoft.Extensions.Logging.LogLevel.Information;
+
+    // Assistant provider selection. The API key never lives here; it is held by CredentialStore.
+    public string AssistantProviderId { get; set; } = Agent.AiProviderPresets.DefaultProviderId;
+
+    // Null means "use the preset value", so changing a preset default reaches users who never overrode it.
+    public string? AssistantEndpoint { get; set; }
+    public string? AssistantModelId { get; set; }
+    public bool AssistantAutoRunReadOnlyTools { get; set; } = true;
+    public bool AssistantPersistTranscript { get; set; } = true;
+
+    // Hosts the user has agreed may receive conversation content. Loopback is never listed.
+    public List<string> AssistantAcceptedRemoteHosts { get; set; } = [];
+    public bool IsAssistantPaneOpen { get; set; }
+    public double? AssistantPaneWidth { get; set; }
 }
 
 // Deliberately synchronous, unlike the other stores: both call sites are window lifecycle points
 // (constructor and AppWindow.Closing) where awaiting is not available.
 public sealed class AppSettingsStore
 {
-    private const int CurrentSchemaVersion = 1;
+    private const int CurrentSchemaVersion = 2;
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,
         Converters = { new JsonStringEnumConverter() },
     };
-    private readonly string _path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Wildpinkler", "app-settings.json");
+    private readonly string _path;
+
+    public AppSettingsStore(string? root = null)
+    {
+        var directory = root ?? Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Wildpinkler");
+        _path = Path.Combine(directory, "app-settings.json");
+    }
 
     public AppSettings Load()
     {

@@ -8,12 +8,13 @@
   <ItemGroup>
     <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageVersion Include="CommunityToolkit.WinUI.Controls.Sizers" Version="8.2.251219" />
-    <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="9.0.19" />
-    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="9.0.19" />
-    <PackageVersion Include="Microsoft.Extensions.Logging" Version="9.0.19" />
-    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.19" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection" Version="10.0.3" />
+    <PackageVersion Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.3" />
+    <PackageVersion Include="Microsoft.Extensions.Logging" Version="10.0.3" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.3" />
     <PackageVersion Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2705" />
     <PackageVersion Include="Microsoft.WindowsAppSDK" Version="1.7.260224002" />
+    <PackageVersion Include="OpenAI" Version="2.13.0" />
     <PackageVersion Include="SharpCompress" Version="0.48.1" />
     <PackageVersion Include="System.Security.Cryptography.ProtectedData" Version="9.0.19" />
   </ItemGroup>

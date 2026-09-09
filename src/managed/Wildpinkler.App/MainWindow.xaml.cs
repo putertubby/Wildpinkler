@@ -19,6 +19,8 @@ public sealed partial class MainWindow : Window
     private const int DefaultWindowHeight = 800;
     private const int MinimumWindowWidth = 800;
     private const int MinimumWindowHeight = 600;
+    private const double MinimumAssistantPaneWidth = 280;
+    private const double DefaultAssistantPaneWidth = 360;
     private const string AssistantTag = "Assistant";
 
     private readonly Dictionary<string, Type> _pagesByTag = new();
@@ -46,6 +48,8 @@ public sealed partial class MainWindow : Window
         AppWindow.Closing += AppWindow_Closing;
 
         NavigateToStartupPage();
+        if (_settings.IsAssistantPaneOpen)
+            SetAssistantPaneVisible(true);
     }
 
     public static MainWindow? Instance { get; private set; }
@@ -54,24 +58,39 @@ public sealed partial class MainWindow : Window
     /// Shows or hides the assistant pane. The control is only created on first use, so nothing about
     /// the assistant costs anything until a user asks for it.
     /// </summary>
-    public void ToggleAssistantPane()
+    public void ToggleAssistantPane() =>
+        SetAssistantPaneVisible(AssistantHost.Visibility != Visibility.Visible);
+
+    private void SetAssistantPaneVisible(bool visible)
     {
-        if (AssistantHost.Visibility == Visibility.Visible)
+        _settings.IsAssistantPaneOpen = visible;
+
+        if (!visible)
         {
+            if (AssistantColumn.ActualWidth > 0)
+                _settings.AssistantPaneWidth = AssistantColumn.ActualWidth;
+
+            // The pane is kept alive so closing it does not throw away the conversation.
             AssistantHost.Visibility = Visibility.Collapsed;
-            (AssistantHost.Content as IDisposable)?.Dispose();
-            AssistantHost.Content = null;
+            AssistantSplitter.Visibility = Visibility.Collapsed;
+            // A column keeps its MinWidth even at zero width, so the floor has to be lifted as well.
+            AssistantColumn.MinWidth = 0;
+            AssistantColumn.Width = new GridLength(0);
             return;
         }
 
         if (AssistantHost.Content is null)
         {
             var pane = new AssistantPane();
-            pane.CloseRequested += (_, _) => ToggleAssistantPane();
+            pane.CloseRequested += (_, _) => SetAssistantPaneVisible(false);
             AssistantHost.Content = pane;
         }
 
+        AssistantColumn.MinWidth = MinimumAssistantPaneWidth;
+        AssistantColumn.Width = new GridLength(
+            Math.Max(_settings.AssistantPaneWidth ?? DefaultAssistantPaneWidth, MinimumAssistantPaneWidth));
         AssistantHost.Visibility = Visibility.Visible;
+        AssistantSplitter.Visibility = Visibility.Visible;
     }
 
     public void NavigateToSettings()
@@ -162,13 +181,16 @@ public sealed partial class MainWindow : Window
         _settings.WindowWidth = _restoreBounds.Width;
         _settings.WindowHeight = _restoreBounds.Height;
         _settings.ActivePageTag = _currentPageTag;
+        if (AssistantColumn.ActualWidth > 0)
+            _settings.AssistantPaneWidth = AssistantColumn.ActualWidth;
         Services.AppServices.AppSettingsStore.Save(_settings);
+        (AssistantHost.Content as IDisposable)?.Dispose();
     }
 
-    private NavigationViewItem FindMenuItem(string tag) =>
+    private NavigationViewItem? FindMenuItem(string tag) =>
         NavView.MenuItems
             .OfType<NavigationViewItem>()
-            .First(item => (string)item.Tag == tag);
+            .FirstOrDefault(item => (string)item.Tag == tag);
 
     // Selection follows the frame, so back/forward navigation moves the highlight too.
     private void ContentFrame_Navigated(object sender, NavigationEventArgs args)
@@ -214,8 +236,7 @@ public sealed partial class MainWindow : Window
         var tag = args.InvokedItemContainer?.Tag as string;
         if (tag == AssistantTag)
         {
-            // The assistant is a side pane, not a destination, so selection must not move to it.
-            NavView.SelectedItem = FindMenuItem(_currentPageTag);
+            // SelectsOnInvoked is false on the item, so selection stays on the current page.
             ToggleAssistantPane();
             return;
         }

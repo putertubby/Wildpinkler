@@ -391,3 +391,25 @@ throttles itself to a burst allowance that recovers one request per second.
 Single sign-on is wired up behind the same interface but stays disabled: the websocket handshake
 needs an application slug that only Nexus staff can issue.
 
+## Assistant
+
+The assistant pane answers questions about your setup and can run the same actions you can, through
+the same confirmation gate and audit journal. It never has a private set of operations.
+
+Out of the box it is pointed at a local [Ollama](https://ollama.com/download) server on
+`http://localhost:11434/v1`, which costs nothing and needs no key. Install Ollama and run
+`ollama pull qwen3:8b` to use it. Settings also carries one-click presets for OpenRouter, Groq,
+OpenAI and Azure OpenAI, plus a custom option for any other OpenAI-compatible server such as LM
+Studio. Those providers need your own API key; no shared key ships with Wildpinkler.
+
+Keys are encrypted with DPAPI for your Windows user, in the same store as the site credentials, and
+are kept in a separate slot per provider so switching does not discard the previous one. They never
+appear in `app-settings.json` or in the logs.
+
+Reading actions run on their own. Anything that changes your setup is proposed in the conversation
+and waits for you to allow it.
+
+What you type, and the names and paths that actions return about your games, profiles and mods, are
+sent to whichever provider you choose. Wildpinkler asks you to confirm that once for each provider
+host, before the first question it sends there. The local Ollama default sends nothing anywhere.
+

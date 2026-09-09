@@ -4,7 +4,97 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:agent="using:Wildpinkler.App.Agent"
+    xmlns:controls="using:Wildpinkler.App.Controls"
     MinWidth="280">
+
+    <UserControl.Resources>
+        <DataTemplate x:Key="UserEntryTemplate" x:DataType="agent:ChatEntry">
+            <Border Background="{ThemeResource AccentFillColorDefaultBrush}"
+                    CornerRadius="8"
+                    Padding="12,8"
+                    Margin="24,4,0,4"
+                    HorizontalAlignment="Right">
+                <TextBlock Text="{x:Bind Text, Mode=OneWay}"
+                           TextWrapping="Wrap"
+                           IsTextSelectionEnabled="True"
+                           Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}" />
+            </Border>
+        </DataTemplate>
+
+        <DataTemplate x:Key="AssistantEntryTemplate" x:DataType="agent:ChatEntry">
+            <TextBlock Text="{x:Bind Text, Mode=OneWay}"
+                       TextWrapping="Wrap"
+                       IsTextSelectionEnabled="True"
+                       Margin="0,4,24,4"
+                       Foreground="{ThemeResource TextFillColorPrimaryBrush}" />
+        </DataTemplate>
+
+        <DataTemplate x:Key="ToolEntryTemplate" x:DataType="agent:ChatEntry">
+            <Expander HorizontalAlignment="Stretch"
+                      HorizontalContentAlignment="Stretch"
+                      Margin="0,4"
+                      IsExpanded="{x:Bind IsExpanded, Mode=TwoWay}">
+                <Expander.Header>
+                    <TextBlock Text="{x:Bind Header, Mode=OneWay}"
+                               Style="{StaticResource BodyStrongTextBlockStyle}"
+                               TextTrimming="CharacterEllipsis" />
+                </Expander.Header>
+                <TextBlock Text="{x:Bind Detail, Mode=OneWay}"
+                           TextWrapping="Wrap"
+                           IsTextSelectionEnabled="True"
+                           FontFamily="Consolas"
+                           Style="{StaticResource CaptionTextBlockStyle}" />
+            </Expander>
+        </DataTemplate>
+
+        <DataTemplate x:Key="ApprovalEntryTemplate" x:DataType="agent:ChatEntry">
+            <Border Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    Padding="12"
+                    Margin="0,4">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="{x:Bind Header, Mode=OneWay}"
+                               Style="{StaticResource BodyStrongTextBlockStyle}"
+                               TextWrapping="Wrap" />
+                    <TextBlock Text="{x:Bind Detail, Mode=OneWay}"
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               TextWrapping="Wrap" />
+                    <StackPanel Orientation="Horizontal"
+                                Spacing="8"
+                                Visibility="{x:Bind IsAwaitingAnswer, Mode=OneWay}">
+                        <Button Content="Run"
+                                Tag="{x:Bind Id}"
+                                Click="Approve_Click" />
+                        <Button Content="Don't run"
+                                Tag="{x:Bind Id}"
+                                Click="Decline_Click" />
+                    </StackPanel>
+                    <TextBlock Text="{x:Bind Text, Mode=OneWay}"
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+        </DataTemplate>
+
+        <DataTemplate x:Key="NoticeEntryTemplate" x:DataType="agent:ChatEntry">
+            <TextBlock Text="{x:Bind Text, Mode=OneWay}"
+                       TextWrapping="Wrap"
+                       Margin="0,4"
+                       Style="{StaticResource CaptionTextBlockStyle}"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+        </DataTemplate>
+
+        <controls:ChatEntryTemplateSelector x:Key="EntryTemplates"
+                                            User="{StaticResource UserEntryTemplate}"
+                                            Assistant="{StaticResource AssistantEntryTemplate}"
+                                            Tool="{StaticResource ToolEntryTemplate}"
+                                            Approval="{StaticResource ApprovalEntryTemplate}"
+                                            Notice="{StaticResource NoticeEntryTemplate}" />
+    </UserControl.Resources>
 
     <Grid Background="{ThemeResource LayerFillColorDefaultBrush}"
           BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
@@ -18,33 +108,83 @@
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
-        <Grid Grid.Row="0" ColumnSpacing="8">
+        <Grid Grid.Row="0" ColumnSpacing="4">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}" Text="Assistant"
                        VerticalAlignment="Center" />
-            <Button Grid.Column="1" Content="Close" Click="Close_Click"
+            <ProgressRing Grid.Column="1"
+                          Width="16" Height="16"
+                          VerticalAlignment="Center"
+                          IsActive="{x:Bind Model.IsBusy, Mode=OneWay}"
+                          AutomationProperties.Name="The assistant is working" />
+            <Button Grid.Column="2"
+                    Content="&#xE712;"
+                    FontFamily="{ThemeResource SymbolThemeFontFamily}"
+                    Background="Transparent"
+                    BorderThickness="0"
+                    AutomationProperties.Name="More assistant options">
+                <Button.Flyout>
+                    <MenuFlyout>
+                        <MenuFlyoutItem Text="Clear conversation" Click="ClearConversation_Click" />
+                        <MenuFlyoutItem Text="Assistant settings" Click="OpenSettings_Click" />
+                    </MenuFlyout>
+                </Button.Flyout>
+            </Button>
+            <Button Grid.Column="3"
+                    Content="&#xE711;"
+                    FontFamily="{ThemeResource SymbolThemeFontFamily}"
+                    Background="Transparent"
+                    BorderThickness="0"
+                    Click="Close_Click"
                     AutomationProperties.Name="Close the assistant pane" />
         </Grid>
 
-        <ListView x:Name="TranscriptList"
-                  Grid.Row="1"
-                  SelectionMode="None"
-                  IsItemClickEnabled="False"
-                  AutomationProperties.Name="Conversation">
-            <ListView.ItemTemplate>
-                <DataTemplate x:DataType="agent:ChatMessage">
-                    <StackPanel Spacing="2" Padding="0,4">
-                        <TextBlock Opacity="0.62" Text="{x:Bind Role}" />
-                        <TextBlock TextWrapping="Wrap" IsTextSelectionEnabled="True" Text="{x:Bind Content}" />
-                    </StackPanel>
-                </DataTemplate>
-            </ListView.ItemTemplate>
-        </ListView>
+        <Grid Grid.Row="1">
+            <ListView x:Name="TranscriptList"
+                      SelectionMode="None"
+                      IsItemClickEnabled="False"
+                      ItemTemplateSelector="{StaticResource EntryTemplates}"
+                      AutomationProperties.Name="Conversation">
+                <ListView.ItemContainerStyle>
+                    <Style TargetType="ListViewItem">
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                        <Setter Property="Padding" Value="0" />
+                    </Style>
+                </ListView.ItemContainerStyle>
+            </ListView>
 
-        <InfoBar x:Name="StatusBar" Grid.Row="2" IsClosable="False" />
+            <StackPanel VerticalAlignment="Center"
+                        HorizontalAlignment="Center"
+                        MaxWidth="280"
+                        Spacing="8"
+                        IsHitTestVisible="False"
+                        Visibility="{x:Bind Model.IsEmpty, Mode=OneWay}">
+                <FontIcon Glyph="&#xE99A;"
+                          FontSize="24"
+                          Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                <TextBlock Text="No conversation yet"
+                           Style="{StaticResource BodyStrongTextBlockStyle}"
+                           HorizontalAlignment="Center" />
+                <TextBlock Text="{x:Bind Model.EmptyStateMessage, Mode=OneWay}"
+                           Style="{StaticResource CaptionTextBlockStyle}"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                           TextAlignment="Center"
+                           TextWrapping="Wrap" />
+            </StackPanel>
+        </Grid>
+
+        <InfoBar x:Name="StatusBar" Grid.Row="2" IsClosable="False">
+            <InfoBar.ActionButton>
+                <Button x:Name="StatusActionButton"
+                        Visibility="Collapsed"
+                        Click="StatusAction_Click" />
+            </InfoBar.ActionButton>
+        </InfoBar>
 
         <Grid Grid.Row="3" ColumnSpacing="8">
             <Grid.ColumnDefinitions>
@@ -53,12 +193,26 @@
             </Grid.ColumnDefinitions>
             <TextBox x:Name="PromptBox"
                      PlaceholderText="Ask about your profiles and mods"
-                     AcceptsReturn="False"
+                     AcceptsReturn="True"
+                     TextWrapping="Wrap"
+                     MaxHeight="120"
                      AutomationProperties.Name="Message to the assistant"
-                     KeyDown="PromptBox_KeyDown" />
-            <Button Grid.Column="1" Content="Send" Click="Send_Click"
-                    Style="{StaticResource AccentButtonStyle}"
-                    AutomationProperties.Name="Send the message" />
+                     TextChanged="PromptBox_TextChanged"
+                     PreviewKeyDown="PromptBox_PreviewKeyDown" />
+            <Grid Grid.Column="1" VerticalAlignment="Bottom">
+                <Button x:Name="SendButton"
+                        Content="Send"
+                        Click="Send_Click"
+                        IsEnabled="{x:Bind Model.CanSend, Mode=OneWay}"
+                        Visibility="{x:Bind Model.IsBusy, Mode=OneWay, Converter={StaticResource InverseBoolToVisibilityConverter}}"
+                        Style="{StaticResource AccentButtonStyle}"
+                        AutomationProperties.Name="Send the message" />
+                <Button x:Name="StopButton"
+                        Content="Stop"
+                        Click="Stop_Click"
+                        Visibility="{x:Bind Model.IsBusy, Mode=OneWay}"
+                        AutomationProperties.Name="Stop the assistant" />
+            </Grid>
         </Grid>
     </Grid>
 </UserControl>

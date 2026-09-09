@@ -86,7 +86,18 @@ All three commands must succeed and the last must print an installation path. Th
   operations, and the audit journal. UI and assistant both go through it, so neither can bypass the
   other's safeguards.
 - **Assistant** — `IAgentToolCatalog` is projected from the command catalog; there is no second list of
-  operations. `IChatCompletionClient` is a seam with no shipped implementation.
+  operations. `IChatCompletionClient` is implemented once, against the OpenAI chat completions
+  protocol, so any compatible endpoint works: a local Ollama server, OpenRouter, Groq, OpenAI or
+  Azure OpenAI. The provider, endpoint and model live in `app-settings.json`; the API key lives in
+  the credential store under `assistant:<providerId>`. Cleartext HTTP is refused off the loopback
+  interface. `AgentConversation` runs a bounded loop — at most eight tool round-trips per turn, tool
+  results truncated before replay, and `ChatWindow` capping the replayed window at a user turn so no
+  tool call or result is orphaned — and asks `IAgentToolApproval` before any destructive tool. Every
+  proposed call is answered even when the turn is stopped, because a provider rejects a tool call
+  with no result. That approval is a second gate, not a replacement: tools still execute through the
+  dispatcher, so the confirmation gate and the audit journal remain the last word. Before the first
+  turn against a given remote host the user is asked to confirm that conversation content may leave
+  the machine.
 
 ### Naming conventions
 

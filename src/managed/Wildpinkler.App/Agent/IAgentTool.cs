@@ -39,6 +39,22 @@ public interface IAgentToolCatalog
     bool TryGet(string name, out IAgentTool tool);
 }
 
+/// <summary>
+/// Asks the user before a destructive tool runs. The command dispatcher has its own confirmation
+/// gate; this one exists so the question is asked inside the conversation, where the model can see
+/// the answer, rather than as a modal interruption.
+/// </summary>
+public interface IAgentToolApproval
+{
+    Task<bool> RequestAsync(IAgentTool tool, string argumentsJson, CancellationToken cancellationToken);
+}
+
+/// <summary>A read-only summary of the workspace, given to the model as background.</summary>
+public interface IAgentContextProvider
+{
+    Task<string> DescribeWorkspaceAsync(CancellationToken cancellationToken = default);
+}
+
 public enum ChatRole
 {
     System,
@@ -54,6 +70,9 @@ public sealed record ChatMessage(ChatRole Role, string Content)
     public string? ToolName { get; init; }
 
     public string? ToolCallId { get; init; }
+
+    /// <summary>Set on an assistant turn that asked for tools, so the turn can be replayed to the model.</summary>
+    public IReadOnlyList<ChatToolCall> ToolCalls { get; init; } = [];
 }
 
 /// <summary>An ordered conversation. Kept separate from any provider so it can be persisted or replayed.</summary>
@@ -61,38 +80,57 @@ public sealed class ChatTranscript
 {
     private readonly List<ChatMessage> _messages = [];
 
+    /// <summary>Raised so a surface showing the conversation can drop its rows too.</summary>
+    public event EventHandler? Cleared;
+
     public IReadOnlyList<ChatMessage> Messages => _messages;
 
     public void Add(ChatMessage message) => _messages.Add(message);
 
-    public void Clear() => _messages.Clear();
+    public void AddRange(IEnumerable<ChatMessage> messages) => _messages.AddRange(messages);
+
+    public void Clear()
+    {
+        _messages.Clear();
+        Cleared?.Invoke(this, EventArgs.Empty);
+    }
 }
 
 public sealed record ChatCompletionRequest(
     IReadOnlyList<ChatMessage> Messages,
     IReadOnlyList<IAgentTool> Tools,
+    string? SystemPrompt = null,
     string? Model = null);
 
 public sealed record ChatToolCall(string Id, string ToolName, string ArgumentsJson);
 
-public sealed record ChatCompletionResponse(string? Content, IReadOnlyList<ChatToolCall> ToolCalls);
+/// <summary>One streamed fragment: either text, or the tool calls a finished turn asked for.</summary>
+public sealed record ChatCompletionUpdate
+{
+    public string? TextDelta { get; init; }
 
-/// <summary>
-/// The seam a model provider implements. No implementation ships yet on purpose: the app must be
-/// fully usable, and fully testable, without any network model.
-/// </summary>
+    public IReadOnlyList<ChatToolCall> ToolCalls { get; init; } = [];
+
+    public static ChatCompletionUpdate Text(string delta) => new() { TextDelta = delta };
+
+    public static ChatCompletionUpdate Calls(IReadOnlyList<ChatToolCall> calls) => new() { ToolCalls = calls };
+}
+
+/// <summary>The seam a model provider implements.</summary>
 public interface IChatCompletionClient
 {
     bool IsConfigured { get; }
 
-    Task<ChatCompletionResponse> CompleteAsync(ChatCompletionRequest request, CancellationToken cancellationToken);
-}
+    /// <summary>A sentence describing why the client is unusable, or null when it is ready.</summary>
+    string? ConfigurationProblem { get; }
 
-/// <summary>Stands in until a provider is configured, so the UI can be built and tested today.</summary>
-public sealed class UnconfiguredChatCompletionClient : IChatCompletionClient
-{
-    public bool IsConfigured => false;
+    /// <summary>Re-reads the provider settings and reports whether the client can be used.</summary>
+    Task<bool> RefreshAsync(CancellationToken cancellationToken);
 
-    public Task<ChatCompletionResponse> CompleteAsync(ChatCompletionRequest request, CancellationToken cancellationToken) =>
-        throw new InvalidOperationException("No assistant provider is configured.");
+    IAsyncEnumerable<ChatCompletionUpdate> StreamAsync(
+        ChatCompletionRequest request,
+        CancellationToken cancellationToken);
+
+    /// <summary>Sends a minimal request so a provider can be verified without starting a conversation.</summary>
+    Task<AgentToolResult> TestAsync(CancellationToken cancellationToken);
 }

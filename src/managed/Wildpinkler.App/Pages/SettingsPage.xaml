@@ -110,6 +110,64 @@
 
                 <Border Style="{StaticResource ContentCardStyle}" Padding="16">
                     <StackPanel Spacing="12">
+                        <TextBlock Style="{StaticResource SectionLabelStyle}" Text="ASSISTANT" />
+
+                        <InfoBar x:Name="AssistantInfoBar" IsOpen="False" IsClosable="False" />
+
+                        <ComboBox x:Name="AssistantProviderBox" Header="Provider" HorizontalAlignment="Stretch"
+                                  DisplayMemberPath="DisplayName"
+                                  SelectionChanged="AssistantProvider_SelectionChanged" />
+
+                        <TextBlock x:Name="AssistantProviderNotes" Opacity="0.72" TextWrapping="Wrap" />
+
+                        <TextBox x:Name="AssistantEndpointBox" Header="Endpoint"
+                                 PlaceholderText="https://example.com/v1"
+                                 LostFocus="AssistantField_LostFocus" />
+
+                        <Grid ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <ComboBox x:Name="AssistantModelBox" Header="Model" IsEditable="True"
+                                      HorizontalAlignment="Stretch"
+                                      LostFocus="AssistantField_LostFocus"
+                                      SelectionChanged="AssistantModel_SelectionChanged" />
+                            <Button Grid.Column="1" Content="Refresh models" VerticalAlignment="Bottom"
+                                    Click="RefreshAssistantModels_Click" />
+                        </Grid>
+
+                        <Grid x:Name="AssistantKeyRow" ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <PasswordBox x:Name="AssistantKeyBox" Header="API key"
+                                         PlaceholderText="Paste your personal API key"
+                                         PasswordChanged="AssistantKey_PasswordChanged" />
+                            <HyperlinkButton x:Name="AssistantSignupLink" Grid.Column="1" Content="Get a key"
+                                             VerticalAlignment="Bottom" />
+                        </Grid>
+
+                        <TextBlock x:Name="AssistantKeyState" Opacity="0.72" TextWrapping="Wrap" />
+
+                        <ToggleSwitch x:Name="AssistantAutoRunToggle" Header="Run read-only actions automatically"
+                                      OnContent="Look things up without asking" OffContent="Ask before every action"
+                                      Toggled="AssistantToggle_Toggled" />
+
+                        <ToggleSwitch x:Name="AssistantPersistToggle" Header="Remember conversations"
+                                      OnContent="Restore the last conversation" OffContent="Start fresh each time"
+                                      Toggled="AssistantToggle_Toggled" />
+
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button Content="Test connection" Click="TestAssistant_Click" />
+                            <Button Content="Clear conversation history" Click="ClearAssistantHistory_Click" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <Border Style="{StaticResource ContentCardStyle}" Padding="16">
+                    <StackPanel Spacing="12">
                         <TextBlock Style="{StaticResource SectionLabelStyle}" Text="DOWNLOAD LINKS" />
 
                         <InfoBar x:Name="HandlerInfoBar" IsOpen="False" IsClosable="False" />
