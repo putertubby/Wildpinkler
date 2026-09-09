@@ -1,72 +1,60 @@
-﻿using System.Reflection;
 using System.Threading.Tasks;
 using Wildpinkler.Remote;
-using Wildpinkler.Remote.Nexus;
 
 namespace Wildpinkler.App.Services;
 
+/// <summary>
+/// Transitional fa�ade over <see cref="AppHost"/> so XAML code-behind keeps compiling while it is
+/// migrated to constructor injection. Do not add members: inject the dependency instead.
+/// </summary>
 public static class AppServices
 {
-    public static AppSettingsStore AppSettingsStore { get; } = new();
-    public static AppSettings AppSettings { get; } = AppSettingsStore.Load();
-    public static ThemeService ThemeService { get; } = new(AppSettingsStore, AppSettings);
-    public static ModStore ModStore { get; } = new();
-    public static ModListManifestSerializer ModListManifestSerializer { get; } = new();
-    public static ModListCatalogStore ModListCatalogStore { get; } = new(ModListManifestSerializer);
-    public static ModListExportService ModListExportService { get; } = new();
-    public static RemoteSiteRegistry RemoteSiteRegistry { get; } = BuildRegistry();
-    public static RemoteSiteStore RemoteSiteStore { get; } = new(RemoteSiteRegistry);
-    public static RemoteSiteContext RemoteSiteContext { get; } = new(RemoteSiteStore);
-    public static GameStore GameStore { get; } = new();
-    public static GameDefinitionStore GameDefinitionStore { get; } = new();
-    public static ToolStore ToolStore { get; } = new();
-    public static ToolDefinitionStore ToolDefinitionStore { get; } = new();
-    public static ProfileStore ProfileStore { get; } = new();
-    public static ProfileFolderProvisioner ProfileFolderProvisioner { get; } = new(ProfileStore.ProfilesRoot);
-    public static ActiveRunRegistry ActiveRunRegistry { get; } = new();
-    public static ProfileRunAccessPolicy ProfileRunAccessPolicy { get; } = new(ActiveRunRegistry);
-    public static ProfileDeletionService ProfileDeletionService { get; } = new(ProfileStore, ProfileFolderProvisioner, ModStore, ProfileRunAccessPolicy);
-    public static LaunchTargetResolver LaunchTargetResolver { get; } = new();
-    public static ConfigurationOriginResolver ConfigurationOriginResolver { get; } = new();
-    public static MergedViewPreviewService MergedViewPreviewService { get; } = new();
-    public static ProfileConfigExporter ProfileConfigExporter { get; } = new();
-    public static IProcessLauncher ProcessLauncher { get; } = new ProcessLauncher();
-    public static LaunchService LaunchService { get; } = new(ProfileConfigExporter, ProfileFolderProvisioner, ActiveRunRegistry, ProcessLauncher);
-    public static FomodMetadataReader FomodMetadataReader { get; } = new(new ArchiveInspector());
-    public static ModInstallationStore ModInstallationStore { get; } = new();
-    public static ModListBuildStore ModListBuildStore { get; } = new();
-    public static ModListPreflightService ModListPreflightService { get; } = new();
-    public static ProfileGarbageCollector ProfileGarbageCollector { get; } = new(ModInstallationStore, ActiveRunRegistry, ModListBuildStore);
-    public static ModInstallService ModInstallService { get; } = new(ModInstallationStore, new ArchiveInspector(), new FomodInstallerParser());
-    public static DependencyExtractionService DependencyExtractionService { get; } = new();
-    public static DependencyGraphService DependencyGraphService { get; } = new();
-    public static BackgroundOperationQueue BackgroundOperationQueue { get; } = new();
-    public static ArchiveDownloadService ArchiveDownloadService { get; } = new();
-    public static RemoteArchiveAcquisitionService RemoteArchiveAcquisitionService { get; } = new(RemoteSiteRegistry, RemoteSiteContext, ArchiveDownloadService, ModStore);
-    public static IRemoteProtocolRegistrar NxmProtocolRegistrar { get; } = new NxmProtocolRegistrar();
-    public static RemoteDownloadManager RemoteDownloadManager { get; } = new(RemoteArchiveAcquisitionService);
-    public static RemoteActivationRouter RemoteActivationRouter { get; } = new(RemoteSiteRegistry);
-    public static RemoteGameCatalog RemoteGameCatalog { get; } = new(RemoteSiteContext);
-    public static RemoteGameMapper RemoteGameMapper { get; } = new(GameDefinitionStore, GameStore, ProfileStore);
-    public static RemoteMetadataEnricher RemoteMetadataEnricher { get; } = new(RemoteSiteRegistry, RemoteSiteContext);
-    public static UpdateCheckService UpdateCheckService { get; } = new(RemoteSiteRegistry, RemoteSiteContext, ModStore);
-    public static TrackedModsService TrackedModsService { get; } = new(RemoteSiteRegistry, RemoteSiteContext);
-    public static ModListBuildCoordinator ModListBuildCoordinator { get; } = new(
-        ModListBuildStore, ModListPreflightService, ProfileFolderProvisioner, RemoteArchiveAcquisitionService,
-        ModInstallService, ModStore, ModInstallationStore, ProfileStore, ToolStore,
-        LaunchTargetResolver, LaunchService, DependencyGraphService);
+    public static AppSettingsStore AppSettingsStore => AppHost.Get<AppSettingsStore>();
+    public static AppSettings AppSettings => AppHost.Get<AppSettings>();
+    public static ThemeService ThemeService => AppHost.Get<ThemeService>();
+    public static ModStore ModStore => AppHost.Get<ModStore>();
+    public static ModListManifestSerializer ModListManifestSerializer => AppHost.Get<ModListManifestSerializer>();
+    public static ModListCatalogStore ModListCatalogStore => AppHost.Get<ModListCatalogStore>();
+    public static ModListExportService ModListExportService => AppHost.Get<ModListExportService>();
+    public static RemoteSiteRegistry RemoteSiteRegistry => AppHost.Get<RemoteSiteRegistry>();
+    public static CredentialStore CredentialStore => AppHost.Get<CredentialStore>();
+    public static RemoteSiteStore RemoteSiteStore => AppHost.Get<RemoteSiteStore>();
+    public static RemoteSiteContext RemoteSiteContext => AppHost.Get<RemoteSiteContext>();
+    public static GameStore GameStore => AppHost.Get<GameStore>();
+    public static GameDefinitionStore GameDefinitionStore => AppHost.Get<GameDefinitionStore>();
+    public static ToolStore ToolStore => AppHost.Get<ToolStore>();
+    public static ToolDefinitionStore ToolDefinitionStore => AppHost.Get<ToolDefinitionStore>();
+    public static ProfileStore ProfileStore => AppHost.Get<ProfileStore>();
+    public static ProfileFolderService ProfileFolderService => AppHost.Get<ProfileFolderService>();
+    public static ActiveRunRegistry ActiveRunRegistry => AppHost.Get<ActiveRunRegistry>();
+    public static ProfileRunAccessPolicy ProfileRunAccessPolicy => AppHost.Get<ProfileRunAccessPolicy>();
+    public static ProfileDeletionService ProfileDeletionService => AppHost.Get<ProfileDeletionService>();
+    public static LaunchTargetResolver LaunchTargetResolver => AppHost.Get<LaunchTargetResolver>();
+    public static ConfigurationOriginResolver ConfigurationOriginResolver => AppHost.Get<ConfigurationOriginResolver>();
+    public static MergedViewPreviewService MergedViewPreviewService => AppHost.Get<MergedViewPreviewService>();
+    public static ProfileConfigExporter ProfileConfigExporter => AppHost.Get<ProfileConfigExporter>();
+    public static IProcessLauncher ProcessLauncher => AppHost.Get<IProcessLauncher>();
+    public static LaunchService LaunchService => AppHost.Get<LaunchService>();
+    public static FomodMetadataReader FomodMetadataReader => AppHost.Get<FomodMetadataReader>();
+    public static ModInstallationStore ModInstallationStore => AppHost.Get<ModInstallationStore>();
+    public static ModListBuildStore ModListBuildStore => AppHost.Get<ModListBuildStore>();
+    public static ModListPreflightService ModListPreflightService => AppHost.Get<ModListPreflightService>();
+    public static ProfileGarbageCollector ProfileGarbageCollector => AppHost.Get<ProfileGarbageCollector>();
+    public static ModInstallService ModInstallService => AppHost.Get<ModInstallService>();
+    public static DependencyExtractionService DependencyExtractionService => AppHost.Get<DependencyExtractionService>();
+    public static DependencyGraphService DependencyGraphService => AppHost.Get<DependencyGraphService>();
+    public static BackgroundOperationQueue BackgroundOperationQueue => AppHost.Get<BackgroundOperationQueue>();
+    public static ArchiveDownloadService ArchiveDownloadService => AppHost.Get<ArchiveDownloadService>();
+    public static RemoteArchiveAcquisitionService RemoteArchiveAcquisitionService => AppHost.Get<RemoteArchiveAcquisitionService>();
+    public static IRemoteProtocolRegistrar NxmProtocolRegistrar => AppHost.Get<IRemoteProtocolRegistrar>();
+    public static DownloadQueueCoordinator DownloadQueueCoordinator => AppHost.Get<DownloadQueueCoordinator>();
+    public static RemoteActivationRouter RemoteActivationRouter => AppHost.Get<RemoteActivationRouter>();
+    public static RemoteGameCatalog RemoteGameCatalog => AppHost.Get<RemoteGameCatalog>();
+    public static RemoteGameMapper RemoteGameMapper => AppHost.Get<RemoteGameMapper>();
+    public static RemoteMetadataService RemoteMetadataService => AppHost.Get<RemoteMetadataService>();
+    public static UpdateCheckService UpdateCheckService => AppHost.Get<UpdateCheckService>();
+    public static TrackedModsService TrackedModsService => AppHost.Get<TrackedModsService>();
+    public static ModListBuildCoordinator ModListBuildCoordinator => AppHost.Get<ModListBuildCoordinator>();
 
-    public static ValueTask DisposeAsync() => BackgroundOperationQueue.DisposeAsync();
-
-    private static RemoteSiteRegistry BuildRegistry()
-    {
-        var registry = new RemoteSiteRegistry();
-        var version = Assembly.GetEntryAssembly()?.GetName().Version?.ToString(3) ?? "0.1.0";
-
-        // The credential provider reads through the store, which is constructed from this registry,
-        // so the lookup is deferred rather than captured.
-        var credentials = new NexusApiKeyCredentialProvider(_ => RemoteSiteStore.GetCredentialAsync(NexusSiteProvider.Id));
-        registry.Register(new NexusSiteProvider(credentials, "Wildpinkler", version));
-        return registry;
-    }
+    public static ValueTask DisposeAsync() => AppHost.ShutdownAsync();
 }

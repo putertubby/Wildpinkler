@@ -32,7 +32,7 @@ public class NexusSiteProviderTests
             Content = new StringContent("""{"message":"nope"}""")
         });
 
-        var exception = await Assert.ThrowsAsync<RemoteSiteException>(() => provider.ValidateAsync(Key));
+        var exception = await Assert.ThrowsAsync<RemoteSiteException>(() => provider.ValidateAsync(Key, TestContext.Current.CancellationToken));
 
         Assert.Equal(expected, exception.Kind);
         Assert.False(string.IsNullOrWhiteSpace(exception.Remedy));
@@ -43,7 +43,7 @@ public class NexusSiteProviderTests
     {
         using var provider = CreateProvider(_ => throw new HttpRequestException("no route"));
 
-        var exception = await Assert.ThrowsAsync<RemoteSiteException>(() => provider.ValidateAsync(Key));
+        var exception = await Assert.ThrowsAsync<RemoteSiteException>(() => provider.ValidateAsync(Key, TestContext.Current.CancellationToken));
 
         Assert.Equal(RemoteErrorKind.Network, exception.Kind);
     }
@@ -58,7 +58,7 @@ public class NexusSiteProviderTests
             return new HttpResponseMessage(HttpStatusCode.OK);
         });
 
-        var exception = await Assert.ThrowsAsync<RemoteSiteException>(() => provider.ValidateAsync(RemoteCredential.None));
+        var exception = await Assert.ThrowsAsync<RemoteSiteException>(() => provider.ValidateAsync(RemoteCredential.None, TestContext.Current.CancellationToken));
 
         Assert.Equal(RemoteErrorKind.Unauthorized, exception.Kind);
         Assert.False(sent);
@@ -80,7 +80,7 @@ public class NexusSiteProviderTests
             return response;
         });
 
-        var account = await provider.ValidateAsync(Key);
+        var account = await provider.ValidateAsync(Key, TestContext.Current.CancellationToken);
 
         Assert.Equal("42", account.UserKey);
         Assert.Equal("Ada", account.Name);
@@ -104,7 +104,7 @@ public class NexusSiteProviderTests
             DateTimeOffset.UtcNow.AddMinutes(-1));
 
         var exception = await Assert.ThrowsAsync<RemoteSiteException>(
-            () => provider.GetDownloadSourcesAsync(link, Premium, Key));
+            () => provider.GetDownloadSourcesAsync(link, Premium, Key, TestContext.Current.CancellationToken));
 
         Assert.Equal(RemoteErrorKind.KeyExpired, exception.Kind);
         Assert.False(sent);
@@ -119,7 +119,7 @@ public class NexusSiteProviderTests
             DateTimeOffset.UtcNow.AddHours(1), userKey: "999");
 
         var exception = await Assert.ThrowsAsync<RemoteSiteException>(
-            () => provider.GetDownloadSourcesAsync(link, Premium, Key));
+            () => provider.GetDownloadSourcesAsync(link, Premium, Key, TestContext.Current.CancellationToken));
 
         Assert.Equal(RemoteErrorKind.AccountMismatch, exception.Kind);
     }
@@ -133,7 +133,7 @@ public class NexusSiteProviderTests
         var free = new RemoteAccount("42", "Ada", IsPremium: false);
 
         var exception = await Assert.ThrowsAsync<RemoteSiteException>(
-            () => provider.GetDownloadSourcesAsync(link, free, Key));
+            () => provider.GetDownloadSourcesAsync(link, free, Key, TestContext.Current.CancellationToken));
 
         Assert.Equal(RemoteErrorKind.PremiumRequired, exception.Kind);
     }
@@ -150,7 +150,7 @@ public class NexusSiteProviderTests
         });
 
         var sources = await provider.GetDownloadSourcesAsync(
-            RemoteLink.ForModFile("nexus", "skyrimspecialedition", "1", "2"), Premium, Key);
+            RemoteLink.ForModFile("nexus", "skyrimspecialedition", "1", "2"), Premium, Key, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, sources.Count);
         Assert.Equal(0, sources[0].Ordinal);
@@ -169,7 +169,7 @@ public class NexusSiteProviderTests
             DateTimeOffset.UtcNow.AddHours(1));
 
         var exception = await Assert.ThrowsAsync<RemoteSiteException>(
-            () => provider.GetDownloadSourcesAsync(link, Premium, Key));
+            () => provider.GetDownloadSourcesAsync(link, Premium, Key, TestContext.Current.CancellationToken));
 
         Assert.Equal(RemoteErrorKind.KeyExpired, exception.Kind);
     }

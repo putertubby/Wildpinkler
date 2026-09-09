@@ -107,7 +107,7 @@ public sealed class LaunchTargetResolver
     {
         var loadOrderView = BuildLoadOrderView(profile, game, pendingToolOutput: null);
         var gameViews = ResolveEntityViews(
-            game.Definition?.MergedViews, game.Definition?.Variables, game.InstallPath, ProfileFolderProvisioner.GetCustomFolder(profile, game.Id));
+            game.Definition?.MergedViews, game.Definition?.Variables, game.InstallPath, ProfileFolderService.GetCustomFolder(profile, game.Id));
         var profileViews = ResolveScopeViews(profile.MergedViews, profileScope, game.InstallPath, profile.FolderPath);
 
         var views = MergeAndSortViews(
@@ -136,7 +136,7 @@ public sealed class LaunchTargetResolver
         // While a tool runs it writes into the *next* output version, which is promoted afterwards.
         // Only create an output folder if the tool produces output and UseOutputOverlay is enabled.
         var outputFolder = producesOutput && binding.UseOutputOverlay
-            ? ProfileFolderProvisioner.GetToolOutputFolder(profile, tool.Id, binding.OutputVersion + 1)
+            ? ProfileFolderService.GetToolOutputFolder(profile, tool.Id, binding.OutputVersion + 1)
             : string.Empty;
 
         var profileScope = BuildProfileScope(profile, game, tool);
@@ -156,12 +156,12 @@ public sealed class LaunchTargetResolver
             game,
             (producesOutput && binding.UseOutputOverlay) ? outputFolder : null);
         var gameViews = ResolveEntityViews(
-            game.Definition?.MergedViews, game.Definition?.Variables, game.InstallPath, ProfileFolderProvisioner.GetCustomFolder(profile, game.Id));
+            game.Definition?.MergedViews, game.Definition?.Variables, game.InstallPath, ProfileFolderService.GetCustomFolder(profile, game.Id));
         
         // For tool definitions, inject GameInstallPath as an available variable so tools can reference game views.
         var toolScopeVars = new Dictionary<string, string>(definition.Variables ?? new Dictionary<string, string>());
         toolScopeVars["GameInstallPath"] = game.InstallPath;
-        var toolDefinitionViews = ResolveEntityViews(definition.MergedViews, toolScopeVars, toolViewBaseFolder, ProfileFolderProvisioner.GetCustomFolder(profile, tool.Id))
+        var toolDefinitionViews = ResolveEntityViews(definition.MergedViews, toolScopeVars, toolViewBaseFolder, ProfileFolderService.GetCustomFolder(profile, tool.Id))
             .Select(view => WithOutputOverlay(view, outputFolder))
             .ToList();
         var profileViews = ResolveScopeViews(profile.MergedViews, profileScope, game.InstallPath, profile.FolderPath);

@@ -66,10 +66,10 @@ public sealed class ModListCatalogStoreTests : IDisposable
         var mod = Assert.IsType<ModListModEntry>(Assert.Single(manifest.Content));
         mod.Source = null;
         mod.AcquisitionInstructions = "Choose the archive from your backup.";
-        Assert.Equal(ModListGrade.Guided, ModListGradeEvaluator.Evaluate(manifest).Grade);
+        Assert.Equal(ModListGrade.Guided, ModListGradeResolver.Evaluate(manifest).Grade);
 
         mod.AcquisitionInstructions = string.Empty;
-        Assert.Equal(ModListGrade.Unavailable, ModListGradeEvaluator.Evaluate(manifest).Grade);
+        Assert.Equal(ModListGrade.Unavailable, ModListGradeResolver.Evaluate(manifest).Grade);
     }
 
     private async Task<string> WriteSourceAsync(ModListManifest manifest)

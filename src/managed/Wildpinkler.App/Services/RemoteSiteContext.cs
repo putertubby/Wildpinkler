@@ -9,7 +9,7 @@ namespace Wildpinkler.App.Services;
 /// Resolves the credential and validated account a site provider needs, caching the validation so
 /// every download does not spend a request re-validating the same key.
 /// </summary>
-public sealed class RemoteSiteContext
+public sealed class RemoteSiteContext : IDisposable
 {
     private readonly RemoteSiteStore _siteStore;
     private readonly SemaphoreSlim _gate = new(1, 1);
@@ -72,4 +72,6 @@ public sealed class RemoteSiteContext
             ? RemoteCredential.None
             : new RemoteCredential(RemoteCredentialKind.ApiKey, key.Trim());
     }
+
+    public void Dispose() => _gate.Dispose();
 }

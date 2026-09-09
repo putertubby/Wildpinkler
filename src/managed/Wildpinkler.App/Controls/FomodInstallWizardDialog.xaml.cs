@@ -29,7 +29,7 @@ public sealed partial class FomodInstallWizardDialog : ContentDialog
 
     private readonly FomodModule _module;
     private readonly IFomodFileStateProvider _files;
-    private readonly FomodSelectionEngine _engine = new();
+    private readonly FomodSelectionResolver _engine = new();
     private readonly List<FomodStepSelection> _committed = new();
     private readonly List<GroupBinding> _currentBindings = new();
     private int _groupNameSeed;

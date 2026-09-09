@@ -11,9 +11,9 @@ namespace Wildpinkler.App.Services;
 /// Drives the FOMOD install wizard's state machine: step/group visibility, selection cardinality
 /// validation, flag accumulation, final file-install resolution and the reuse signature.
 /// </summary>
-public sealed class FomodSelectionEngine
+public sealed class FomodSelectionResolver
 {
-    private readonly FomodDependencyEvaluator _evaluator = new();
+    private readonly FomodDependencyResolver _evaluator = new();
 
     public bool IsStepVisible(FomodInstallStep step, IReadOnlyDictionary<string, string> flags, IFomodFileStateProvider files) =>
         _evaluator.Evaluate(step.VisibilityDependency, flags, files);

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Diagnostics.CodeAnalysis;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
@@ -15,8 +16,11 @@ using Microsoft.UI.Xaml.Navigation;
 using Wildpinkler.App.Models;
 using Wildpinkler.App.Services;
 
+using Wildpinkler.App.Formatting;
+
 namespace Wildpinkler.App.Pages;
 
+[SuppressMessage("Design", "CA1001:Types that own disposable fields should be disposable", Justification = "The build cancellation source is scoped to a single build and disposed in ResumeBuild's finally block.")]
 public sealed partial class ModListsPage : Page, INotifyPropertyChanged
 {
     private enum GradeFilter
@@ -29,8 +33,6 @@ public sealed partial class ModListsPage : Page, INotifyPropertyChanged
         CompletedBuild
     }
 
-    private const double NarrowLayoutThreshold = 641;
-    private const double DetailsColumnMinWidth = 280;
 
     private readonly ModListCatalogStore _store = AppServices.ModListCatalogStore;
     private readonly ModListBuildStore _buildStore = AppServices.ModListBuildStore;
@@ -79,10 +81,18 @@ public sealed partial class ModListsPage : Page, INotifyPropertyChanged
     public double ActiveBuildProgress { get => _activeBuildProgress; private set => SetProperty(ref _activeBuildProgress, value); }
     public bool HasNoBuild { get => _hasNoBuild; private set => SetProperty(ref _hasNoBuild, value); }
 
-    protected override async void OnNavigatedTo(NavigationEventArgs args)
+    protected override void OnNavigatedTo(NavigationEventArgs e)
     {
-        base.OnNavigatedTo(args);
-        await LoadAsync();
+        base.OnNavigatedTo(e);
+        UiTask.Run(LoadAsync, nameof(OnNavigatedTo), ShowLoadFailure);
+    }
+
+    private void ShowLoadFailure(Exception exception)
+    {
+        GradeInfoBar.Severity = InfoBarSeverity.Error;
+        GradeInfoBar.Title = "The mod lists could not be loaded";
+        GradeInfoBar.Message = exception.Message;
+        GradeInfoBar.IsOpen = true;
     }
 
     private async Task LoadAsync()
@@ -274,10 +284,10 @@ public sealed partial class ModListsPage : Page, INotifyPropertyChanged
         DetailsDescription.Text = string.IsNullOrWhiteSpace(manifest.Description) ? "No description provided." : manifest.Description;
         DetailsGame.Text = $"{manifest.Game.DefinitionId}, definition v{manifest.Game.MinimumDefinitionVersion}+";
         DetailsAuthor.Text = string.IsNullOrWhiteSpace(manifest.Author) ? "Not specified" : manifest.Author;
-        DetailsRevision.Text = manifest.Revision.ToString();
+        DetailsRevision.Text = DisplayFormat.Count(manifest.Revision);
         DetailsGrade.Text = entry.Grade.ToString();
 
-        var grade = ModListGradeEvaluator.Evaluate(manifest);
+        var grade = ModListGradeResolver.Evaluate(manifest);
         GradeInfoBar.IsOpen = grade.Reasons.Count > 0;
         GradeInfoBar.Severity = entry.Grade == ModListGrade.Unavailable ? InfoBarSeverity.Warning : InfoBarSeverity.Informational;
         GradeInfoBar.Title = entry.Grade == ModListGrade.Unavailable ? "Unavailable requirements" : "User action required";
@@ -587,10 +597,16 @@ public sealed partial class ModListsPage : Page, INotifyPropertyChanged
         ShowInfo($"Deleted '{entry.Manifest.Name}' revision {entry.Manifest.Revision}.", InfoBarSeverity.Success);
     }
 
-    private async void RowDelete_Click(object sender, RoutedEventArgs args)
+    private void RowDelete_Click(object sender, RoutedEventArgs args)
     {
         if ((sender as FrameworkElement)?.DataContext is not ModListCatalogEntry entry)
             return;
+
+        UiTask.Run(() => RowDeleteAsync(entry), nameof(RowDelete_Click), ShowLoadFailure);
+    }
+
+    private async Task RowDeleteAsync(ModListCatalogEntry entry)
+    {
         ModListList.SelectedItem = entry;
         await DeleteSelectedAsync();
     }
@@ -645,7 +661,7 @@ public sealed partial class ModListsPage : Page, INotifyPropertyChanged
         try
         {
             _listDetailsWidth = width;
-            var isNarrow = width < NarrowLayoutThreshold;
+            var isNarrow = width < Layout.SideBySideThreshold;
             var hasSelection = Selected is not null;
             if (isNarrow && hasSelection)
             {
@@ -658,7 +674,7 @@ public sealed partial class ModListsPage : Page, INotifyPropertyChanged
             else if (hasSelection)
             {
                 ListColumnDef.Width = new GridLength(1, GridUnitType.Star);
-                DetailsColumnDef.MinWidth = DetailsColumnMinWidth;
+                DetailsColumnDef.MinWidth = Layout.DetailsColumnMinWidth;
                 DetailsColumnDef.Width = new GridLength(_detailsWidth);
                 DetailsSplitter.Visibility = Visibility.Visible;
                 BackToListButton.Visibility = Visibility.Collapsed;

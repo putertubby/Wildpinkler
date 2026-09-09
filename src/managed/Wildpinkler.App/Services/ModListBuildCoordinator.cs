@@ -14,7 +14,7 @@ public sealed class ModListBuildCoordinator
 {
     private readonly ModListBuildStore _builds;
     private readonly ModListPreflightService _preflight;
-    private readonly ProfileFolderProvisioner _provisioner;
+    private readonly ProfileFolderService _provisioner;
     private readonly RemoteArchiveAcquisitionService _acquisition;
     private readonly ModInstallService _installer;
     private readonly ModStore _mods;
@@ -28,7 +28,7 @@ public sealed class ModListBuildCoordinator
     public ModListBuildCoordinator(
         ModListBuildStore builds,
         ModListPreflightService preflight,
-        ProfileFolderProvisioner provisioner,
+        ProfileFolderService provisioner,
         RemoteArchiveAcquisitionService acquisition,
         ModInstallService installer,
         ModStore mods,

@@ -10,7 +10,7 @@ using Wildpinkler.App.Models;
 
 namespace Wildpinkler.App.Services;
 
-public sealed class ModListBuildStore
+public sealed class ModListBuildStore : IDisposable
 {
     private const int CurrentSchemaVersion = 1;
     private static readonly JsonSerializerOptions JsonOptions = new()
@@ -145,11 +145,10 @@ public sealed class ModListBuildStore
             await JsonSerializer.SerializeAsync(stream, new DatabaseDocument(CurrentSchemaVersion, builds), JsonOptions, cancellationToken);
             await stream.FlushAsync(cancellationToken);
         }
-        if (File.Exists(_path))
-            File.Replace(_temporaryPath, _path, _backupPath, true);
-        else
-            File.Move(_temporaryPath, _path, true);
+        AtomicFile.Publish(_temporaryPath, _path, _backupPath);
     }
 
     private sealed record DatabaseDocument(int SchemaVersion, List<ModListBuild> Builds);
+
+    public void Dispose() => _lock.Dispose();
 }

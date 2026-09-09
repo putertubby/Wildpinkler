@@ -13,14 +13,14 @@ public sealed class LaunchService
     public const string LoaderFileName = "uufs64ldr.exe";
 
     private readonly ProfileConfigExporter _exporter;
-    private readonly ProfileFolderProvisioner _provisioner;
+    private readonly ProfileFolderService _provisioner;
     private readonly ActiveRunRegistry _runs;
     private readonly IProcessLauncher _processLauncher;
     private readonly string? _loaderPath;
 
     public LaunchService(
         ProfileConfigExporter exporter,
-        ProfileFolderProvisioner provisioner,
+        ProfileFolderService provisioner,
         ActiveRunRegistry runs,
         IProcessLauncher processLauncher,
         string? loaderPath = null)
@@ -64,7 +64,7 @@ public sealed class LaunchService
         if (!_runs.TryReserve(profile, target, out var run))
             throw new InvalidOperationException($"'{profile.Name}' already has a target running.");
 
-        ProfileFolderProvisioner.PendingToolRun? pendingRun = null;
+        ProfileFolderService.PendingToolRun? pendingRun = null;
         try
         {
             // The pending version must exist before the config is exported: it is the target's top branch.
@@ -95,9 +95,7 @@ public sealed class LaunchService
         var startInfo = new ProcessStartInfo(LoaderPath)
         {
             UseShellExecute = false,
-            WorkingDirectory = Directory.Exists(target.WorkingDirectory)
-                ? target.WorkingDirectory
-                : Path.GetDirectoryName(target.ExecutablePath) ?? AppContext.BaseDirectory
+            WorkingDirectory = ResolveWorkingDirectory(target)
         };
         startInfo.ArgumentList.Add("--target");
         startInfo.ArgumentList.Add(target.ExecutablePath);
@@ -115,13 +113,33 @@ public sealed class LaunchService
         return startInfo;
     }
 
+    /// <summary>
+    /// A working directory decides how the target resolves its own relative paths, so a value that is
+    /// relative, unrooted or missing is discarded in favour of the executable's own folder.
+    /// </summary>
+    private static string ResolveWorkingDirectory(LaunchTarget target)
+    {
+        var configured = target.WorkingDirectory;
+        if (!string.IsNullOrWhiteSpace(configured) &&
+            Path.IsPathFullyQualified(configured) &&
+            configured.IndexOfAny(Path.GetInvalidPathChars()) < 0)
+        {
+            var full = Path.GetFullPath(configured);
+            if (Directory.Exists(full))
+                return full;
+        }
+
+        var executableFolder = Path.GetDirectoryName(Path.GetFullPath(target.ExecutablePath));
+        return string.IsNullOrEmpty(executableFolder) ? AppContext.BaseDirectory : executableFolder;
+    }
+
     private async Task<LaunchCompletion> ObserveCompletionAsync(
         ILaunchedProcess process,
         ActiveRun run,
         Profile profile,
         LaunchTarget target,
         ProfileTool? binding,
-        ProfileFolderProvisioner.PendingToolRun? pendingRun)
+        ProfileFolderService.PendingToolRun? pendingRun)
     {
         var succeeded = false;
         try
@@ -156,4 +174,4 @@ public sealed record LaunchCompletion(
     Profile Profile,
     LaunchTarget Target,
     bool Succeeded,
-    ProfileFolderProvisioner.PendingToolRun? PendingToolRun);
+    ProfileFolderService.PendingToolRun? PendingToolRun);

@@ -31,7 +31,7 @@ public sealed class ProfileGarbageCollectorTests : IDisposable
             ListRevision = 1,
             State = ModListBuildState.Ready,
             Artifacts = { new ModListBuildArtifact { EntryId = "entry", InstallationId = "install" } }
-        });
+        }, TestContext.Current.CancellationToken);
         var collector = new ProfileGarbageCollector(installations, new ActiveRunRegistry(), builds);
 
         var result = await collector.CollectAsync(Array.Empty<Profile>());

@@ -2,12 +2,18 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Diagnostics;
+using System.IO;
 using System.Linq;
+using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.Extensions.Logging;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Windows.ApplicationModel.DataTransfer;
 using Wildpinkler.App.Services;
 
 namespace Wildpinkler.App.Pages;
@@ -119,9 +125,71 @@ public sealed partial class SettingsPage : Page, INotifyPropertyChanged
         RefreshHandlerState();
         _isApplyingHandlerState = true;
         ConfirmDownloadsToggle.IsOn = AppServices.AppSettings.ConfirmRemoteDownloads;
+        LogLevelBox.SelectedIndex = LevelToIndex(AppServices.AppSettings.LogLevel);
+        LogFolderText.Text = AppDiagnostics.LogDirectory;
         _isApplyingHandlerState = false;
 
         _ = LoadSitesAsync();
+    }
+
+    // Item order matches the LogLevelBox entries.
+    private static readonly LogLevel[] SelectableLogLevels =
+        [LogLevel.Error, LogLevel.Warning, LogLevel.Information, LogLevel.Debug];
+
+    private static int LevelToIndex(LogLevel level)
+    {
+        var index = Array.IndexOf(SelectableLogLevels, level);
+        return index < 0 ? Array.IndexOf(SelectableLogLevels, LogLevel.Information) : index;
+    }
+
+    private void LogLevel_SelectionChanged(object sender, SelectionChangedEventArgs args)
+    {
+        if (_isApplyingHandlerState || LogLevelBox.SelectedIndex < 0)
+            return;
+
+        var level = SelectableLogLevels[LogLevelBox.SelectedIndex];
+        AppDiagnostics.Verbosity.Level = level;
+        AppServices.AppSettings.LogLevel = level;
+        AppServices.AppSettingsStore.Save(AppServices.AppSettings);
+    }
+
+    private void OpenLogFolder_Click(object sender, RoutedEventArgs args)
+    {
+        try
+        {
+            Directory.CreateDirectory(AppDiagnostics.LogDirectory);
+            using var explorer = Process.Start(new ProcessStartInfo(AppDiagnostics.LogDirectory) { UseShellExecute = true });
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
+        {
+            ShowDiagnosticsInfo($"Could not open the log folder. {exception.Message}", InfoBarSeverity.Error);
+        }
+    }
+
+    private void CopyDiagnostics_Click(object sender, RoutedEventArgs args)
+    {
+        var package = new DataPackage();
+        package.SetText(BuildDiagnosticsSummary());
+        Clipboard.SetContent(package);
+        ShowDiagnosticsInfo("Diagnostics copied to the clipboard.", InfoBarSeverity.Success);
+    }
+
+    private static string BuildDiagnosticsSummary()
+    {
+        var version = Assembly.GetEntryAssembly()?.GetName().Version?.ToString() ?? "unknown";
+        return string.Join(Environment.NewLine,
+            $"Wildpinkler {version}",
+            $"OS: {Environment.OSVersion.VersionString}",
+            $"Runtime: {RuntimeInformation.FrameworkDescription} ({RuntimeInformation.ProcessArchitecture})",
+            $"Log folder: {AppDiagnostics.LogDirectory}",
+            $"Log level: {AppDiagnostics.Verbosity.Level}");
+    }
+
+    private void ShowDiagnosticsInfo(string message, InfoBarSeverity severity)
+    {
+        DiagnosticsInfoBar.Severity = severity;
+        DiagnosticsInfoBar.Message = message;
+        DiagnosticsInfoBar.IsOpen = true;
     }
 
     private bool _isApplyingHandlerState;
@@ -237,11 +305,17 @@ public sealed partial class SettingsPage : Page, INotifyPropertyChanged
             row.ApiKey = box.Password;
     }
 
-    private async void ValidateSite_Click(object sender, RoutedEventArgs args)
+    private void ValidateSite_Click(object sender, RoutedEventArgs args)
     {
         if ((sender as FrameworkElement)?.DataContext is not SiteRow row)
             return;
 
+        UiTask.Run(() => ValidateSiteAsync(row), nameof(ValidateSite_Click),
+            exception => row.ValidationMessage = exception.Message);
+    }
+
+    private static async Task ValidateSiteAsync(SiteRow row)
+    {
         if (string.IsNullOrWhiteSpace(row.ApiKey))
         {
             row.ValidationMessage = "Enter an API key first.";

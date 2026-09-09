@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -9,7 +10,7 @@ using Wildpinkler.App.Models;
 
 namespace Wildpinkler.App.Services;
 
-public sealed class ProfileStore
+public sealed class ProfileStore : IDisposable
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
     private const int CurrentSchemaVersion = 2;
@@ -93,10 +94,7 @@ public sealed class ProfileStore
                 await stream.FlushAsync();
             }
 
-            if (File.Exists(_databasePath))
-                File.Replace(_temporaryPath, _databasePath, _backupPath, true);
-            else
-                File.Move(_temporaryPath, _databasePath, true);
+            AtomicFile.Publish(_temporaryPath, _databasePath, _backupPath);
 
             Interlocked.Increment(ref _revision);
         }
@@ -121,7 +119,7 @@ public sealed class ProfileStore
         using var document = await JsonDocument.ParseAsync(stream);
         var database = document.RootElement.Deserialize<DatabaseDocument>(JsonOptions);
         if (database is null || database.SchemaVersion != CurrentSchemaVersion)
-            throw new JsonException($"The profiles database is schema {database?.SchemaVersion.ToString() ?? "unknown"}, but this build requires schema {CurrentSchemaVersion}.");
+            throw new JsonException($"The profiles database is schema {database?.SchemaVersion.ToString(CultureInfo.InvariantCulture) ?? "unknown"}, but this build requires schema {CurrentSchemaVersion.ToString(CultureInfo.InvariantCulture)}.");
 
         var profiles = database.Profiles ?? new List<Profile>();
         foreach (var profile in profiles)
@@ -131,4 +129,6 @@ public sealed class ProfileStore
     }
 
     private sealed record DatabaseDocument(int SchemaVersion, List<Profile> Profiles);
+
+    public void Dispose() => _databaseLock.Dispose();
 }

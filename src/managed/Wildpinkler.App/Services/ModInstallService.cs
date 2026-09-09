@@ -21,12 +21,19 @@ public sealed class ModInstallService
     private readonly IArchiveInspector _archiveInspector;
     private readonly FomodInstallerParser _parser;
     private readonly string _installsRoot;
+    private readonly ArchiveExtractionLimits _extractionLimits;
 
-    public ModInstallService(ModInstallationStore store, IArchiveInspector archiveInspector, FomodInstallerParser parser, string? installsRoot = null)
+    public ModInstallService(
+        ModInstallationStore store,
+        IArchiveInspector archiveInspector,
+        FomodInstallerParser parser,
+        string? installsRoot = null,
+        ArchiveExtractionLimits? extractionLimits = null)
     {
         _store = store;
         _archiveInspector = archiveInspector;
         _parser = parser;
+        _extractionLimits = extractionLimits ?? ArchiveExtractionLimits.Default;
         _installsRoot = installsRoot ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Wildpinkler", "mod-installs");
     }
 
@@ -106,7 +113,7 @@ public sealed class ModInstallService
             throw new InvalidDataException("The FOMOD installer changed since this recipe was recorded.");
 
         var fileState = new ProfileFileStateProvider(profileFolders);
-        var engine = new FomodSelectionEngine();
+        var engine = new FomodSelectionResolver();
         var selections = new List<FomodStepSelection>();
         var flags = new Dictionary<string, string>();
         foreach (var step in module.InstallSteps)
@@ -183,7 +190,7 @@ public sealed class ModInstallService
 
         var mountRoot = destination.Length == 0 ? installation.FolderPath : Path.Combine(installation.FolderPath, destination);
         Directory.CreateDirectory(mountRoot);
-        ExtractWholeArchive(mod.ArchivePath, sourceRoot, mountRoot);
+        ExtractWholeArchive(mod.ArchivePath, sourceRoot, mountRoot, _extractionLimits);
         await _store.AddAsync(installation);
         return installation;
     }
@@ -207,6 +214,7 @@ public sealed class ModInstallService
     {
         using var archive = ArchiveFactory.OpenArchive(archivePath);
         var entries = archive.Entries.Where(entry => !entry.IsDirectory).ToList();
+        var budget = new ArchiveExtractionBudget(_extractionLimits);
 
         foreach (var install in installs)
         {
@@ -224,7 +232,7 @@ public sealed class ModInstallService
                     if (relative.Length == 0)
                         continue;
 
-                    ExtractEntry(entry, ResolveSafeDestination(destinationRoot, CombineRelative(install.Destination, relative)));
+                    ExtractEntry(entry, destinationRoot, ResolveSafeDestination(destinationRoot, CombineRelative(install.Destination, relative)), budget);
                 }
             }
             else
@@ -234,7 +242,7 @@ public sealed class ModInstallService
                     continue;
 
                 var destinationRelative = install.Destination.Length > 0 ? install.Destination : Path.GetFileName(source);
-                ExtractEntry(entry, ResolveSafeDestination(destinationRoot, destinationRelative));
+                ExtractEntry(entry, destinationRoot, ResolveSafeDestination(destinationRoot, destinationRelative), budget);
             }
         }
     }
@@ -242,25 +250,36 @@ public sealed class ModInstallService
     internal static string BuildManualSelectionSignature(string sourceRoot, string destination) =>
         $"source:{sourceRoot.Length}:{sourceRoot};destination:{destination.Length}:{destination}";
 
-    internal static void ExtractWholeArchive(string archivePath, string sourceRoot, string destinationRoot)
+    internal static void ExtractWholeArchive(string archivePath, string sourceRoot, string destinationRoot, ArchiveExtractionLimits? limits = null)
     {
         using var archive = ArchiveFactory.OpenArchive(archivePath);
+        var budget = new ArchiveExtractionBudget(limits);
         foreach (var entry in archive.Entries.Where(item => !item.IsDirectory))
         {
             if (TryGetRelativePathBelowSourceRoot(NormalizeKey(entry.Key), sourceRoot, out var relativePath))
-                ExtractEntry(entry, ResolveSafeDestination(destinationRoot, relativePath));
+                ExtractEntry(entry, destinationRoot, ResolveSafeDestination(destinationRoot, relativePath), budget);
         }
     }
 
-    private static void ExtractEntry(IArchiveEntry entry, string destinationPath)
+    private static void ExtractEntry(IArchiveEntry entry, string destinationRoot, string destinationPath, ArchiveExtractionBudget budget)
     {
+        ArchiveExtractionBudget.RejectLinkEntry(entry);
+        budget.AccountForEntry(entry);
+
         var directory = Path.GetDirectoryName(destinationPath);
         if (!string.IsNullOrEmpty(directory))
-            Directory.CreateDirectory(directory);
+            ArchiveExtractionBudget.CreateDirectoryWithoutLinks(destinationRoot, directory);
 
-        using var source = entry.OpenEntryStream();
-        using var target = File.Create(destinationPath);
-        source.CopyTo(target);
+        long written;
+        using (var source = entry.OpenEntryStream())
+        using (var target = new FileStream(destinationPath, FileMode.Create, FileAccess.Write, FileShare.None))
+        {
+            source.CopyTo(target);
+            written = target.Length;
+        }
+
+        budget.AccountForWrittenBytes(entry.Key ?? destinationPath, written);
+        ArchiveExtractionBudget.VerifyWrittenFile(destinationPath);
     }
 
     private static string CombineRelative(string destination, string relative) =>

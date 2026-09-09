@@ -17,7 +17,7 @@ public enum ModListImportStatus
 
 public sealed record ModListImportResult(ModListImportStatus Status, ModListCatalogEntry Entry);
 
-public sealed class ModListCatalogStore
+public sealed class ModListCatalogStore : IDisposable
 {
     private readonly string _catalogRoot;
     private readonly ModListManifestSerializer _serializer;
@@ -104,7 +104,9 @@ public sealed class ModListCatalogStore
         Path.Combine(_catalogRoot, manifest.ListId, $"{manifest.Revision}{ModListManifestSerializer.FileExtension}");
 
     private static ModListCatalogEntry CreateEntry(string path, ModListManifest manifest) =>
-        new($"{manifest.ListId}@{manifest.Revision}", path, manifest, ModListGradeEvaluator.Evaluate(manifest).Grade);
+        new($"{manifest.ListId}@{manifest.Revision}", path, manifest, ModListGradeResolver.Evaluate(manifest).Grade);
+
+    public void Dispose() => _catalogLock.Dispose();
 }
 
 public sealed class ModListRevisionConflictException : Exception

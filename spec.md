@@ -75,6 +75,47 @@ All three commands must succeed and the last must print an installation path. Th
 - **Background task queue (C#)** — executes downloads, deletions, and scans asynchronously, decoupled from the UI.
 - **Remote site connectors (C#, pluggable)** — per-site API/download/version-check logic; Nexus is included by default.
 
+### Composition and commands
+
+- **Composition root** — `ServiceRegistration.AddWildpinklerApp()` registers every service, grouped by
+  domain (`AddPlatform`, `AddRemote`, `AddCatalogs`, `AddProfiles`, `AddMods`, `AddModLists`,
+  `AddAppCommands`, `AddAgent`). `AppHost` owns the container and validates it on build. A service that
+  cannot be resolved fails `ServiceRegistrationTests`, not the shipped build.
+- **Command layer** — every user-level mutation is an `IAppCommand<TResult>` with a handler. The
+  dispatcher adds the correlation id, structured logging, the confirmation gate for destructive
+  operations, and the audit journal. UI and assistant both go through it, so neither can bypass the
+  other's safeguards.
+- **Assistant** — `IAgentToolCatalog` is projected from the command catalog; there is no second list of
+  operations. `IChatCompletionClient` is a seam with no shipped implementation.
+
+### Naming conventions
+
+Suffixes are load-bearing. Pick the one that matches the responsibility:
+
+| Suffix | Responsibility |
+| --- | --- |
+| `*Store` | Persistence of one aggregate; no business rules |
+| `*Service` | Stateless domain operation(s) |
+| `*Coordinator` | Multi-service workflow with progress and cancellation |
+| `*Resolver` | Pure computation producing a value from its inputs |
+| `*Inspector` | Read-only analysis of an external artefact (archive, file, process) |
+| `*Provider` | Pluggable external integration point |
+| `*ViewModel` | Presentation state |
+
+`Manager`, `Engine`, `Enricher`, `Evaluator` and `Provisioner` are not used as service suffixes.
+
+### Adding a remote site
+
+1. Implement `IRemoteSiteProvider` in its own project or folder. Translate every transport failure into
+   `RemoteSiteException` so no site detail escapes the interface.
+2. Implement `IRemoteCredentialProvider` for the site's auth flow, and `IRemoteProtocolHandler` if the
+   site has its own URI scheme. Validate every untrusted segment of an incoming link against a strict
+   charset before it reaches an API path.
+3. Declare the site's `RemoteSiteCapabilities` honestly; the UI hides what a site cannot do.
+4. Register it in `ServiceRegistration.BuildRegistry`. Nothing else in the app needs to change:
+   metadata enrichment, update checks and the game catalog already iterate every registered provider.
+5. Add a subclass of `RemoteSiteProviderConformanceTests` for it. The site is done when that suite passes.
+
 ## User interface
 
 - The UI is built with WinUI 3 (Windows App SDK) in C#, using native Fluent Design (Mica/Acrylic, rounded corners, light/dark theme) for a modern, minimalistic, contemporary Windows 11 look and feel.

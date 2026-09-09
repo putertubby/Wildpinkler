@@ -36,10 +36,14 @@ public sealed class RemoteSiteStore
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
     private readonly string _path = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Wildpinkler", "remote-sites.json");
-    private readonly CredentialStore _credentials = new();
+    private readonly CredentialStore _credentials;
     private readonly RemoteSiteRegistry _registry;
 
-    public RemoteSiteStore(RemoteSiteRegistry registry) => _registry = registry;
+    public RemoteSiteStore(RemoteSiteRegistry registry, CredentialStore credentials)
+    {
+        _registry = registry;
+        _credentials = credentials;
+    }
 
     /// <summary>
     /// Returns one row per registered provider. Saved settings are merged onto the provider's own

@@ -16,6 +16,23 @@ namespace Wildpinkler.Remote.Nexus;
 internal sealed class NexusApiTransport : IDisposable
 {
     private const string ProtocolVersion = "1.0.0";
+    private const long MaxResponseBytes = 8 * 1024 * 1024;
+
+    private static readonly Uri ApiBaseAddress = new("https://api.nexusmods.com/v1/");
+
+    /// <summary>
+    /// One handler for the whole process: a per-instance <see cref="HttpClient"/> would exhaust
+    /// sockets, and a permanently cached one would never notice a DNS change.
+    /// </summary>
+    private static readonly SocketsHttpHandler SharedHandler = new()
+    {
+        PooledConnectionLifetime = TimeSpan.FromMinutes(5),
+        AutomaticDecompression = DecompressionMethods.All,
+        // Redirects are not followed: the API key header must never be replayed to another host.
+        AllowAutoRedirect = false,
+        ConnectTimeout = TimeSpan.FromSeconds(15),
+        MaxConnectionsPerServer = 8
+    };
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -31,8 +48,13 @@ internal sealed class NexusApiTransport : IDisposable
     public NexusApiTransport(string applicationName, string applicationVersion, HttpClient? client = null, NexusThrottle? throttle = null)
     {
         _ownsClient = client is null;
-        _client = client ?? new HttpClient { BaseAddress = new Uri("https://api.nexusmods.com/v1/") };
-        _client.BaseAddress ??= new Uri("https://api.nexusmods.com/v1/");
+        _client = client ?? new HttpClient(SharedHandler, disposeHandler: false)
+        {
+            BaseAddress = ApiBaseAddress,
+            Timeout = TimeSpan.FromSeconds(60),
+            MaxResponseContentBufferSize = MaxResponseBytes
+        };
+        _client.BaseAddress ??= ApiBaseAddress;
         _throttle = throttle ?? new NexusThrottle();
 
         // Required by the Nexus API acceptable use policy so usage can be attributed to this app.
@@ -93,6 +115,12 @@ internal sealed class NexusApiTransport : IDisposable
 
     public static RemoteSiteException Translate(HttpStatusCode statusCode, string body, RemoteRateLimit rateLimit)
     {
+        if (statusCode is >= HttpStatusCode.MultipleChoices and < HttpStatusCode.BadRequest)
+            return new RemoteSiteException(
+                RemoteErrorKind.Server,
+                "Nexus Mods redirected the request. Wildpinkler does not follow redirects on authenticated calls.",
+                NexusSiteProvider.Id, rateLimit, rateLimit.NextReset);
+
         var message = ExtractMessage(body) ?? $"Nexus Mods returned {(int)statusCode} {statusCode}.";
         var kind = statusCode switch
         {

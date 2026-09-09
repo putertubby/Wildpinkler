@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.IO;
 using System.Text.Json.Serialization;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -91,5 +92,5 @@ public sealed partial class ToolEntry : ObservableObject
     }
 
     [JsonIgnore]
-    public string UsageCountText => UsageCount == 0 ? "Unused" : UsageCount.ToString();
+    public string UsageCountText => UsageCount == 0 ? "Unused" : UsageCount.ToString(CultureInfo.CurrentCulture);
 }

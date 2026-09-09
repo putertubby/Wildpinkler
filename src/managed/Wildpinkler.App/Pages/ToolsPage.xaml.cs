@@ -67,8 +67,6 @@ public sealed partial class ToolsPage : Page, INotifyPropertyChanged
 
     // Side-by-side vs. stacked drill-in is judged from the list/details Grid's own measured width,
     // not window width, so the docked NavigationView pane is accounted for.
-    private const double NarrowLayoutThreshold = 681;
-    private const double DetailsColumnMinWidth = 280;
     private double _detailsWidth = AppServices.AppSettings.ToolsDetailsWidth ?? 360;
 
     public ToolsPage()
@@ -89,7 +87,7 @@ public sealed partial class ToolsPage : Page, INotifyPropertyChanged
         try
         {
             _listDetailsWidth = width;
-            var isNarrow = width < NarrowLayoutThreshold;
+            var isNarrow = width < Layout.SideBySideThreshold;
             var hasSelection = ToolList.SelectedItems.Count == 1;
 
             if (isNarrow && hasSelection)
@@ -102,7 +100,7 @@ public sealed partial class ToolsPage : Page, INotifyPropertyChanged
             else if (hasSelection)
             {
                 ListColumnDef.Width = new GridLength(1, GridUnitType.Star);
-                DetailsColumnDef.MinWidth = DetailsColumnMinWidth;
+                DetailsColumnDef.MinWidth = Layout.DetailsColumnMinWidth;
                 DetailsColumnDef.Width = new GridLength(_detailsWidth);
                 DetailsSplitter.Visibility = Visibility.Visible;
                 BackToListButton.Visibility = Visibility.Collapsed;

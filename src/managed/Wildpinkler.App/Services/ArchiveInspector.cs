@@ -127,11 +127,11 @@ public sealed class ArchiveInspector : IArchiveInspector
 
     private static string? SuggestSourceRoot(IReadOnlyList<string> paths)
     {
-        if (paths.Count == 0 || paths.Any(path => !path.Contains('/')))
+        if (paths.Count == 0 || paths.Any(path => !path.Contains('/', StringComparison.Ordinal)))
             return null;
 
         var roots = paths
-            .Select(path => path[..path.IndexOf('/')])
+            .Select(path => path[..path.IndexOf('/', StringComparison.Ordinal)])
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
         return roots.Count == 1 ? roots[0] : null;

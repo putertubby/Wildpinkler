@@ -12,6 +12,8 @@ using Microsoft.UI.Xaml.Navigation;
 using Wildpinkler.App.Models;
 using Wildpinkler.App.Services;
 
+using Wildpinkler.App.Formatting;
+
 namespace Wildpinkler.App.Pages;
 
 public sealed partial class UpdatesPage : Page, INotifyPropertyChanged
@@ -50,10 +52,10 @@ public sealed partial class UpdatesPage : Page, INotifyPropertyChanged
         AppServices.TrackedModsService.TrackedModsUpdated += OnTrackedModsUpdated;
     }
 
-    protected override async void OnNavigatedTo(NavigationEventArgs e)
+    protected override void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
-        await LoadAsync();
+        UiTask.Run(LoadAsync, nameof(OnNavigatedTo));
     }
 
     private async Task LoadAsync()
@@ -81,19 +83,32 @@ public sealed partial class UpdatesPage : Page, INotifyPropertyChanged
 
     private async Task LoadUpdatesAsync()
     {
-        var updates = await AppServices.UpdateCheckService.CheckForUpdatesAsync();
-        var desired = updates.Select(item => new AvailableUpdateRow
+        var result = await AppServices.UpdateCheckService.CheckForUpdatesAsync();
+        var desired = result.Candidates.Select(item => new AvailableUpdateRow
         {
             Id = item.Entry.Id,
             Name = item.Entry.Name,
             VersionText = item.Entry.Version,
-            UpdatedText = item.Update.LatestFileUpdate.ToLocalTime().ToString("g")
+            UpdatedText = DisplayFormat.ShortDateTime(item.Update.LatestFileUpdate)
         }).ToList();
         CollectionReconciler.Reconcile(Updates, desired, row => row.Id);
-        foreach (var candidate in updates)
+        foreach (var candidate in result.Candidates)
             candidate.Entry.HasUpdate = true;
         UpdatesCountText.Text = Updates.Count == 1 ? "1 update available" : $"{Updates.Count} updates available";
         UpdatesEmptyPanel.Visibility = Updates.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+
+        if (!result.IsComplete)
+            ShowPartialResultWarning(result.Failures);
+    }
+
+    /// <summary>"No updates" and "we could not check" must never look the same.</summary>
+    private void ShowPartialResultWarning(IReadOnlyList<ModUpdateCheckFailure> failures)
+    {
+        var detail = string.Join(" ", failures.Select(failure => $"{failure.SiteName} ({failure.GameKey}): {failure.Reason}"));
+        PageInfoBar.Severity = InfoBarSeverity.Warning;
+        PageInfoBar.Title = failures.Count == 1 ? "One site could not be checked" : $"{failures.Count} sites could not be checked";
+        PageInfoBar.Message = detail;
+        PageInfoBar.IsOpen = true;
     }
 
     private async Task LoadTrackedModsAsync()
@@ -106,7 +121,7 @@ public sealed partial class UpdatesPage : Page, INotifyPropertyChanged
             DomainText = mod.Ref.GameKey,
             AuthorText = mod.Author ?? string.Empty,
             VersionText = string.IsNullOrWhiteSpace(mod.Version) ? "Version unavailable" : mod.Version,
-            LastModifiedText = mod.UpdatedAt?.ToLocalTime().ToString("g") ?? "Not available",
+            LastModifiedText = DisplayFormat.ShortDateTime(mod.UpdatedAt, "Not available"),
             ModPageUrl = mod.Ref.PageUrl ?? string.Empty
         }).ToList();
         CollectionReconciler.Reconcile(TrackedMods, desired, row => row.Id);
@@ -156,7 +171,7 @@ public sealed partial class UpdatesPage : Page, INotifyPropertyChanged
                 DomainText = mod.Ref.GameKey,
                 AuthorText = mod.Author ?? string.Empty,
                 VersionText = string.IsNullOrWhiteSpace(mod.Version) ? "Version unavailable" : mod.Version,
-                LastModifiedText = mod.UpdatedAt?.ToLocalTime().ToString("g") ?? "Not available",
+                LastModifiedText = DisplayFormat.ShortDateTime(mod.UpdatedAt, "Not available"),
                 ModPageUrl = mod.Ref.PageUrl ?? string.Empty
             }).ToList();
             CollectionReconciler.Reconcile(TrackedMods, desired, row => row.Id);

@@ -90,8 +90,8 @@ public class ModStoreSchemaTests : IDisposable
     public async Task AddArchiveAsync_ComputesSha256()
     {
         var source = Path.Combine(_root, "source.zip");
-        await File.WriteAllTextAsync(source, "archive content");
-        var expected = Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(source)));
+        await File.WriteAllTextAsync(source, "archive content", TestContext.Current.CancellationToken);
+        var expected = Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(source, TestContext.Current.CancellationToken)));
         var entry = new ModEntry { Id = "abc", Name = "Test mod" };
 
         await CreateStore().AddArchiveAsync(entry, source);

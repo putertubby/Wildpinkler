@@ -15,6 +15,8 @@ using Wildpinkler.App.Controls;
 using Wildpinkler.App.Models;
 using Wildpinkler.App.Services;
 
+using Wildpinkler.App.Formatting;
+
 namespace Wildpinkler.App.Pages;
 
 public sealed partial class GamesPage : Page, INotifyPropertyChanged
@@ -68,8 +70,6 @@ public sealed partial class GamesPage : Page, INotifyPropertyChanged
     // not window width (an AdaptiveTrigger/window-width comparison would ignore how much the docked
     // NavigationView pane already consumes, per UI-Design.md's "measure the actual available
     // container width, not the monitor size or raw window width").
-    private const double NarrowLayoutThreshold = 681;
-    private const double DetailsColumnMinWidth = 280;
     private double _detailsWidth = AppServices.AppSettings.GamesDetailsWidth ?? 360;
 
     private bool _isUpdatingLayoutState;
@@ -80,7 +80,7 @@ public sealed partial class GamesPage : Page, INotifyPropertyChanged
         try
         {
             _listDetailsWidth = width;
-            var isNarrow = width < NarrowLayoutThreshold;
+            var isNarrow = width < Layout.SideBySideThreshold;
             var hasSelection = GameList.SelectedItems.Count == 1;
 
             if (isNarrow && hasSelection)
@@ -93,7 +93,7 @@ public sealed partial class GamesPage : Page, INotifyPropertyChanged
             else if (hasSelection)
             {
                 ListColumnDef.Width = new GridLength(1, GridUnitType.Star);
-                DetailsColumnDef.MinWidth = DetailsColumnMinWidth;
+                DetailsColumnDef.MinWidth = Layout.DetailsColumnMinWidth;
                 DetailsColumnDef.Width = new GridLength(_detailsWidth);
                 DetailsSplitter.Visibility = Visibility.Visible;
                 BackToListButton.Visibility = Visibility.Collapsed;
@@ -256,7 +256,7 @@ public sealed partial class GamesPage : Page, INotifyPropertyChanged
         DetailsInstallPath.Text = string.IsNullOrWhiteSpace(game.InstallPath) ? "Not set" : game.InstallPath;
         DetailsExecutablePath.Text = string.IsNullOrWhiteSpace(game.ExecutablePath) ? "Not set" : game.ExecutablePath;
         DetailsLaunchArguments.Text = string.IsNullOrWhiteSpace(game.LaunchArguments) ? "None" : game.LaunchArguments;
-        DetailsAdded.Text = game.AddedAt.ToLocalTime().ToString("g");
+        DetailsAdded.Text = DisplayFormat.ShortDateTime(game.AddedAt);
         var profileNames = _profiles.Where(profile => profile.GameId == game.Id).Select(profile => profile.Name).ToList();
         DetailsProfiles.Text = profileNames.Count == 0 ? "Unused" : string.Join(", ", profileNames);
         DetailsDefinition.Text = string.IsNullOrEmpty(game.DefinitionId)

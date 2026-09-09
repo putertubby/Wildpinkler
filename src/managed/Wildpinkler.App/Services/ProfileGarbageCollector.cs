@@ -51,31 +51,31 @@ public sealed class ProfileGarbageCollector
 
     private static int CollectToolOutput(Profile profile)
     {
-        var root = ProfileFolderProvisioner.GetToolOutputRoot(profile);
+        var root = ProfileFolderService.GetToolOutputRoot(profile);
         if (!Directory.Exists(root))
             return 0;
 
         // CollectAsync skips active profiles, so an idle profile retains only its current output.
         var live = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var binding in profile.Tools)
-            live.Add(Normalize(ProfileFolderProvisioner.GetToolOutputFolder(profile, binding.ToolEntryId, binding.OutputVersion)));
+            live.Add(Normalize(ProfileFolderService.GetToolOutputFolder(profile, binding.ToolEntryId, binding.OutputVersion)));
 
         return DeleteUnreferenced(root, live);
     }
 
     private static int CollectCustomFolders(Profile profile)
     {
-        var root = ProfileFolderProvisioner.GetCustomRoot(profile);
+        var root = ProfileFolderService.GetCustomRoot(profile);
         if (!Directory.Exists(root))
             return 0;
 
         var live = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
         {
-            Normalize(ProfileFolderProvisioner.GetCustomFolder(profile, profile.GameId))
+            Normalize(ProfileFolderService.GetCustomFolder(profile, profile.GameId))
         };
 
         foreach (var binding in profile.Tools.Where(binding => binding.IsEnabled))
-            live.Add(Normalize(ProfileFolderProvisioner.GetCustomFolder(profile, binding.ToolEntryId)));
+            live.Add(Normalize(ProfileFolderService.GetCustomFolder(profile, binding.ToolEntryId)));
 
         return DeleteUnreferenced(root, live);
     }

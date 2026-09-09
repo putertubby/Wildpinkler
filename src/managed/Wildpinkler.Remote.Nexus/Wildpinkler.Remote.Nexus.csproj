@@ -5,7 +5,6 @@
     <RootNamespace>Wildpinkler.Remote.Nexus</RootNamespace>
     <AssemblyName>Wildpinkler.Remote.Nexus</AssemblyName>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
 
   <ItemGroup>

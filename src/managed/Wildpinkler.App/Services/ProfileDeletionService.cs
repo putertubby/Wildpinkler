@@ -13,13 +13,13 @@ namespace Wildpinkler.App.Services;
 public sealed class ProfileDeletionService
 {
     private readonly ProfileStore _profileStore;
-    private readonly ProfileFolderProvisioner _provisioner;
+    private readonly ProfileFolderService _provisioner;
     private readonly ModStore _modStore;
     private readonly ProfileRunAccessPolicy _runAccess;
 
     public ProfileDeletionService(
         ProfileStore profileStore,
-        ProfileFolderProvisioner provisioner,
+        ProfileFolderService provisioner,
         ModStore modStore,
         ProfileRunAccessPolicy runAccess)
     {

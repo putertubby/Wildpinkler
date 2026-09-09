@@ -6,7 +6,7 @@ namespace Wildpinkler.App.Services;
 
 public sealed record ModListGradeEvaluation(ModListGrade Grade, IReadOnlyList<string> Reasons);
 
-public static class ModListGradeEvaluator
+public static class ModListGradeResolver
 {
     public static ModListGradeEvaluation Evaluate(ModListManifest manifest)
     {

@@ -66,7 +66,7 @@ public sealed class LaunchServiceTests : IDisposable
 
         Assert.False(completion.Succeeded);
         Assert.Equal(1, fixture.Binding.OutputVersion);
-        Assert.True(Directory.Exists(ProfileFolderProvisioner.GetToolOutputFolder(fixture.Profile, fixture.Target.Id, 2)));
+        Assert.True(Directory.Exists(ProfileFolderService.GetToolOutputFolder(fixture.Profile, fixture.Target.Id, 2)));
         Assert.False(fixture.Runs.HasRun(fixture.Profile.Id));
     }
 
@@ -78,7 +78,7 @@ public sealed class LaunchServiceTests : IDisposable
         await Assert.ThrowsAsync<InvalidOperationException>(() => fixture.Service.LaunchAsync(fixture.Profile, fixture.Target));
 
         Assert.Equal(1, fixture.Binding.OutputVersion);
-        Assert.False(Directory.Exists(ProfileFolderProvisioner.GetToolOutputFolder(fixture.Profile, fixture.Target.Id, 2)));
+        Assert.False(Directory.Exists(ProfileFolderService.GetToolOutputFolder(fixture.Profile, fixture.Target.Id, 2)));
         Assert.False(fixture.Runs.HasRun(fixture.Profile.Id));
     }
 
@@ -118,7 +118,7 @@ public sealed class LaunchServiceTests : IDisposable
         var process = new FakeProcess();
         var launcher = new FakeLauncher(process, throwOnStart);
         var runs = new ActiveRunRegistry();
-        var service = new LaunchService(new ProfileConfigExporter(), new ProfileFolderProvisioner(_root), runs, launcher, loader);
+        var service = new LaunchService(new ProfileConfigExporter(), new ProfileFolderService(_root), runs, launcher, loader);
         return new Fixture(service, profile, binding, target, process, launcher, runs);
     }
 

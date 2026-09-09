@@ -9,7 +9,7 @@ using Wildpinkler.App.Models;
 
 namespace Wildpinkler.App.Services;
 
-public sealed class GameStore
+public sealed class GameStore : IDisposable
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
     private const int CurrentSchemaVersion = 3; // 3 removes per-entry executable paths; schema-1/2 files still load.
@@ -62,10 +62,7 @@ public sealed class GameStore
                 await stream.FlushAsync();
             }
 
-            if (File.Exists(_databasePath))
-                File.Replace(_temporaryPath, _databasePath, _backupPath, true);
-            else
-                File.Move(_temporaryPath, _databasePath, true);
+            AtomicFile.Publish(_temporaryPath, _databasePath, _backupPath);
         }
         finally
         {
@@ -88,4 +85,6 @@ public sealed class GameStore
     }
 
     private sealed record DatabaseDocument(int SchemaVersion, List<GameEntry> Games);
+
+    public void Dispose() => _databaseLock.Dispose();
 }

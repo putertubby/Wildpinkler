@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.IO;
 using System.Text.Json.Serialization;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -77,5 +78,5 @@ public sealed partial class GameEntry : ObservableObject
     }
 
     [JsonIgnore]
-    public string ProfileCountText => ProfileCount == 0 ? "Unused" : ProfileCount.ToString();
+    public string ProfileCountText => ProfileCount == 0 ? "Unused" : ProfileCount.ToString(CultureInfo.CurrentCulture);
 }

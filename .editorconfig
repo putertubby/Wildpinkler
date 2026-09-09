@@ -1,0 +1,113 @@
+root = true
+
+[*]
+charset = utf-8
+end_of_line = crlf
+insert_final_newline = true
+indent_style = space
+indent_size = 4
+trim_trailing_whitespace = true
+
+[*.{json,yml,yaml,xml,props,targets,csproj,vcxproj,resx,resw}]
+indent_size = 2
+
+[*.{ps1,psm1}]
+indent_size = 4
+
+[*.md]
+trim_trailing_whitespace = false
+
+[*.cs]
+# --- Language conventions -------------------------------------------------
+csharp_style_namespace_declarations = file_scoped:warning
+csharp_using_directive_placement = outside_namespace:silent
+csharp_prefer_braces = when_multiline:silent
+csharp_style_var_for_built_in_types = false:silent
+csharp_style_var_when_type_is_apparent = true:silent
+csharp_style_expression_bodied_methods = when_on_single_line:silent
+csharp_style_prefer_pattern_matching = true:warning
+csharp_style_prefer_not_pattern = true:warning
+csharp_style_prefer_switch_expression = true:warning
+csharp_style_throw_expression = true:silent
+csharp_prefer_simple_using_statement = true:silent
+dotnet_style_object_initializer = true:silent
+dotnet_style_collection_initializer = true:silent
+dotnet_style_prefer_conditional_expression_over_assignment = true:silent
+dotnet_style_readonly_field = true:warning
+dotnet_style_require_accessibility_modifiers = for_non_interface_members:warning
+dotnet_style_qualification_for_field = false:warning
+dotnet_style_qualification_for_property = false:warning
+dotnet_style_qualification_for_method = false:warning
+dotnet_style_qualification_for_event = false:warning
+
+# --- Naming: Wildpinkler service suffix conventions -----------------------
+# Store / Service / Coordinator / Resolver / Inspector / Provider / ViewModel.
+# See spec.md "Naming conventions". Enforced by review, not by analyzer.
+dotnet_naming_rule.interfaces_start_with_i.severity = warning
+dotnet_naming_rule.interfaces_start_with_i.symbols = interface_symbols
+dotnet_naming_rule.interfaces_start_with_i.style = prefix_i_pascal
+dotnet_naming_symbols.interface_symbols.applicable_kinds = interface
+dotnet_naming_style.prefix_i_pascal.required_prefix = I
+dotnet_naming_style.prefix_i_pascal.capitalization = pascal_case
+
+dotnet_naming_rule.private_fields_underscore.severity = warning
+dotnet_naming_rule.private_fields_underscore.symbols = private_field_symbols
+dotnet_naming_rule.private_fields_underscore.style = underscore_camel
+dotnet_naming_symbols.private_field_symbols.applicable_kinds = field
+dotnet_naming_symbols.private_field_symbols.applicable_accessibilities = private
+dotnet_naming_symbols.private_field_symbols.required_modifiers =
+dotnet_naming_style.underscore_camel.required_prefix = _
+dotnet_naming_style.underscore_camel.capitalization = camel_case
+
+dotnet_naming_rule.constants_pascal.severity = warning
+dotnet_naming_rule.constants_pascal.symbols = constant_symbols
+dotnet_naming_rule.constants_pascal.style = pascal
+dotnet_naming_symbols.constant_symbols.applicable_kinds = field
+dotnet_naming_symbols.constant_symbols.required_modifiers = const
+dotnet_naming_style.pascal.capitalization = pascal_case
+
+# --- Analyzer rules we deliberately do not enforce ------------------------
+# Members are intentionally instance members so they can be injected, faked and
+# replaced; "could be static" fights dependency injection.
+dotnet_diagnostic.CA1822.severity = none
+# Concrete-type suggestions defeat the abstractions the seams are built on.
+dotnet_diagnostic.CA1859.severity = none
+# Nullable annotations already cover argument-null intent for internal helpers.
+dotnet_diagnostic.CA1062.severity = none
+# WinUI/XAML generated partials are not documented.
+dotnet_diagnostic.CS1591.severity = none
+# BackgroundOperationQueue really is a queue; this is a library-design rule for public APIs.
+dotnet_diagnostic.CA1711.severity = none
+# LoggerMessage delegates buy nothing at desktop-app logging volumes.
+dotnet_diagnostic.CA1848.severity = none
+
+# --- Analyzer rules we escalate ------------------------------------------
+dotnet_diagnostic.CA2007.severity = none
+dotnet_diagnostic.CA1063.severity = warning
+dotnet_diagnostic.CA2016.severity = warning
+dotnet_diagnostic.CA1305.severity = error
+dotnet_diagnostic.CA1307.severity = error
+dotnet_diagnostic.CA1309.severity = error
+dotnet_diagnostic.CA1310.severity = error
+dotnet_diagnostic.CA2100.severity = error
+dotnet_diagnostic.CA3075.severity = error
+dotnet_diagnostic.CA5350.severity = error
+dotnet_diagnostic.CA5351.severity = error
+dotnet_diagnostic.CA5359.severity = error
+dotnet_diagnostic.CA5364.severity = error
+dotnet_diagnostic.CA5386.severity = error
+dotnet_diagnostic.CA5394.severity = error
+
+[tests/**/*.cs]
+# Test names follow Method_Scenario_ExpectedResult (see "Test Design Reference.md").
+dotnet_diagnostic.CA1707.severity = none
+# xUnit disposes fixtures itself; the full Dispose(bool) pattern is not warranted.
+dotnet_diagnostic.CA1063.severity = none
+# Tests exercise the same protocol-mandated MD5 checksums the production code does.
+dotnet_diagnostic.CA5351.severity = none
+dotnet_diagnostic.CA1305.severity = none
+dotnet_diagnostic.CA1307.severity = none
+# Tests deliberately construct throwaway objects and assert on them.
+dotnet_diagnostic.CA1806.severity = none
+dotnet_diagnostic.CA1861.severity = none
+dotnet_diagnostic.CA2000.severity = none

@@ -25,10 +25,8 @@ public sealed partial class DownloadsPage : Page, INotifyPropertyChanged
     }
 
     // Side-by-side vs. stacked drill-in is judged from the list/details Grid's own measured width.
-    private const double NarrowLayoutThreshold = 681;
-    private const double DetailsColumnMinWidth = 280;
 
-    private readonly RemoteDownloadManager _manager = AppServices.RemoteDownloadManager;
+    private readonly DownloadQueueCoordinator _manager = AppServices.DownloadQueueCoordinator;
     private readonly ObservableCollection<DownloadJob> _visible = new();
     private readonly HashSet<string> _seenKeys = new(StringComparer.Ordinal);
 
@@ -301,7 +299,7 @@ public sealed partial class DownloadsPage : Page, INotifyPropertyChanged
         try
         {
             _listDetailsWidth = width;
-            var isNarrow = width < NarrowLayoutThreshold;
+            var isNarrow = width < Layout.SideBySideThreshold;
             var hasSelection = DownloadList.SelectedItem is not null;
 
             if (isNarrow && hasSelection)
@@ -314,7 +312,7 @@ public sealed partial class DownloadsPage : Page, INotifyPropertyChanged
             else if (hasSelection)
             {
                 ListColumnDef.Width = new GridLength(1, GridUnitType.Star);
-                DetailsColumnDef.MinWidth = DetailsColumnMinWidth;
+                DetailsColumnDef.MinWidth = Layout.DetailsColumnMinWidth;
                 DetailsColumnDef.Width = new GridLength(_detailsWidth);
                 DetailsSplitter.Visibility = Visibility.Visible;
                 BackToListButton.Visibility = Visibility.Collapsed;

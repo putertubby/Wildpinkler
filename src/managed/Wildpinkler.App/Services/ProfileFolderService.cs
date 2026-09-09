@@ -11,7 +11,7 @@ namespace Wildpinkler.App.Services;
 /// its load order in place. Every sub-directory below a profile folder is owned by that profile and
 /// never shared with another one.
 /// </summary>
-public sealed class ProfileFolderProvisioner
+public sealed class ProfileFolderService
 {
     public const string OverlayFolderName = "overlay";
     public const string CustomFolderName = "custom";
@@ -19,7 +19,7 @@ public sealed class ProfileFolderProvisioner
 
     private readonly string _profilesRoot;
 
-    public ProfileFolderProvisioner(string profilesRoot) => _profilesRoot = profilesRoot;
+    public ProfileFolderService(string profilesRoot) => _profilesRoot = profilesRoot;
 
     public string GetProfileFolder(string profileId) => Path.Combine(_profilesRoot, profileId);
 

@@ -16,6 +16,8 @@ using Wildpinkler.App.Models;
 using Wildpinkler.App.Services;
 using Wildpinkler.Remote;
 
+using Wildpinkler.App.Formatting;
+
 namespace Wildpinkler.App.Pages;
 
 // Second page (after GamesPage) using CommunityToolkit.Mvvm source generators at the page level.
@@ -73,8 +75,6 @@ public sealed partial class ModsPage : Page, INotifyPropertyChanged
 
     // Side-by-side vs. stacked drill-in is judged from the list/details Grid's own measured width,
     // not window width - see the identical GamesPage pattern/rationale.
-    private const double NarrowLayoutThreshold = 681;
-    private const double DetailsColumnMinWidth = 280;
     private double _detailsWidth = AppServices.AppSettings.ModsDetailsWidth ?? 360;
 
     private bool _isUpdatingLayoutState;
@@ -85,7 +85,7 @@ public sealed partial class ModsPage : Page, INotifyPropertyChanged
         try
         {
             _listDetailsWidth = width;
-            var isNarrow = width < NarrowLayoutThreshold;
+            var isNarrow = width < Layout.SideBySideThreshold;
             var hasSelection = ModList.SelectedItems.Count == 1;
 
             if (isNarrow && hasSelection)
@@ -98,7 +98,7 @@ public sealed partial class ModsPage : Page, INotifyPropertyChanged
             else if (hasSelection)
             {
                 ListColumnDef.Width = new GridLength(1, GridUnitType.Star);
-                DetailsColumnDef.MinWidth = DetailsColumnMinWidth;
+                DetailsColumnDef.MinWidth = Layout.DetailsColumnMinWidth;
                 DetailsColumnDef.Width = new GridLength(_detailsWidth);
                 DetailsSplitter.Visibility = Visibility.Visible;
                 BackToListButton.Visibility = Visibility.Collapsed;
@@ -144,14 +144,14 @@ public sealed partial class ModsPage : Page, INotifyPropertyChanged
         FilterChipList.ItemsSource = _filterChips;
         DetailsColumnDef.RegisterPropertyChangedCallback(ColumnDefinition.WidthProperty, DetailsColumnDef_WidthChanged);
         _queue.Changed += Queue_Changed;
-        AppServices.RemoteDownloadManager.EntryUpdated += RemoteDownloadManager_EntryUpdated;
+        AppServices.DownloadQueueCoordinator.EntryUpdated += RemoteDownloadManager_EntryUpdated;
         _ = LoadAsync();
     }
 
     // The page instance is cached, so pick up games added on the Games page.
-    protected override async void OnNavigatedTo(Microsoft.UI.Xaml.Navigation.NavigationEventArgs args)
+    protected override async void OnNavigatedTo(Microsoft.UI.Xaml.Navigation.NavigationEventArgs e)
     {
-        base.OnNavigatedTo(args);
+        base.OnNavigatedTo(e);
         try
         {
             var games = await AppServices.GameStore.LoadAsync();
@@ -218,7 +218,7 @@ public sealed partial class ModsPage : Page, INotifyPropertyChanged
         try
         {
             ShowInfo($"Looking up {mod.Name}...", InfoBarSeverity.Informational);
-            var identification = await AppServices.RemoteMetadataEnricher.IdentifyAsync(mod);
+            var identification = await AppServices.RemoteMetadataService.IdentifyAsync(mod);
             if (identification is null)
             {
                 ShowInfo("No site recognised this archive's checksum.", InfoBarSeverity.Warning);
@@ -240,7 +240,7 @@ public sealed partial class ModsPage : Page, INotifyPropertyChanged
             if (await dialog.ShowAsync() != ContentDialogResult.Primary)
                 return;
 
-            RemoteMetadataEnricher.Apply(mod, identification);
+            RemoteMetadataService.Apply(mod, identification);
             await _store.UpsertAsync(mod);
             RefreshMods();
             ShowInfo($"{mod.Name} updated from {identification.SiteName}.", InfoBarSeverity.Success);
@@ -451,7 +451,7 @@ public sealed partial class ModsPage : Page, INotifyPropertyChanged
             FomodState.No => "Not detected",
             _ => "Unknown"
         };
-        DetailsAdded.Text = mod.AddedAt.ToLocalTime().ToString("g");
+        DetailsAdded.Text = DisplayFormat.ShortDateTime(mod.AddedAt);
         DetailsProfiles.Text = mod.ProfileCount == 0
             ? "Unused"
             : string.Join(", ", mod.ProfileIds);
@@ -475,11 +475,17 @@ public sealed partial class ModsPage : Page, INotifyPropertyChanged
             Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
     }
 
-    private async void ModRowEditDependencies_Click(object sender, RoutedEventArgs args)
+    private void ModRowEditDependencies_Click(object sender, RoutedEventArgs args)
     {
         if ((sender as FrameworkElement)?.DataContext is not ModEntry mod)
             return;
 
+        UiTask.Run(() => EditDependenciesAsync(mod), nameof(ModRowEditDependencies_Click),
+            exception => ShowInfo($"The dependencies could not be saved. {exception.Message}", InfoBarSeverity.Error));
+    }
+
+    private async Task EditDependenciesAsync(ModEntry mod)
+    {
         var dialog = new ModDependencyEditDialog(mod, _allMods) { XamlRoot = XamlRoot };
         if (await dialog.ShowAsync() != ContentDialogResult.Primary)
             return;
@@ -694,7 +700,7 @@ public sealed partial class ModsPage : Page, INotifyPropertyChanged
         {
             // Ask for the mod rather than a file, so the site's current primary file is fetched.
             var link = RemoteLink.ForMod(mod.Remote!.SiteId, mod.Remote.GameKey, mod.Remote.ModKey);
-            AppServices.RemoteDownloadManager.Enqueue(link);
+            AppServices.DownloadQueueCoordinator.Enqueue(link);
         }
 
         ShowInfo(updates.Count == 1 ? "Queued 1 update." : $"Queued {updates.Count} updates.", InfoBarSeverity.Informational);
@@ -718,8 +724,8 @@ public sealed partial class ModsPage : Page, INotifyPropertyChanged
     {
         try
         {
-            var candidates = await AppServices.UpdateCheckService.CheckForUpdatesAsync();
-            var updated = candidates.Select(candidate => candidate.Entry.Id).ToHashSet(StringComparer.Ordinal);
+            var result = await AppServices.UpdateCheckService.CheckForUpdatesAsync();
+            var updated = result.Candidates.Select(candidate => candidate.Entry.Id).ToHashSet(StringComparer.Ordinal);
 
             foreach (var mod in _allMods)
                 mod.HasUpdate = updated.Contains(mod.Id);
@@ -728,9 +734,16 @@ public sealed partial class ModsPage : Page, INotifyPropertyChanged
             DispatcherQueue.TryEnqueue(() =>
             {
                 RefreshMods();
+                if (!result.IsComplete)
+                {
+                    var detail = string.Join(" ", result.Failures.Select(failure => $"{failure.SiteName}: {failure.Reason}"));
+                    ShowInfo($"Checked with gaps. {detail}", InfoBarSeverity.Warning);
+                    return;
+                }
+
                 ShowInfo(
-                    candidates.Count == 0 ? "No updates found." : $"{candidates.Count} mods have newer files.",
-                    candidates.Count == 0 ? InfoBarSeverity.Success : InfoBarSeverity.Informational);
+                    result.Candidates.Count == 0 ? "No updates found." : $"{result.Candidates.Count} mods have newer files.",
+                    result.Candidates.Count == 0 ? InfoBarSeverity.Success : InfoBarSeverity.Informational);
             });
         }
         catch (RemoteSiteException exception)

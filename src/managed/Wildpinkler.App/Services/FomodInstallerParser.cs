@@ -18,7 +18,10 @@ public sealed class FomodInstallerParser
     public FomodModule? TryParse(string moduleConfigXml)
     {
         var root = Parse(moduleConfigXml);
-        return root is null ? null : ParseModule(root);
+        // A ModuleConfig.xml always has a <config> root; anything else is not a FOMOD installer.
+        return root is null || !root.Name.LocalName.Equals("config", StringComparison.OrdinalIgnoreCase)
+            ? null
+            : ParseModule(root);
     }
 
     private static XElement? Parse(string text)

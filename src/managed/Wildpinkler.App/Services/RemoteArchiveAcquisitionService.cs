@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
@@ -32,7 +33,7 @@ public sealed record RemoteArchiveAcquisitionResult(
     RemoteFileMetadata File,
     RemoteAccount Account);
 
-public sealed class RemoteArchiveAcquisitionService
+public sealed class RemoteArchiveAcquisitionService : IDisposable
 {
     private readonly RemoteSiteRegistry _registry;
     private readonly Func<IRemoteSiteProvider, CancellationToken, Task<(RemoteCredential Credential, RemoteAccount Account)>> _authenticate;
@@ -75,6 +76,8 @@ public sealed class RemoteArchiveAcquisitionService
         return new RemoteDownloadPreview(resolved, provider.DisplayName, mod, file, account);
     }
 
+    // MD5 is not a security control here: it is the checksum the remote site publishes for the file.
+    [SuppressMessage("Security", "CA5351:Do not use broken cryptographic algorithms", Justification = "Fixed by the remote site's published checksum format; transport integrity is provided by TLS.")]
     public async Task<RemoteArchiveAcquisitionResult> AcquireAsync(
         RemoteLink link,
         string? expectedSha256 = null,
@@ -209,4 +212,6 @@ public sealed class RemoteArchiveAcquisitionService
         await using (var stream = File.OpenRead(path))
             return Convert.ToHexString(await algorithm.ComputeHashAsync(stream, cancellationToken));
     }
+
+    public void Dispose() => _concurrency.Dispose();
 }

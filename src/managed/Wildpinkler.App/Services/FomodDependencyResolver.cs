@@ -17,7 +17,7 @@ public sealed class NullFomodFileStateProvider : IFomodFileStateProvider
 }
 
 /// <summary>Evaluates a parsed <see cref="FomodDependency"/> tree against the current flag set and file state.</summary>
-public sealed class FomodDependencyEvaluator
+public sealed class FomodDependencyResolver
 {
     public bool Evaluate(FomodDependency? dependency, IReadOnlyDictionary<string, string> flags, IFomodFileStateProvider files)
     {

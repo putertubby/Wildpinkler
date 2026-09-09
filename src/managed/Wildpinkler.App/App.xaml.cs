@@ -1,9 +1,11 @@
 using System;
 using System.Threading.Tasks;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.Windows.AppLifecycle;
 using Windows.ApplicationModel.Activation;
+using Wildpinkler.App.Commands;
 using Wildpinkler.App.Controls;
 using Wildpinkler.App.Services;
 using Wildpinkler.Remote;
@@ -17,10 +19,58 @@ public partial class App : Application
 
     public App()
     {
+        AppDiagnostics.Initialize();
+        AppHost.Initialize(services => services.AddSingleton<IAppCommandConfirmation>(
+            _ => new DialogCommandConfirmation(() => (_window?.Content as FrameworkElement)?.XamlRoot, _window?.DispatcherQueue)));
+        AppDiagnostics.Verbosity.Level = AppServices.AppSettings.LogLevel;
         InitializeComponent();
+        InstallGlobalExceptionHandlers();
         AppInstance.GetCurrent().Activated += OnActivated;
         AppServices.RemoteActivationRouter.LinkReceived += OnLinkReceived;
         AppServices.RemoteActivationRouter.UnknownSchemeReceived += OnUnknownSchemeReceived;
+    }
+
+    /// <summary>
+    /// Every unobserved failure has to reach the log, otherwise a crash leaves nothing to report.
+    /// XAML exceptions are marked handled so the shell can stay up and explain itself.
+    /// </summary>
+    private void InstallGlobalExceptionHandlers()
+    {
+        UnhandledException += (_, args) =>
+        {
+            AppDiagnostics.Write("Unhandled XAML exception.", args.Exception);
+            args.Handled = true;
+            Post(() => ReportFatal(args.Exception));
+        };
+
+        TaskScheduler.UnobservedTaskException += (_, args) =>
+        {
+            AppDiagnostics.Write("Unobserved task exception.", args.Exception);
+            args.SetObserved();
+        };
+
+        AppDomain.CurrentDomain.UnhandledException += (_, args) =>
+        {
+            AppDiagnostics.Write("Unhandled AppDomain exception.", args.ExceptionObject as Exception);
+            AppDiagnostics.Shutdown();
+        };
+    }
+
+    private void ReportFatal(Exception exception)
+    {
+        var root = (_window?.Content as FrameworkElement)?.XamlRoot;
+        if (root is null)
+            return;
+
+        _ = new ContentDialog
+        {
+            XamlRoot = root,
+            Title = "Something went wrong",
+            Content = $"{exception.Message}\n\nThe full details were written to the log folder.",
+            PrimaryButtonText = "Open log folder",
+            CloseButtonText = "Close",
+            DefaultButton = ContentDialogButton.Close
+        }.ShowAsync();
     }
 
     /// <summary>Raised for a link that arrived but cannot be downloaded, so the shell can explain it.</summary>
@@ -32,7 +82,7 @@ public partial class App : Application
         _window.Activate();
 
         // Activation arrives on a background thread; the manager needs the UI queue before any job.
-        AppServices.RemoteDownloadManager.AttachDispatcher(_window.DispatcherQueue);
+        AppServices.DownloadQueueCoordinator.AttachDispatcher(_window.DispatcherQueue);
         _windowReady.SetResult();
         try
         {
@@ -46,7 +96,11 @@ public partial class App : Application
         _ = RouteInitialActivationAsync();
     }
 
-    public static async Task ShutdownAsync() => await AppServices.DisposeAsync();
+    public static async Task ShutdownAsync()
+    {
+        await AppServices.DisposeAsync();
+        AppDiagnostics.Shutdown();
+    }
 
     private void OnActivated(object? sender, AppActivationArguments args) => _ = RouteActivationSafelyAsync(args);
 
@@ -94,7 +148,7 @@ public partial class App : Application
 
             if (!AppServices.AppSettings.ConfirmRemoteDownloads)
             {
-                AppServices.RemoteDownloadManager.Enqueue(link);
+                AppServices.DownloadQueueCoordinator.Enqueue(link);
                 return;
             }
 
@@ -114,7 +168,7 @@ public partial class App : Application
 
         try
         {
-            var preview = await AppServices.RemoteDownloadManager.PreviewAsync(link);
+            var preview = await AppServices.DownloadQueueCoordinator.PreviewAsync(link);
             var mapping = await AppServices.RemoteGameMapper.ResolveAsync(preview.Link.ToRef());
 
             var dialog = new RemoteDownloadDialog(preview, mapping) { XamlRoot = root };
@@ -127,7 +181,7 @@ public partial class App : Application
                 AppServices.AppSettingsStore.Save(AppServices.AppSettings);
             }
 
-            AppServices.RemoteDownloadManager.Enqueue(preview.Link);
+            AppServices.DownloadQueueCoordinator.Enqueue(preview.Link);
         }
         catch (RemoteSiteException exception)
         {

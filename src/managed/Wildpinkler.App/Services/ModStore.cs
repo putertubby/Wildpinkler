@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
@@ -11,7 +12,7 @@ using Wildpinkler.App.Models;
 
 namespace Wildpinkler.App.Services;
 
-public sealed class ModStore
+public sealed class ModStore : IDisposable
 {
     // Case-insensitive on read because this file is hand-edited between schema changes.
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true, PropertyNameCaseInsensitive = true };
@@ -86,10 +87,7 @@ public sealed class ModStore
             await stream.FlushAsync();
         }
 
-        if (File.Exists(_databasePath))
-            File.Replace(_temporaryPath, _databasePath, _backupPath, true);
-        else
-            File.Move(_temporaryPath, _databasePath, true);
+        AtomicFile.Publish(_temporaryPath, _databasePath, _backupPath);
     }
 
     /// <summary>
@@ -187,6 +185,8 @@ public sealed class ModStore
     }
 
     private sealed record DatabaseDocument(int SchemaVersion, List<ModEntry> Mods);
+
+    public void Dispose() => _databaseLock.Dispose();
 }
 
 /// <summary>
@@ -196,7 +196,7 @@ public sealed class ModStore
 public sealed class ModStoreSchemaException : Exception
 {
     public ModStoreSchemaException(int? found, int expected)
-        : base($"The mods database is schema {found?.ToString() ?? "unknown"}, but this build requires schema {expected}. Convert the file before starting Wildpinkler.")
+        : base($"The mods database is schema {found?.ToString(CultureInfo.InvariantCulture) ?? "unknown"}, but this build requires schema {expected.ToString(CultureInfo.InvariantCulture)}. Convert the file before starting Wildpinkler.")
     {
         Found = found;
         Expected = expected;

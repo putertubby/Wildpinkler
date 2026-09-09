@@ -7,6 +7,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Navigation;
 using Windows.Graphics;
+using Wildpinkler.App.Controls;
 using Wildpinkler.App.Pages;
 using Wildpinkler.App.Services;
 
@@ -18,6 +19,7 @@ public sealed partial class MainWindow : Window
     private const int DefaultWindowHeight = 800;
     private const int MinimumWindowWidth = 800;
     private const int MinimumWindowHeight = 600;
+    private const string AssistantTag = "Assistant";
 
     private readonly Dictionary<string, Type> _pagesByTag = new();
     private readonly AppSettings _settings = Services.AppServices.AppSettings;
@@ -47,6 +49,30 @@ public sealed partial class MainWindow : Window
     }
 
     public static MainWindow? Instance { get; private set; }
+
+    /// <summary>
+    /// Shows or hides the assistant pane. The control is only created on first use, so nothing about
+    /// the assistant costs anything until a user asks for it.
+    /// </summary>
+    public void ToggleAssistantPane()
+    {
+        if (AssistantHost.Visibility == Visibility.Visible)
+        {
+            AssistantHost.Visibility = Visibility.Collapsed;
+            (AssistantHost.Content as IDisposable)?.Dispose();
+            AssistantHost.Content = null;
+            return;
+        }
+
+        if (AssistantHost.Content is null)
+        {
+            var pane = new AssistantPane();
+            pane.CloseRequested += (_, _) => ToggleAssistantPane();
+            AssistantHost.Content = pane;
+        }
+
+        AssistantHost.Visibility = Visibility.Visible;
+    }
 
     public void NavigateToSettings()
     {
@@ -186,6 +212,14 @@ public sealed partial class MainWindow : Window
         }
 
         var tag = args.InvokedItemContainer?.Tag as string;
+        if (tag == AssistantTag)
+        {
+            // The assistant is a side pane, not a destination, so selection must not move to it.
+            NavView.SelectedItem = FindMenuItem(_currentPageTag);
+            ToggleAssistantPane();
+            return;
+        }
+
         if (tag is not null && _pagesByTag.TryGetValue(tag, out var pageType))
             ContentFrame.Navigate(pageType);
     }
@@ -221,10 +255,10 @@ public sealed partial class MainWindow : Window
                 AppWindow.SetIcon(iconPath);
             }
         }
-        catch (Exception ex)
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
         {
-            // Silently ignore icon-loading failures; app is fully functional without custom icon
-            System.Diagnostics.Debug.WriteLine($"Warning: Failed to set app icon: {ex.Message}");
+            // The app is fully functional without a custom icon; record it rather than hiding it.
+            AppDiagnostics.Write("Setting the window icon failed.", exception);
         }
     }
 }

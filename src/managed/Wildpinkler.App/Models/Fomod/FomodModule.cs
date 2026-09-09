@@ -21,7 +21,7 @@ public sealed class FomodPlugin
     public FomodPluginType? DependencyDefaultType { get; set; }
     public List<FomodTypePattern> DependencyPatterns { get; set; } = new();
 
-    public FomodPluginType ResolveType(FomodDependencyEvaluator evaluator, IReadOnlyDictionary<string, string> flags, IFomodFileStateProvider files)
+    public FomodPluginType ResolveType(FomodDependencyResolver evaluator, IReadOnlyDictionary<string, string> flags, IFomodFileStateProvider files)
     {
         if (DependencyPatterns.Count > 0 || DependencyDefaultType is not null)
         {

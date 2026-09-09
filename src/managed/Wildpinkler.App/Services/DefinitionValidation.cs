@@ -157,7 +157,7 @@ public static class DefinitionValidation
     }
 
     public static bool IsDefinitionId(string? id) =>
-        IdPattern.IsMatch(id ?? string.Empty) && !id!.Contains("..");
+        IdPattern.IsMatch(id ?? string.Empty) && !id!.Contains("..", StringComparison.Ordinal);
 
     public static bool IsVariableName(string? name) => VariablePattern.IsMatch(name ?? string.Empty);
 
@@ -176,7 +176,7 @@ public static class DefinitionValidation
         if (string.IsNullOrWhiteSpace(path) || path.Length > MaxTextLength)
             return false;
 
-        if (path.Contains(':') || path.StartsWith('\\') || path.StartsWith('/'))
+        if (path.Contains(':', StringComparison.Ordinal) || path.StartsWith('\\') || path.StartsWith('/'))
             return false;
 
         if (Path.IsPathRooted(path) || Path.IsPathFullyQualified(path))

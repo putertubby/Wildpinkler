@@ -78,7 +78,7 @@ public sealed class ModListExportService
         }
 
         ModListManifestValidator.EnsureValid(manifest);
-        return new ModListExportResult(manifest, ModListGradeEvaluator.Evaluate(manifest));
+        return new ModListExportResult(manifest, ModListGradeResolver.Evaluate(manifest));
     }
 
     private static ModListGameRequirement CreateGameRequirement(GameEntry game, GameDefinition definition)

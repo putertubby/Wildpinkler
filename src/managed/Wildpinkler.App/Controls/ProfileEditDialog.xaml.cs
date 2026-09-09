@@ -26,7 +26,7 @@ public sealed partial class ProfileEditDialog : ContentDialog
 
         if (existingProfile is null)
         {
-            GameBox.SelectedItem = games.FirstOrDefault();
+            GameBox.SelectedItem = games.Count > 0 ? games[0] : null;
             NoGamesText.Visibility = games.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         }
         else

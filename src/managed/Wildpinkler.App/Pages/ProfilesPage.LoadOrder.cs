@@ -37,7 +37,13 @@ public sealed partial class ProfilesPage
 
     // Covers drag reorder, Alt+Up/Down and the "more" menu moves, and add/remove - all mutate the
     // profile's own Folders collection directly, so one hook saves and refreshes everything.
-    private async void LoadOrderFolders_CollectionChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs args)
+    private void LoadOrderFolders_CollectionChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs args)
+    {
+        var isReorder = args.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Move;
+        UiTask.Run(() => ApplyLoadOrderChangeAsync(isReorder), nameof(LoadOrderFolders_CollectionChanged), ShowLoadOrderError);
+    }
+
+    private async Task ApplyLoadOrderChangeAsync(bool isReorder)
     {
         if (SelectedProfile is not { } profile)
             return;
@@ -50,7 +56,7 @@ public sealed partial class ProfilesPage
         // running the full cascade here would needlessly reassign/redraw sibling sections (and reset
         // their own scroll/selection/expansion) on every drag. Order still affects the merged-content
         // preview (shadowing), so that alone is refreshed.
-        if (args.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Move)
+        if (isReorder)
             RefreshMergedContentIfVisible();
         else
             RefreshWorkspace();
@@ -59,7 +65,7 @@ public sealed partial class ProfilesPage
         await RefreshDependencyIssuesAsync(profile);
     }
 
-    private async void FolderEnabled_Toggled(object sender, RoutedEventArgs args)
+    private void FolderEnabled_Toggled(object sender, RoutedEventArgs args)
     {
         // Same same-event ordering hazard as ToolEnabled_Toggled: read the switch's own state directly
         // rather than trusting the x:Bind TwoWay push has already landed on the model.
@@ -71,7 +77,7 @@ public sealed partial class ProfilesPage
 
         RefreshWorkspace();
         Save("Save load order");
-        await RefreshDependencyIssuesAsync(profile);
+        UiTask.Run(() => RefreshDependencyIssuesAsync(profile), nameof(FolderEnabled_Toggled), ShowLoadOrderError);
     }
 
     // Advisory only - a failure here (e.g. the mods database is briefly locked) must never block editing the load order.
@@ -93,15 +99,23 @@ public sealed partial class ProfilesPage
             FixOrderButton.IsEnabled = issues.Any(issue => issue.Kind == DependencyIssueKind.OrderViolation);
             DependencyIssuesPanel.Visibility = Visibility.Visible;
         }
-        catch (Exception)
+        catch (Exception exception)
         {
+            AppDiagnostics.Write("Refreshing dependency issues failed.", exception);
+            DependencyIssuesPanel.Visibility = Visibility.Collapsed;
         }
     }
+
+    private void ShowLoadOrderError(Exception exception) =>
+        ShowInfo($"The load order could not be updated. {exception.Message}", InfoBarSeverity.Error);
 
     // Best-effort: repeatedly moves one violating mod next to the requirement it violates, bounded so
     // a pair of constraints that can never both be satisfied (already reported separately as a cycle)
     // cannot loop forever.
-    private async void FixOrder_Click(object sender, RoutedEventArgs args)
+    private void FixOrder_Click(object sender, RoutedEventArgs args) =>
+        UiTask.Run(FixOrderAsync, nameof(FixOrder_Click), ShowLoadOrderError);
+
+    private async Task FixOrderAsync()
     {
         if (SelectedProfile is not { } profile || !_runAccess.CanModify(profile))
             return;
@@ -360,10 +374,17 @@ public sealed partial class ProfilesPage
 
     // Lets the user assign, change or clear a mod branch's game-launcher designation after install,
     // from the branch row's "more" menu, without requiring a reinstall.
-    private async void DesignateGameLauncher_Click(object sender, RoutedEventArgs args)
+    private void DesignateGameLauncher_Click(object sender, RoutedEventArgs args)
     {
-        if (SelectedProfile is not { } profile || !_runAccess.CanModify(profile) ||
-            (sender as FrameworkElement)?.DataContext is not ProfileFolder { Kind: ProfileFolderKind.Mod } folder)
+        if ((sender as FrameworkElement)?.DataContext is not ProfileFolder { Kind: ProfileFolderKind.Mod } folder)
+            return;
+
+        UiTask.Run(() => DesignateGameLauncherAsync(folder), nameof(DesignateGameLauncher_Click), ShowLoadOrderError);
+    }
+
+    private async Task DesignateGameLauncherAsync(ProfileFolder folder)
+    {
+        if (SelectedProfile is not { } profile || !_runAccess.CanModify(profile))
             return;
 
         var launcherExecutable = await PickGameLauncherExecutableAsync(folder.Path, folder.LauncherExecutableRelativePath);

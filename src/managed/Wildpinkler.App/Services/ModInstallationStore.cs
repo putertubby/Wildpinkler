@@ -10,7 +10,7 @@ using Wildpinkler.App.Models;
 namespace Wildpinkler.App.Services;
 
 /// <summary>Persists <see cref="ModInstallation"/> records; mirrors <see cref="ModStore"/>'s atomic-save/backup pattern.</summary>
-public sealed class ModInstallationStore
+public sealed class ModInstallationStore : IDisposable
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
     private const int CurrentSchemaVersion = 2;
@@ -64,10 +64,7 @@ public sealed class ModInstallationStore
                 await stream.FlushAsync();
             }
 
-            if (File.Exists(_databasePath))
-                File.Replace(_temporaryPath, _databasePath, _backupPath, true);
-            else
-                File.Move(_temporaryPath, _databasePath, true);
+            AtomicFile.Publish(_temporaryPath, _databasePath, _backupPath);
         }
         finally
         {
@@ -93,4 +90,6 @@ public sealed class ModInstallationStore
     }
 
     private sealed record DatabaseDocument(int SchemaVersion, List<ModInstallation> Installations);
+
+    public void Dispose() => _databaseLock.Dispose();
 }

@@ -83,7 +83,7 @@ public sealed class ConfigurationOriginResolver
         if (game.Definition is not null)
             foreach (var view in LaunchTargetResolver.ResolveEntityViews(
                 game.Definition.MergedViews, game.Definition.Variables, game.InstallPath,
-                ProfileFolderProvisioner.GetCustomFolder(profile, game.Id)))
+                ProfileFolderService.GetCustomFolder(profile, game.Id)))
                 Add(view.MountPath, new ConfigOrigin(ConfigOriginKind.GameDefinition, "Game definition"));
 
         ToolEntry? currentTool = null;
@@ -100,7 +100,7 @@ public sealed class ConfigurationOriginResolver
                 var baseFolder = currentTool.InstallPath;
                 foreach (var view in LaunchTargetResolver.ResolveEntityViews(
                     definition.MergedViews, toolScopeVars, baseFolder,
-                    ProfileFolderProvisioner.GetCustomFolder(profile, currentTool.Id)))
+                    ProfileFolderService.GetCustomFolder(profile, currentTool.Id)))
                     Add(view.MountPath, new ConfigOrigin(ConfigOriginKind.ToolDefinition, $"Tool: {currentTool.Name}", currentTool.Id));
             }
         }

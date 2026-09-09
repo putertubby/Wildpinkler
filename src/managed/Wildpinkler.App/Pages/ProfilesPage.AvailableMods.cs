@@ -13,7 +13,11 @@ namespace Wildpinkler.App.Pages;
 // before the page starts an installer dialog (only one ContentDialog may be open per window).
 public sealed partial class ProfilesPage
 {
-    private async void AddMods_Click(object sender, RoutedEventArgs args)
+    private void AddMods_Click(object sender, RoutedEventArgs args) =>
+        UiTask.Run(AddModsAsync, nameof(AddMods_Click),
+            exception => ShowInfo($"The mods could not be added. {exception.Message}", InfoBarSeverity.Error));
+
+    private async Task AddModsAsync()
     {
         if (SelectedProfile is not { } profile || !_runAccess.CanModify(profile))
             return;

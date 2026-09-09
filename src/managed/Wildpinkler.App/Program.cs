@@ -22,6 +22,7 @@ public static class Program
     public static void Main(string[] args)
     {
         ComWrappersSupport.InitializeComWrappers();
+        AppDiagnostics.Initialize();
         var activation = AppInstance.GetCurrent().GetActivatedEventArgs();
         var instance = AppInstance.FindOrRegisterForKey("Wildpinkler");
         if (!instance.IsCurrent)
@@ -35,10 +36,16 @@ public static class Program
         {
             var dispatcherQueue = DispatcherQueue.GetForCurrentThread();
             SynchronizationContext.SetSynchronizationContext(new DispatcherQueueSynchronizationContext(dispatcherQueue));
-            new App();
+            App application = new();
+            GC.KeepAlive(application);
         });
     }
 
+    /// <summary>
+    /// Runs only in the redundant instance, which hands its activation to the running one and exits.
+    /// The wait has to pump COM messages, so <c>CoWaitForMultipleObjects</c> is used instead of a plain
+    /// await: the redirect completes through this STA thread's message loop and would otherwise deadlock.
+    /// </summary>
     private static void RedirectActivation(AppActivationArguments activation, AppInstance instance)
     {
         var completed = new ManualResetEvent(false);

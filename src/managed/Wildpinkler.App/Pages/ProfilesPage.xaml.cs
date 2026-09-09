@@ -43,7 +43,7 @@ public sealed partial class ProfilesPage : Page, INotifyPropertyChanged
     private readonly ToolStore _toolStore = AppServices.ToolStore;
     private readonly ToolDefinitionStore _toolDefinitionStore = AppServices.ToolDefinitionStore;
     private readonly ModStore _modStore = AppServices.ModStore;
-    private readonly ProfileFolderProvisioner _provisioner = AppServices.ProfileFolderProvisioner;
+    private readonly ProfileFolderService _provisioner = AppServices.ProfileFolderService;
     private readonly ProfileDeletionService _deletionService = AppServices.ProfileDeletionService;
     private readonly LaunchTargetResolver _launchTargetResolver = AppServices.LaunchTargetResolver;
     private readonly LaunchService _launchService = AppServices.LaunchService;
@@ -103,7 +103,6 @@ public sealed partial class ProfilesPage : Page, INotifyPropertyChanged
     private const double SlimListMinWidth = 240;
     private const double SlimListMaxWidth = 480;
     private const double WorkspaceMinWidth = 480;
-    private const double NarrowLayoutThreshold = 681;
     private double _listWidth = AppServices.AppSettings.ProfilesListWidth ?? SlimListWidth;
 
     private bool _isUpdatingLayoutState;
@@ -196,7 +195,7 @@ public sealed partial class ProfilesPage : Page, INotifyPropertyChanged
         try
         {
             _listDetailsWidth = width;
-            var isNarrow = width < NarrowLayoutThreshold;
+            var isNarrow = width < Layout.SideBySideThreshold;
             var hasSelection = ProfileList.SelectedItems.Count == 1;
 
             if (isNarrow && hasSelection)
@@ -275,9 +274,9 @@ public sealed partial class ProfilesPage : Page, INotifyPropertyChanged
         return gameCatalog.Warnings.Concat(toolCatalog.Warnings).ToList();
     }
 
-    protected override void OnNavigatedTo(Microsoft.UI.Xaml.Navigation.NavigationEventArgs args)
+    protected override void OnNavigatedTo(Microsoft.UI.Xaml.Navigation.NavigationEventArgs e)
     {
-        base.OnNavigatedTo(args);
+        base.OnNavigatedTo(e);
         if (IsLoading)
             return;
 
@@ -522,7 +521,7 @@ public sealed partial class ProfilesPage : Page, INotifyPropertyChanged
 
         try
         {
-            ProfileFolderProvisioner.EnsureCustomFolders(profile, resolvedTargets);
+            ProfileFolderService.EnsureCustomFolders(profile, resolvedTargets);
         }
         catch (Exception exception)
         {

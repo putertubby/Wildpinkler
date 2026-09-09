@@ -57,7 +57,7 @@ public abstract class DefinitionStore<TDefinition> where TDefinition : class, ID
 
     protected abstract string UserDirectoryName { get; }
 
-    protected abstract bool Validate(TDefinition definition, out string error);
+    protected abstract bool Validate(TDefinition definition, out string errorMessage);
 
     public string FileExtension => ShortExtension + PickerFileExtension;
 

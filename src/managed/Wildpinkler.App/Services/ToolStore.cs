@@ -9,7 +9,7 @@ using Wildpinkler.App.Models;
 
 namespace Wildpinkler.App.Services;
 
-public sealed class ToolStore
+public sealed class ToolStore : IDisposable
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
     private const int CurrentSchemaVersion = 1;
@@ -62,10 +62,7 @@ public sealed class ToolStore
                 await stream.FlushAsync();
             }
 
-            if (File.Exists(_databasePath))
-                File.Replace(_temporaryPath, _databasePath, _backupPath, true);
-            else
-                File.Move(_temporaryPath, _databasePath, true);
+            AtomicFile.Publish(_temporaryPath, _databasePath, _backupPath);
         }
         finally
         {
@@ -85,4 +82,6 @@ public sealed class ToolStore
     }
 
     private sealed record DatabaseDocument(int SchemaVersion, List<ToolEntry> Tools);
+
+    public void Dispose() => _databaseLock.Dispose();
 }

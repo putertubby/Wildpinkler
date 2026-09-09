@@ -34,6 +34,7 @@ public sealed class AppSettings
     public bool ConfirmRemoteDownloads { get; set; } = true;
     public double? ProfilesListWidth { get; set; }
     public string? ActivePageTag { get; set; }
+    public Microsoft.Extensions.Logging.LogLevel LogLevel { get; set; } = Microsoft.Extensions.Logging.LogLevel.Information;
 }
 
 // Deliberately synchronous, unlike the other stores: both call sites are window lifecycle points

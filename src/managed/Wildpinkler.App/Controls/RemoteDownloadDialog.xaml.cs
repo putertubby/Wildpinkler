@@ -3,6 +3,8 @@ using Microsoft.UI.Xaml.Controls;
 using Wildpinkler.App.Services;
 using Wildpinkler.Remote;
 
+using Wildpinkler.App.Formatting;
+
 namespace Wildpinkler.App.Controls;
 
 /// <summary>
@@ -32,7 +34,7 @@ public sealed partial class RemoteDownloadDialog : ContentDialog
         CategoryText.Text = preview.File.Category == RemoteFileCategory.Unknown
             ? "Not stated"
             : preview.File.Category.ToString();
-        UploadedText.Text = preview.File.UploadedAt?.ToLocalTime().ToString("g") ?? "Not stated";
+        UploadedText.Text = DisplayFormat.ShortDateTime(preview.File.UploadedAt, "Not stated");
         SiteText.Text = $"{preview.SiteName} \u00b7 {preview.Account.Name} ({(preview.Account.IsPremium ? "Premium" : "Free")})";
 
         ApplyGameMapping(preview, mapping);

@@ -20,7 +20,7 @@ public sealed class ProfileConfigExporterTests
         try
         {
             var path = await new ProfileConfigExporter().ExportAsync(profile, target);
-            using var document = JsonDocument.Parse(await File.ReadAllTextAsync(path));
+            using var document = JsonDocument.Parse(await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken));
 
             var topLevelNames = new List<string>();
             foreach (var property in document.RootElement.EnumerateObject())
@@ -42,7 +42,7 @@ public sealed class ProfileConfigExporterTests
         try
         {
             var path = await new ProfileConfigExporter().ExportAsync(profile, target);
-            using var document = JsonDocument.Parse(await File.ReadAllTextAsync(path));
+            using var document = JsonDocument.Parse(await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken));
             var variables = document.RootElement.GetProperty("variables");
 
             Assert.Equal("${InstallPath}", variables.GetProperty("workingDirectory").GetString());
@@ -68,7 +68,7 @@ public sealed class ProfileConfigExporterTests
         try
         {
             var path = await new ProfileConfigExporter().ExportAsync(profile, target);
-            using var document = JsonDocument.Parse(await File.ReadAllTextAsync(path));
+            using var document = JsonDocument.Parse(await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken));
             var mountpoint = document.RootElement.GetProperty("mountpoints")[0];
 
             Assert.Equal("GameInstall", mountpoint.GetProperty("name").GetString());

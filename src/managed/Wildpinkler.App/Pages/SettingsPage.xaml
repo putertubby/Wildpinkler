@@ -123,6 +123,33 @@
                     </StackPanel>
                 </Border>
 
+                <Border Style="{StaticResource ContentCardStyle}" Padding="16">
+                    <StackPanel Spacing="12">
+                        <TextBlock Style="{StaticResource SectionLabelStyle}" Text="DIAGNOSTICS" />
+
+                        <ComboBox x:Name="LogLevelBox" Header="Log detail" Width="220"
+                                  AutomationProperties.Name="Log detail"
+                                  SelectionChanged="LogLevel_SelectionChanged">
+                            <ComboBoxItem Content="Errors only" />
+                            <ComboBoxItem Content="Warnings" />
+                            <ComboBoxItem Content="Normal" />
+                            <ComboBoxItem Content="Verbose" />
+                        </ComboBox>
+
+                        <TextBlock x:Name="LogFolderText" Opacity="0.72" TextWrapping="Wrap"
+                                   IsTextSelectionEnabled="True" />
+
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button Content="Open log folder" Click="OpenLogFolder_Click"
+                                    AutomationProperties.Name="Open log folder" />
+                            <Button Content="Copy diagnostics" Click="CopyDiagnostics_Click"
+                                    AutomationProperties.Name="Copy diagnostics to the clipboard" />
+                        </StackPanel>
+
+                        <InfoBar x:Name="DiagnosticsInfoBar" IsOpen="False" IsClosable="True" />
+                    </StackPanel>
+                </Border>
+
             </StackPanel>
         </ScrollViewer>
     </Grid>

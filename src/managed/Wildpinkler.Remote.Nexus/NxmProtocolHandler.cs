@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Text.RegularExpressions;
 
 namespace Wildpinkler.Remote.Nexus;
 
@@ -10,8 +11,15 @@ namespace Wildpinkler.Remote.Nexus;
 /// <c>nxm://game/mods/1/files/2?key=..&amp;expires=..&amp;user_id=..</c>,
 /// <c>nxm://game/mods/1</c>, and <c>nxm://game/collections/slug/revisions/3</c>.
 /// </summary>
-public sealed class NxmProtocolHandler : IRemoteProtocolHandler
+public sealed partial class NxmProtocolHandler : IRemoteProtocolHandler
 {
+    // The link arrives from a browser, so both values are untrusted and end up in an API path.
+    [GeneratedRegex("^[a-z0-9][a-z0-9-]{0,63}$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex GameKeyPattern();
+
+    [GeneratedRegex("^[a-z0-9][a-z0-9._-]{0,127}$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex SlugPattern();
+
     public string SiteId => NexusSiteProvider.Id;
 
     public string Scheme => "nxm";
@@ -26,8 +34,8 @@ public sealed class NxmProtocolHandler : IRemoteProtocolHandler
             return RemoteLink.ForUnsupported(SiteId, "This link is not a Nexus Mods download link.");
 
         var gameKey = uri.Host;
-        if (string.IsNullOrWhiteSpace(gameKey))
-            return RemoteLink.ForUnsupported(SiteId, "The link does not name a game.");
+        if (!GameKeyPattern().IsMatch(gameKey))
+            return RemoteLink.ForUnsupported(SiteId, "The link does not name a game Wildpinkler recognises.");
 
         var segments = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
         var query = ParseQuery(uri.Query);
@@ -37,6 +45,9 @@ public sealed class NxmProtocolHandler : IRemoteProtocolHandler
 
         if (segments.Length >= 2 && segments[0].Equals("collections", StringComparison.OrdinalIgnoreCase))
         {
+            if (!SlugPattern().IsMatch(segments[1]))
+                return RemoteLink.ForUnsupported(SiteId, "The link contains an invalid collection name.");
+
             var revision = segments.Length >= 4 && segments[2].Equals("revisions", StringComparison.OrdinalIgnoreCase) && TryPositiveInt(segments[3], out var parsed)
                 ? parsed
                 : (int?)null;
@@ -47,16 +58,16 @@ public sealed class NxmProtocolHandler : IRemoteProtocolHandler
         return RemoteLink.ForUnsupported(SiteId, "This Nexus Mods link points at something Wildpinkler cannot download.");
     }
 
-    private RemoteLink ParseMod(string gameKey, IReadOnlyList<string> segments, IReadOnlyDictionary<string, string> query)
+    private RemoteLink ParseMod(string gameKey, string[] segments, Dictionary<string, string> query)
     {
         if (!TryPositiveInt(segments[1], out var modId))
             return RemoteLink.ForUnsupported(SiteId, "The link contains an invalid mod id.");
 
         var modKey = modId.ToString(CultureInfo.InvariantCulture);
-        if (segments.Count == 2)
+        if (segments.Length == 2)
             return RemoteLink.ForMod(SiteId, gameKey, modKey);
 
-        if (segments.Count < 4 || !segments[2].Equals("files", StringComparison.OrdinalIgnoreCase))
+        if (segments.Length < 4 || !segments[2].Equals("files", StringComparison.OrdinalIgnoreCase))
             return RemoteLink.ForUnsupported(SiteId, "This Nexus Mods link points at something Wildpinkler cannot download.");
 
         if (!TryPositiveInt(segments[3], out var fileId))
@@ -83,7 +94,7 @@ public sealed class NxmProtocolHandler : IRemoteProtocolHandler
     private static bool TryPositiveInt(string raw, out int value) =>
         int.TryParse(raw, NumberStyles.None, CultureInfo.InvariantCulture, out value) && value > 0;
 
-    private static string? Value(IReadOnlyDictionary<string, string> query, string key) =>
+    private static string? Value(Dictionary<string, string> query, string key) =>
         query.TryGetValue(key, out var value) && !string.IsNullOrWhiteSpace(value) ? value : null;
 
     private static Dictionary<string, string> ParseQuery(string query) => query

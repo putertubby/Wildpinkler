@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Threading.Tasks;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Wildpinkler.App.Controls;
@@ -63,7 +64,7 @@ public sealed partial class ProfilesPage
         foreach (var row in _toolRows)
         {
             if (row.ProducesOutput)
-                row.SetOutputFolder(ProfileFolderProvisioner.GetToolOutputFolder(profile, row.Tool.Id, row.OutputVersion));
+                row.SetOutputFolder(ProfileFolderService.GetToolOutputFolder(profile, row.Tool.Id, row.OutputVersion));
         }
     }
 
@@ -111,10 +112,18 @@ public sealed partial class ProfilesPage
 
     private void ToolOverride_LostFocus(object sender, RoutedEventArgs args) => CommitToolBindings();
 
-    private async void ClearToolOutput_Click(object sender, RoutedEventArgs args)
+    private void ClearToolOutput_Click(object sender, RoutedEventArgs args)
     {
-        if (SelectedProfile is not { } profile || !_runAccess.CanModify(profile) ||
-            (sender as FrameworkElement)?.DataContext is not ProfileToolRow row)
+        if ((sender as FrameworkElement)?.DataContext is not ProfileToolRow row)
+            return;
+
+        UiTask.Run(() => ClearToolOutputAsync(row), nameof(ClearToolOutput_Click),
+            exception => ShowInfo($"The tool output could not be cleared. {exception.Message}", InfoBarSeverity.Error));
+    }
+
+    private async Task ClearToolOutputAsync(ProfileToolRow row)
+    {
+        if (SelectedProfile is not { } profile || !_runAccess.CanModify(profile))
             return;
 
         var dialog = new ContentDialog
@@ -137,7 +146,7 @@ public sealed partial class ProfilesPage
         try
         {
             row.OutputVersion = _provisioner.ClearToolOutput(profile, row.Tool.Id);
-            row.SetOutputFolder(ProfileFolderProvisioner.GetToolOutputFolder(profile, row.Tool.Id, row.OutputVersion));
+            row.SetOutputFolder(ProfileFolderService.GetToolOutputFolder(profile, row.Tool.Id, row.OutputVersion));
             RefreshWorkspace();
             Save("Clear tool output");
             ShowInfo($"Cleared {row.Name}'s output.", InfoBarSeverity.Success);

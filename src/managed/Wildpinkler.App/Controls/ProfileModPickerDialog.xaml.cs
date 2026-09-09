@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Threading.Tasks;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Windows.ApplicationModel.DataTransfer;
@@ -59,7 +60,10 @@ public sealed partial class ProfileModPickerDialog : ContentDialog
         IsPrimaryButtonEnabled = ModList.SelectedItems.Cast<ModEntry>().Any(mod => mod.HasArchive);
     }
 
-    private async void AddArchive_Click(object sender, RoutedEventArgs args)
+    private void AddArchive_Click(object sender, RoutedEventArgs args) =>
+        UiTask.Run(AddArchiveAsync, nameof(AddArchive_Click));
+
+    private async Task AddArchiveAsync()
     {
         var picker = new FileOpenPicker { SuggestedStartLocation = PickerLocationId.ComputerFolder };
         foreach (var extension in ModImportService.SupportedArchiveExtensions)

@@ -10,6 +10,6 @@ public sealed class ToolDefinitionStore : DefinitionStore<ToolDefinition>
 
     protected override string UserDirectoryName => "tool-definitions";
 
-    protected override bool Validate(ToolDefinition definition, out string error) =>
-        ToolDefinitionValidator.TryValidate(definition, out error);
+    protected override bool Validate(ToolDefinition definition, out string errorMessage) =>
+        ToolDefinitionValidator.TryValidate(definition, out errorMessage);
 }
