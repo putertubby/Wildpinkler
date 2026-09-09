@@ -247,13 +247,28 @@
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-            <AutoSuggestBox x:Name="PromptBox"
-                            PlaceholderText="Ask about your profiles and mods; type @ to reference one"
-                            MaxHeight="120"
-                            AutomationProperties.Name="Message to the assistant"
-                            TextChanged="PromptBox_TextChanged"
-                            SuggestionChosen="PromptBox_SuggestionChosen"
-                            PreviewKeyDown="PromptBox_PreviewKeyDown" />
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <ListView x:Name="SuggestionList"
+                          Grid.Row="0"
+                          MaxHeight="180"
+                          IsItemClickEnabled="True"
+                          ItemClick="SuggestionList_ItemClick"
+                          Visibility="Collapsed"
+                          AutomationProperties.Name="Reference suggestions" />
+                <TextBox x:Name="PromptBox"
+                         Grid.Row="1"
+                         PlaceholderText="Ask about your profiles and mods; type @ to reference one"
+                         MaxHeight="120"
+                         TextWrapping="Wrap"
+                         AcceptsReturn="True"
+                         AutomationProperties.Name="Message to the assistant"
+                         TextChanged="PromptBox_TextChanged"
+                         PreviewKeyDown="PromptBox_PreviewKeyDown" />
+            </Grid>
             <Grid Grid.Column="1" VerticalAlignment="Bottom">
                 <Button x:Name="SendButton"
                         Content="Send"

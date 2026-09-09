@@ -54,7 +54,7 @@ public sealed partial class AssistantPane : UserControl, IDisposable, IAgentTool
         _conversation = AppHost.Get<AgentConversationFactory>().Create(_transcript, this);
 
         TranscriptList.ItemsSource = _model.Entries;
-        PromptBox.ItemsSource = _suggestions;
+        SuggestionList.ItemsSource = Array.Empty<ReferenceSuggestion>();
         _model.PropertyChanged += Model_PropertyChanged;
         _transcript.Cleared += Transcript_Cleared;
         _configuration.Changed += Configuration_Changed;
@@ -303,29 +303,49 @@ public sealed partial class AssistantPane : UserControl, IDisposable, IAgentTool
         _model.Reconcile(entries);
     }
 
-    private void PromptBox_TextChanged(object sender, AutoSuggestBoxTextChangedEventArgs args)
+    private void PromptBox_TextChanged(object sender, TextChangedEventArgs args)
     {
         _model.PromptText = PromptBox.Text;
-        if (args.Reason != AutoSuggestionBoxTextChangeReason.UserInput)
+        var caretPosition = PromptBox.SelectionStart;
+        if (!ReferenceSuggestionContext.TryGetQuery(PromptBox.Text, caretPosition, out var query))
+        {
+            HideSuggestions();
             return;
+        }
 
-        var at = PromptBox.Text.LastIndexOf('@');
-        var query = at >= 0 ? PromptBox.Text[(at + 1)..] : string.Empty;
-        PromptBox.ItemsSource = string.IsNullOrEmpty(query)
+        var matches = (string.IsNullOrEmpty(query)
             ? _suggestions
-            : _suggestions.Where(item => item.Name.Contains(query, StringComparison.OrdinalIgnoreCase)).ToList();
+            : _suggestions.Where(item => item.Name.Contains(query, StringComparison.OrdinalIgnoreCase))).ToList();
+        SuggestionList.ItemsSource = matches;
+        SuggestionList.SelectedIndex = matches.Count > 0 ? 0 : -1;
+        SuggestionList.Visibility = matches.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
-    private void PromptBox_SuggestionChosen(AutoSuggestBox sender, AutoSuggestBoxSuggestionChosenEventArgs args)
+    private void SuggestionList_ItemClick(object sender, ItemClickEventArgs args)
     {
-        if (args.SelectedItem is not ReferenceSuggestion suggestion)
+        if (args.ClickedItem is not ReferenceSuggestion suggestion)
             return;
 
-        var at = PromptBox.Text.LastIndexOf('@');
+        CommitSuggestion(suggestion);
+    }
+
+    private void CommitSuggestion(ReferenceSuggestion suggestion)
+    {
+        var caretPosition = PromptBox.SelectionStart;
+        var at = PromptBox.Text.LastIndexOf('@', Math.Max(0, caretPosition - 1));
         var prefix = at >= 0 ? PromptBox.Text[..at] : PromptBox.Text;
         PromptBox.Text = $"{prefix}@{suggestion.Name} ";
         _references.RemoveAll(reference => reference.Id == suggestion.Id);
         _references.Add(new ChatReference(suggestion.Kind, suggestion.Id, suggestion.Name));
+        PromptBox.SelectionStart = PromptBox.Text.Length;
+        HideSuggestions();
+    }
+
+    private void HideSuggestions()
+    {
+        SuggestionList.ItemsSource = Array.Empty<ReferenceSuggestion>();
+        SuggestionList.SelectedIndex = -1;
+        SuggestionList.Visibility = Visibility.Collapsed;
     }
 
     private async Task LoadReferenceSuggestionsAsync()
@@ -344,6 +364,29 @@ public sealed partial class AssistantPane : UserControl, IDisposable, IAgentTool
 
     private void PromptBox_PreviewKeyDown(object sender, KeyRoutedEventArgs args)
     {
+        if (SuggestionList.Visibility == Visibility.Visible && SuggestionList.Items.Count > 0)
+        {
+            if (args.Key == Windows.System.VirtualKey.Down)
+            {
+                SuggestionList.SelectedIndex = SuggestionList.SelectedIndex < SuggestionList.Items.Count - 1
+                    ? SuggestionList.SelectedIndex + 1
+                    : 0;
+                SuggestionList.ScrollIntoView(SuggestionList.SelectedItem);
+                args.Handled = true;
+                return;
+            }
+
+            if (args.Key == Windows.System.VirtualKey.Up)
+            {
+                SuggestionList.SelectedIndex = SuggestionList.SelectedIndex > 0
+                    ? SuggestionList.SelectedIndex - 1
+                    : SuggestionList.Items.Count - 1;
+                SuggestionList.ScrollIntoView(SuggestionList.SelectedItem);
+                args.Handled = true;
+                return;
+            }
+        }
+
         if (args.Key != Windows.System.VirtualKey.Enter)
             return;
 
@@ -354,6 +397,13 @@ public sealed partial class AssistantPane : UserControl, IDisposable, IAgentTool
         if (shift)
             return;
 
+        if (SuggestionList.Visibility == Visibility.Visible
+            && SuggestionList.SelectedItem is ReferenceSuggestion suggestion)
+        {
+            CommitSuggestion(suggestion);
+            args.Handled = true;
+            return;
+        }
         args.Handled = true;
         UiTask.Run(() => SendAsync(), nameof(PromptBox_PreviewKeyDown), ShowUnexpectedFailure);
     }
