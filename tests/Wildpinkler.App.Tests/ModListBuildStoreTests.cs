@@ -18,14 +18,14 @@ public sealed class ModListBuildStoreTests : IDisposable
     {
         var store = new ModListBuildStore(_root);
         var build = CreateBuild(ModListBuildState.Ready, ModListBuildTaskState.Completed);
-        build.StagedProfile.Folders.Add(new ProfileFolder { Id = "mod", Kind = ProfileFolderKind.Mod, ModInstallationId = "install" });
+        build.StagedProfile.LoadOrder.Add(new ProfileFolder { Id = "mod", Kind = ProfileFolderKind.Mod, ModInstallationId = "install" });
         build.Artifacts.Add(new ModListBuildArtifact { EntryId = "entry", InstallationId = "install" });
 
         await store.UpsertAsync(build, TestContext.Current.CancellationToken);
         var loaded = Assert.Single(await store.LoadAsync(TestContext.Current.CancellationToken));
 
         Assert.Equal("profile", loaded.StagedProfile.Id);
-        Assert.Equal("install", Assert.Single(loaded.StagedProfile.Folders).ModInstallationId);
+        Assert.Equal("install", Assert.Single(loaded.StagedProfile.LoadOrder).ModInstallationId);
         Assert.Equal("install", Assert.Single(loaded.Artifacts).InstallationId);
     }
 

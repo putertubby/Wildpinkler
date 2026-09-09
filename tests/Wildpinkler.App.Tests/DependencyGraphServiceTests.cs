@@ -198,11 +198,11 @@ public class DependencyGraphServiceTests
         Target = new ModDependencyTarget(target, null, displayName)
     };
 
-    private static Profile BuildProfile(params ProfileFolder[] folders)
+    private static Profile BuildProfile(params ProfileFolder[] LoadOrder)
     {
         var profile = new Profile();
-        foreach (var folder in folders)
-            profile.Folders.Add(folder);
+        foreach (var folder in LoadOrder)
+            profile.LoadOrder.Add(folder);
         return profile;
     }
 

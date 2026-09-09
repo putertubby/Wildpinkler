@@ -68,7 +68,7 @@ public sealed class LaunchTargetResolver
 
     private LaunchTarget ResolveGame(Profile profile, GameEntry game, IReadOnlyList<ToolEntry> tools)
     {
-        var launcherFolder = profile.Folders.FirstOrDefault(folder =>
+        var launcherFolder = profile.LoadOrder.FirstOrDefault(folder =>
             folder.Kind == ProfileFolderKind.Mod && folder.IsEnabled && folder.IsGameLauncher);
         var executable = launcherFolder is null
             ? string.IsNullOrWhiteSpace(game.ExecutablePath) ? string.Empty : game.ExecutablePath
@@ -300,7 +300,7 @@ public sealed class LaunchTargetResolver
         if (pendingToolOutput is { Length: > 0 })
             branches.Add(pendingToolOutput);
 
-        foreach (var folder in profile.Folders)
+        foreach (var folder in profile.LoadOrder)
         {
             if (!folder.IsEnabled || folder.Path.Length == 0)
                 continue;

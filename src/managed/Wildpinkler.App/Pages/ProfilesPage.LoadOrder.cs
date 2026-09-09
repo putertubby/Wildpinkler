@@ -20,8 +20,8 @@ public sealed partial class ProfilesPage
     {
         DetachLoadOrder();
         _loadOrderSubscribedProfile = profile;
-        profile.Folders.CollectionChanged += LoadOrderFolders_CollectionChanged;
-        FolderList.ItemsSource = profile.Folders;
+        profile.LoadOrder.CollectionChanged += LoadOrderFolders_CollectionChanged;
+        FolderList.ItemsSource = profile.LoadOrder;
         UpdateProfileViewBranchCount(profile);
         LoadOrderErrorText.Visibility = Visibility.Collapsed;
     }
@@ -29,14 +29,14 @@ public sealed partial class ProfilesPage
     private void DetachLoadOrder()
     {
         if (_loadOrderSubscribedProfile is { } previous)
-            previous.Folders.CollectionChanged -= LoadOrderFolders_CollectionChanged;
+            previous.LoadOrder.CollectionChanged -= LoadOrderFolders_CollectionChanged;
         _loadOrderSubscribedProfile = null;
         FolderList.ItemsSource = null;
         ProfileViewBranchCountText = string.Empty;
     }
 
     // Covers drag reorder, Alt+Up/Down and the "more" menu moves, and add/remove - all mutate the
-    // profile's own Folders collection directly, so one hook saves and refreshes everything.
+    // profile's own load-order collection directly, so one hook saves and refreshes everything.
     private void LoadOrderFolders_CollectionChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs args)
     {
         var isReorder = args.Action == System.Collections.Specialized.NotifyCollectionChangedAction.Move;
@@ -123,20 +123,20 @@ public sealed partial class ProfilesPage
         var mods = await AppServices.ModStore.LoadAsync();
         var game = GameFor(profile);
 
-        for (var pass = 0; pass < profile.Folders.Count; pass++)
+        for (var pass = 0; pass < profile.LoadOrder.Count; pass++)
         {
             var violation = AppServices.DependencyGraphService.Evaluate(profile, mods, game)
                 .FirstOrDefault(issue => issue.Kind == DependencyIssueKind.OrderViolation);
             if (violation is null)
                 break;
 
-            var sourceFolder = profile.Folders.FirstOrDefault(folder => folder.ModId == violation.ModId && !folder.IsLocked);
-            var targetFolder = profile.Folders.FirstOrDefault(folder => folder.ModId == violation.RelatedModId);
+            var sourceFolder = profile.LoadOrder.FirstOrDefault(folder => folder.ModId == violation.ModId && !folder.IsLocked);
+            var targetFolder = profile.LoadOrder.FirstOrDefault(folder => folder.ModId == violation.RelatedModId);
             if (sourceFolder is null || targetFolder is null)
                 break;
 
-            var sourceIndex = profile.Folders.IndexOf(sourceFolder);
-            var targetIndex = profile.Folders.IndexOf(targetFolder);
+            var sourceIndex = profile.LoadOrder.IndexOf(sourceFolder);
+            var targetIndex = profile.LoadOrder.IndexOf(targetFolder);
             var dependency = mods.FirstOrDefault(mod => mod.Id == violation.ModId)?.Dependencies
                 .FirstOrDefault(dep => dep.Kind is ModDependencyKind.LoadAfter or ModDependencyKind.LoadBefore && dep.Target?.ModId == violation.RelatedModId);
 
@@ -144,11 +144,11 @@ public sealed partial class ProfilesPage
             var newIndex = dependency?.Kind == ModDependencyKind.LoadBefore
                 ? (targetIndex > sourceIndex ? targetIndex : targetIndex + 1)
                 : (targetIndex < sourceIndex ? targetIndex : targetIndex - 1);
-            newIndex = Math.Clamp(newIndex, 1, profile.Folders.Count - 2); // never displace the pinned overlay/game-install ends
+            newIndex = Math.Clamp(newIndex, 1, profile.LoadOrder.Count - 2); // never displace the pinned overlay/game-install ends
 
             if (newIndex == sourceIndex)
                 break;
-            profile.Folders.Move(sourceIndex, newIndex);
+            profile.LoadOrder.Move(sourceIndex, newIndex);
         }
 
         Save("Save load order");
@@ -197,12 +197,12 @@ public sealed partial class ProfilesPage
         if (SelectedProfile is not { } profile || !_runAccess.CanModify(profile) || dataContext is not ProfileFolder { IsLocked: false } folder)
             return;
 
-        var index = profile.Folders.IndexOf(folder);
+        var index = profile.LoadOrder.IndexOf(folder);
         var target = index + offset;
-        if (index < 0 || target < 0 || target >= profile.Folders.Count || profile.Folders[target].IsLocked)
+        if (index < 0 || target < 0 || target >= profile.LoadOrder.Count || profile.LoadOrder[target].IsLocked)
             return;
 
-        profile.Folders.Move(index, target);
+        profile.LoadOrder.Move(index, target);
     }
 
     private void RemoveFolder_Click(object sender, RoutedEventArgs args)
@@ -213,7 +213,7 @@ public sealed partial class ProfilesPage
         if ((sender as FrameworkElement)?.DataContext is ProfileFolder { IsLocked: false } folder)
         {
             var removedModId = folder.ModId;
-            profile.Folders.Remove(folder);
+            profile.LoadOrder.Remove(folder);
             if (removedModId is not null)
                 _ = UpdateModAssociationsAsync(profile.Id, new() { removedModId }, new());
         }
@@ -241,13 +241,13 @@ public sealed partial class ProfilesPage
             if (!_runAccess.CanModify(profile))
                 return;
 
-            if (profile.Folders.Any(item => string.Equals(item.Path, folder.Path, StringComparison.OrdinalIgnoreCase)))
+            if (profile.LoadOrder.Any(item => string.Equals(item.Path, folder.Path, StringComparison.OrdinalIgnoreCase)))
             {
                 ShowLoadOrderError($"'{folder.Path}' is already in the load order.");
                 return;
             }
 
-            var overlayIndex = profile.Folders.ToList().FindIndex(item => item.Kind == ProfileFolderKind.Overlay);
+            var overlayIndex = profile.LoadOrder.ToList().FindIndex(item => item.Kind == ProfileFolderKind.Overlay);
             var newFolder = new ProfileFolder
             {
                 Id = Guid.NewGuid().ToString("N"),
@@ -255,7 +255,7 @@ public sealed partial class ProfilesPage
                 Path = folder.Path,
                 Kind = ProfileFolderKind.Unmanaged
             };
-            profile.Folders.Insert(overlayIndex + 1, newFolder);
+            profile.LoadOrder.Insert(overlayIndex + 1, newFolder);
             Save("Save load order");
         }
         catch (Exception exception)
@@ -277,7 +277,7 @@ public sealed partial class ProfilesPage
 
             if (fomodModule is not null)
             {
-                var fileState = new ProfileFileStateProvider(profile.Folders);
+                var fileState = new ProfileFileStateProvider(profile.LoadOrder);
                 var wizard = new FomodInstallWizardDialog(fomodModule, fileState) { XamlRoot = XamlRoot };
                 if (await wizard.ShowAsync() != ContentDialogResult.Primary)
                     return;
@@ -299,7 +299,7 @@ public sealed partial class ProfilesPage
                     await RememberManualInstallPathAsync(mod.Id, destinationDialog.DestinationRelativePath);
             }
 
-            if (profile.Folders.Any(item => item.ModId == mod.Id))
+            if (profile.LoadOrder.Any(item => item.ModId == mod.Id))
             {
                 ShowLoadOrderError($"'{mod.Name}' is already in this profile's load order.");
                 return;
@@ -317,7 +317,7 @@ public sealed partial class ProfilesPage
                 await AppServices.ModStore.UpsertAsync(mod);
             }
 
-            var overlayIndex = profile.Folders.ToList().FindIndex(item => item.Kind == ProfileFolderKind.Overlay);
+            var overlayIndex = profile.LoadOrder.ToList().FindIndex(item => item.Kind == ProfileFolderKind.Overlay);
             var newFolder = new ProfileFolder
             {
                 Id = Guid.NewGuid().ToString("N"),
@@ -331,7 +331,7 @@ public sealed partial class ProfilesPage
             };
             if (launcherExecutable is not null)
                 ClearOtherLauncherDesignations(profile, newFolder.Id);
-            profile.Folders.Insert(overlayIndex + 1, newFolder);
+            profile.LoadOrder.Insert(overlayIndex + 1, newFolder);
 
             await UpdateModAssociationsAsync(profile.Id, new(), new() { mod.Id });
         }
@@ -398,7 +398,7 @@ public sealed partial class ProfilesPage
 
     private static void ClearOtherLauncherDesignations(Profile profile, string exceptFolderId)
     {
-        foreach (var otherFolder in profile.Folders.Where(folder =>
+        foreach (var otherFolder in profile.LoadOrder.Where(folder =>
                      folder.Kind == ProfileFolderKind.Mod &&
                      folder.Id != exceptFolderId &&
                      folder.IsGameLauncher))
@@ -440,5 +440,5 @@ public sealed partial class ProfilesPage
     }
 
     private void UpdateProfileViewBranchCount(Profile profile) =>
-        ProfileViewBranchCountText = profile.Folders.Count == 1 ? "1 branch" : $"{profile.Folders.Count} branches";
+        ProfileViewBranchCountText = profile.LoadOrder.Count == 1 ? "1 branch" : $"{profile.LoadOrder.Count} branches";
 }

@@ -45,8 +45,8 @@ public sealed class ProfileFolderService
         Directory.CreateDirectory(GetCustomRoot(profile));
         Directory.CreateDirectory(GetToolOutputRoot(profile));
 
-        profile.Folders.Clear();
-        profile.Folders.Add(new ProfileFolder
+        profile.LoadOrder.Clear();
+        profile.LoadOrder.Add(new ProfileFolder
         {
             Id = Guid.NewGuid().ToString("N"),
             Name = "Profile overlay",
@@ -54,7 +54,7 @@ public sealed class ProfileFolderService
             Kind = ProfileFolderKind.Overlay,
             IsLocked = true
         });
-        profile.Folders.Add(new ProfileFolder
+        profile.LoadOrder.Add(new ProfileFolder
         {
             Id = Guid.NewGuid().ToString("N"),
             Name = game.Name,
@@ -67,7 +67,7 @@ public sealed class ProfileFolderService
     /// <summary>Creates the tool's output directory and inserts it directly below the pinned overlay folder.</summary>
     public ProfileFolder EnableTool(Profile profile, ProfileTool binding, ToolEntry tool)
     {
-        var existing = profile.Folders.FirstOrDefault(folder => folder.ToolEntryId == tool.Id);
+        var existing = profile.LoadOrder.FirstOrDefault(folder => folder.ToolEntryId == tool.Id);
         if (existing is not null)
         {
             Directory.CreateDirectory(existing.Path);
@@ -89,7 +89,7 @@ public sealed class ProfileFolderService
 
         // Tool output overrides mods, so it starts directly below the pinned overlay folder.
         var overlayIndex = IndexOfKind(profile, ProfileFolderKind.Overlay);
-        profile.Folders.Insert(overlayIndex + 1, folder);
+        profile.LoadOrder.Insert(overlayIndex + 1, folder);
         binding.OutputFolderId = folder.Id;
         return folder;
     }
@@ -97,9 +97,9 @@ public sealed class ProfileFolderService
     /// <summary>Drops the tool's output folder from the load order; the directory itself is kept.</summary>
     public void DisableTool(Profile profile, ProfileTool binding)
     {
-        var folder = profile.Folders.FirstOrDefault(item => item.Id == binding.OutputFolderId);
+        var folder = profile.LoadOrder.FirstOrDefault(item => item.Id == binding.OutputFolderId);
         if (folder is not null)
-            profile.Folders.Remove(folder);
+            profile.LoadOrder.Remove(folder);
         binding.OutputFolderId = string.Empty;
     }
 
@@ -125,7 +125,7 @@ public sealed class ProfileFolderService
             throw new InvalidOperationException("The pending tool output version is no longer current.");
 
         binding.OutputVersion = pendingRun.Version;
-        var folder = profile.Folders.FirstOrDefault(item => item.Id == binding.OutputFolderId);
+        var folder = profile.LoadOrder.FirstOrDefault(item => item.Id == binding.OutputFolderId);
         if (folder is not null)
             folder.Path = GetToolOutputFolder(profile, toolId, binding.OutputVersion);
     }
@@ -160,7 +160,7 @@ public sealed class ProfileFolderService
         var current = GetToolOutputFolder(profile, toolId, 1);
         Directory.CreateDirectory(current);
 
-        var folder = profile.Folders.FirstOrDefault(item => item.ToolEntryId == toolId);
+        var folder = profile.LoadOrder.FirstOrDefault(item => item.ToolEntryId == toolId);
         if (folder is not null)
             folder.Path = current;
 
@@ -198,9 +198,9 @@ public sealed class ProfileFolderService
 
     private static int IndexOfKind(Profile profile, ProfileFolderKind kind)
     {
-        for (var index = 0; index < profile.Folders.Count; index++)
+        for (var index = 0; index < profile.LoadOrder.Count; index++)
         {
-            if (profile.Folders[index].Kind == kind)
+            if (profile.LoadOrder[index].Kind == kind)
                 return index;
         }
 

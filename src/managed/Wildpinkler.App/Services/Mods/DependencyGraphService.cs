@@ -38,7 +38,7 @@ public sealed class DependencyGraphService
     public IReadOnlyList<DependencyIssue> Evaluate(Profile profile, IReadOnlyList<ModEntry> mods, GameEntry? game)
     {
         var modsById = mods.ToDictionary(mod => mod.Id);
-        var enabledFolders = profile.Folders
+        var enabledFolders = profile.LoadOrder
             .Select((folder, index) => (folder, index))
             .Where(item => item.folder.Kind == ProfileFolderKind.Mod && item.folder.IsEnabled && !string.IsNullOrEmpty(item.folder.ModId))
             .ToList();
@@ -217,7 +217,7 @@ public sealed class DependencyGraphService
     /// <summary>The active launcher mod's declared version if one is enabled, else the base game's own executable version.</summary>
     private static string? ResolveEffectiveGameVersion(Profile profile, IReadOnlyList<ModEntry> mods, GameEntry? game)
     {
-        var launcherFolder = profile.Folders.FirstOrDefault(folder => folder.Kind == ProfileFolderKind.Mod && folder.IsEnabled && folder.IsGameLauncher);
+        var launcherFolder = profile.LoadOrder.FirstOrDefault(folder => folder.Kind == ProfileFolderKind.Mod && folder.IsEnabled && folder.IsGameLauncher);
         var launcherMod = launcherFolder is null ? null : mods.FirstOrDefault(mod => mod.Id == launcherFolder.ModId);
         if (!string.IsNullOrWhiteSpace(launcherMod?.ProvidedGameVersion))
             return launcherMod.ProvidedGameVersion;

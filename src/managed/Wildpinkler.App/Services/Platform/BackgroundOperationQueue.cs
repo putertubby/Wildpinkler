@@ -2,6 +2,8 @@ using System;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Wildpinkler.App.Services;
 
@@ -9,10 +11,15 @@ public sealed class BackgroundOperationQueue : IAsyncDisposable
 {
     private readonly Channel<Func<Task>> _operations = Channel.CreateUnbounded<Func<Task>>();
     private readonly CancellationTokenSource _shutdown = new();
+    private readonly ILogger<BackgroundOperationQueue> _logger;
     private readonly Task _worker;
     private int _pending;
 
-    public BackgroundOperationQueue() => _worker = ProcessAsync();
+    public BackgroundOperationQueue(ILogger<BackgroundOperationQueue>? logger = null)
+    {
+        _logger = logger ?? NullLogger<BackgroundOperationQueue>.Instance;
+        _worker = ProcessAsync();
+    }
 
     public int PendingCount => Volatile.Read(ref _pending);
     public event EventHandler? Changed;
@@ -33,6 +40,16 @@ public sealed class BackgroundOperationQueue : IAsyncDisposable
                 try
                 {
                     await operation();
+                }
+                catch (OperationCanceledException) when (_shutdown.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch (Exception exception)
+                {
+                    // One failed operation must not take the worker down with it: the queue is shared
+                    // by every background job for the lifetime of the app.
+                    _logger.LogError(exception, "A queued background operation failed.");
                 }
                 finally
                 {

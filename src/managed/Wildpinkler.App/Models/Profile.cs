@@ -15,7 +15,7 @@ public sealed partial class Profile : ObservableObject
     private bool _isRunActive;
     private string _activeRunText = string.Empty;
 
-    public Profile() => Folders.CollectionChanged += (_, _) => Normalize();
+    public Profile() => LoadOrder.CollectionChanged += (_, _) => Normalize();
 
     public string Id { get; set; } = string.Empty;
     public string Name { get => _name; set => SetProperty(ref _name, value); }
@@ -35,7 +35,7 @@ public sealed partial class Profile : ObservableObject
     // A get-only property makes System.Text.Json populate this same instance in place instead - but
     // only with Populate handling; without it, a get-only property is skipped entirely on deserialize.
     [JsonObjectCreationHandling(JsonObjectCreationHandling.Populate)]
-    public ObservableCollection<ProfileFolder> Folders { get; } = new();
+    public ObservableCollection<ProfileFolder> LoadOrder { get; } = new();
 
     public ObservableCollection<ProfileTool> Tools { get; init; } = new();
 
@@ -80,7 +80,7 @@ public sealed partial class Profile : ObservableObject
         get
         {
             var tools = EnabledToolCount == 1 ? "1 tool" : $"{EnabledToolCount} tools";
-            var folders = Folders.Count == 1 ? "1 folder" : $"{Folders.Count} folders";
+            var folders = LoadOrder.Count == 1 ? "1 folder" : $"{LoadOrder.Count} folders";
             return string.IsNullOrWhiteSpace(GameName) ? $"{tools} \u00b7 {folders}" : $"{GameName} \u00b7 {tools} \u00b7 {folders}";
         }
     }
@@ -95,8 +95,8 @@ public sealed partial class Profile : ObservableObject
     // ListView's own drag-reorder bookkeeping and crashes it, so pinning is enforced separately.
     private void Normalize()
     {
-        for (var index = 0; index < Folders.Count; index++)
-            Folders[index].Order = index + 1;
+        for (var index = 0; index < LoadOrder.Count; index++)
+            LoadOrder[index].Order = index + 1;
 
         NotifySummaryChanged();
     }
@@ -109,18 +109,18 @@ public sealed partial class Profile : ObservableObject
     public void EnforcePinnedOrder()
     {
         MovePinned(ProfileFolderKind.Overlay, 0);
-        MovePinned(ProfileFolderKind.GameInstall, Folders.Count - 1);
+        MovePinned(ProfileFolderKind.GameInstall, LoadOrder.Count - 1);
         Normalize();
     }
 
     private void MovePinned(ProfileFolderKind kind, int targetIndex)
     {
-        var pinned = Folders.FirstOrDefault(folder => folder.Kind == kind);
+        var pinned = LoadOrder.FirstOrDefault(folder => folder.Kind == kind);
         if (pinned is null)
             return;
 
-        var index = Folders.IndexOf(pinned);
+        var index = LoadOrder.IndexOf(pinned);
         if (index >= 0 && index != targetIndex)
-            Folders.Move(index, targetIndex);
+            LoadOrder.Move(index, targetIndex);
     }
 }

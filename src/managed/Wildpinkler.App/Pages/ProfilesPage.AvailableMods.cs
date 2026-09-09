@@ -23,7 +23,7 @@ public sealed partial class ProfilesPage
             return;
 
         var gameMods = _allMods.Where(mod => mod.Game.Equals(profile.GameName, StringComparison.OrdinalIgnoreCase)).ToList();
-        var installedModIds = profile.Folders.Where(folder => folder.ModId is not null).Select(folder => folder.ModId!);
+        var installedModIds = profile.LoadOrder.Where(folder => folder.ModId is not null).Select(folder => folder.ModId!);
         var dialog = new ProfileModPickerDialog(gameMods, installedModIds) { XamlRoot = XamlRoot };
         var result = await dialog.ShowAsync();
 

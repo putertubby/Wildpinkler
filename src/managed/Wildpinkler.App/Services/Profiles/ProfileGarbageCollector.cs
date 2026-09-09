@@ -90,7 +90,7 @@ public sealed class ProfileGarbageCollector
         if (_builds is not null)
             referencedIds.UnionWith(await _builds.GetReferencedInstallationIdsAsync());
         var referencedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var folder in profiles.SelectMany(profile => profile.Folders))
+        foreach (var folder in profiles.SelectMany(profile => profile.LoadOrder))
         {
             if (folder.ModInstallationId is { Length: > 0 } id)
                 referencedIds.Add(id);

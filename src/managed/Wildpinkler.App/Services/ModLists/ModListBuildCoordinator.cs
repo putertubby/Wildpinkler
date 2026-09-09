@@ -355,7 +355,7 @@ public sealed class ModListBuildCoordinator
         var requirement = GetMod(manifest, task.EntryId!);
         var artifact = build.Artifacts.Single(item => item.EntryId == requirement.EntryId);
         var mod = (await _mods.LoadAsync()).Single(item => item.Id == artifact.ModId);
-        var installation = await _installer.FindOrCreateFromRecipeAsync(mod, requirement.Installation, build.StagedProfile.Folders.ToList());
+        var installation = await _installer.FindOrCreateFromRecipeAsync(mod, requirement.Installation, build.StagedProfile.LoadOrder.ToList());
         artifact.InstallationId = installation.Id;
         artifact.FolderPath = installation.FolderPath;
         Complete(task, "Installation is ready.");
@@ -393,7 +393,7 @@ public sealed class ModListBuildCoordinator
         await _profiles.SaveAsync(profiles);
 
         var mods = (await _mods.LoadAsync()).ToList();
-        var usedIds = build.StagedProfile.Folders.Select(folder => folder.ModId).Where(id => id is not null).ToHashSet();
+        var usedIds = build.StagedProfile.LoadOrder.Select(folder => folder.ModId).Where(id => id is not null).ToHashSet();
         foreach (var mod in mods.Where(mod => usedIds.Contains(mod.Id) && !mod.ProfileIds.Contains(build.StagedProfile.Id)))
             mod.ProfileIds = mod.ProfileIds.Append(build.StagedProfile.Id).ToList();
         await _mods.SaveAsync(mods);
@@ -406,7 +406,7 @@ public sealed class ModListBuildCoordinator
         var profile = build.StagedProfile;
         foreach (var content in manifest.Content.OrderBy(entry => entry.Order))
         {
-            if (profile.Folders.Any(folder => folder.Id == $"build:{content.EntryId}"))
+            if (profile.LoadOrder.Any(folder => folder.Id == $"build:{content.EntryId}"))
                 continue;
             var artifact = build.Artifacts.FirstOrDefault(item => item.EntryId == content.EntryId);
             if (string.IsNullOrWhiteSpace(artifact?.FolderPath))
@@ -422,8 +422,8 @@ public sealed class ModListBuildCoordinator
                 IsEnabled = content.IsEnabled,
                 LauncherExecutableRelativePath = (content as ModListModEntry)?.LauncherExecutableRelativePath
             };
-            var gameIndex = profile.Folders.ToList().FindIndex(item => item.Kind == ProfileFolderKind.GameInstall);
-            profile.Folders.Insert(gameIndex, folder);
+            var gameIndex = profile.LoadOrder.ToList().FindIndex(item => item.Kind == ProfileFolderKind.GameInstall);
+            profile.LoadOrder.Insert(gameIndex, folder);
         }
 
         foreach (var requirement in manifest.Tools.Where(requirement => requirement.IsEnabled && requirement.DefinitionId is not null))

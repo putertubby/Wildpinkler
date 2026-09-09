@@ -25,8 +25,8 @@ public sealed class ModListExportServiceTests
                 ["MachineLocal"] = @"C:\Private\path"
             }
         };
-        profile.Folders.Add(new ProfileFolder { Id = "overlay", Name = "Overlay", Path = @"C:\Users\someone\profile\overlay", Kind = ProfileFolderKind.Overlay });
-        profile.Folders.Add(new ProfileFolder
+        profile.LoadOrder.Add(new ProfileFolder { Id = "overlay", Name = "Overlay", Path = @"C:\Users\someone\profile\overlay", Kind = ProfileFolderKind.Overlay });
+        profile.LoadOrder.Add(new ProfileFolder
         {
             Id = "mod-folder-local-id",
             Name = "Remote mod",
@@ -36,9 +36,9 @@ public sealed class ModListExportServiceTests
             ModInstallationId = "installation-local-id",
             LauncherExecutableRelativePath = "loader.exe"
         });
-        profile.Folders.Add(new ProfileFolder { Id = "tool-output", Name = "Tool output", Path = @"C:\Users\someone\output", Kind = ProfileFolderKind.ToolOutput });
-        profile.Folders.Add(new ProfileFolder { Id = "private", Name = "Private patch", Path = @"D:\Private", Kind = ProfileFolderKind.Unmanaged });
-        profile.Folders.Add(new ProfileFolder { Id = "game", Name = "Game", Path = @"C:\Games\Skyrim", Kind = ProfileFolderKind.GameInstall });
+        profile.LoadOrder.Add(new ProfileFolder { Id = "tool-output", Name = "Tool output", Path = @"C:\Users\someone\output", Kind = ProfileFolderKind.ToolOutput });
+        profile.LoadOrder.Add(new ProfileFolder { Id = "private", Name = "Private patch", Path = @"D:\Private", Kind = ProfileFolderKind.Unmanaged });
+        profile.LoadOrder.Add(new ProfileFolder { Id = "game", Name = "Game", Path = @"C:\Games\Skyrim", Kind = ProfileFolderKind.GameInstall });
         profile.Tools.Add(new ProfileTool
         {
             ToolEntryId = "tool-local-id",
@@ -121,7 +121,7 @@ public sealed class ModListExportServiceTests
     public async Task CreateAsync_KeepsMissingArchiveAsUnavailableRequirement()
     {
         var profile = new Profile { Id = "profile", Name = "Test", GameId = "game" };
-        profile.Folders.Add(new ProfileFolder
+        profile.LoadOrder.Add(new ProfileFolder
         {
             Id = "folder",
             Name = "Lost private mod",

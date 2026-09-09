@@ -76,7 +76,7 @@ public sealed class ModListBuildCoordinatorTests : IDisposable
 
         Assert.Equal(ModListBuildState.Completed, build.State);
         var profile = Assert.Single(await profileStore.LoadAsync());
-        var folder = Assert.Single(profile.Folders, item => item.Kind == ProfileFolderKind.Mod);
+        var folder = Assert.Single(profile.LoadOrder, item => item.Kind == ProfileFolderKind.Mod);
         Assert.Equal("local-mod", folder.ModId);
         Assert.NotNull(folder.ModInstallationId);
         Assert.True(File.Exists(Path.Combine(folder.Path, "Data", "test.txt")));

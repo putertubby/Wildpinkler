@@ -51,7 +51,7 @@ public sealed class ModListExportService
         var modsById = mods.ToDictionary(mod => mod.Id, StringComparer.Ordinal);
         var installationsById = installations.ToDictionary(installation => installation.Id, StringComparer.Ordinal);
         var portableOrder = 0;
-        foreach (var folder in profile.Folders.Where(folder => folder.Kind is ProfileFolderKind.Mod or ProfileFolderKind.Unmanaged))
+        foreach (var folder in profile.LoadOrder.Where(folder => folder.Kind is ProfileFolderKind.Mod or ProfileFolderKind.Unmanaged))
         {
             portableOrder++;
             if (folder.Kind == ProfileFolderKind.Unmanaged || folder.ModId is null || !modsById.TryGetValue(folder.ModId, out var mod))

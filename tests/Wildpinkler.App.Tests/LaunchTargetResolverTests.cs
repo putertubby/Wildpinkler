@@ -84,7 +84,7 @@ public sealed class LaunchTargetResolverTests
         Assert.Equal(Path.Combine(higherPriority.Path, "first.exe"), target.ExecutablePath);
     }
 
-    private static LaunchTarget Resolve(GameEntry game, ProfileFolder[] folders)
+    private static LaunchTarget Resolve(GameEntry game, ProfileFolder[] LoadOrder)
     {
         var profile = new Profile
         {
@@ -93,8 +93,8 @@ public sealed class LaunchTargetResolverTests
             GameId = game.Id,
             FolderPath = "C:\\profiles\\profile"
         };
-        foreach (var folder in folders)
-            profile.Folders.Add(folder);
+        foreach (var folder in LoadOrder)
+            profile.LoadOrder.Add(folder);
 
         return new LaunchTargetResolver().Resolve(profile, game, Array.Empty<ToolEntry>()).Single();
     }
