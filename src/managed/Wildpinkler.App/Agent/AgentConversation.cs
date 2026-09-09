@@ -327,7 +327,8 @@ public sealed class AgentConversation
             string.Empty,
             "Style:",
             "- Use short, safe markdown when it improves clarity: lists, headings, inline code and fenced code blocks.",
-            "- Do not use images, links, raw HTML or tables.",
+            "- Bold, italic, strikethrough, block quotes and small pipe tables also render correctly.",
+            "- Do not use images, links or raw HTML.",
             "- Answer in two or three sentences unless the user asks for more.",
             "- Use short lines starting with '- ' when a list genuinely helps.",
         };

@@ -1,14 +1,20 @@
 using System;
-using System.Text;
+using System.Collections.Generic;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Documents;
+using Microsoft.UI.Xaml.Media;
+using Windows.ApplicationModel.DataTransfer;
 using Windows.UI.Text;
 
 namespace Wildpinkler.App.Controls;
 
 public sealed partial class AssistantMarkdown : UserControl
 {
+    private static readonly FontFamily CodeFont = new("Consolas");
+    private static readonly string[] BulletGlyphs = ["\u2022", "\u25E6", "\u25AA", "\u25AA"];
+
     public static readonly DependencyProperty TextProperty = DependencyProperty.Register(
         nameof(Text),
         typeof(string),
@@ -18,6 +24,9 @@ public sealed partial class AssistantMarkdown : UserControl
     public AssistantMarkdown()
     {
         InitializeComponent();
+
+        // Brushes are resolved in code, so a theme switch needs an explicit rebuild.
+        ActualThemeChanged += (_, _) => Render(Text);
     }
 
     public string Text
@@ -33,119 +42,276 @@ public sealed partial class AssistantMarkdown : UserControl
 
     private void Render(string markdown)
     {
-        ContentBlock.Blocks.Clear();
-        var sanitized = AssistantMarkdownParser.Sanitize(markdown);
-        var lines = sanitized.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
-        var inCode = false;
-        var code = new StringBuilder();
+        ContentRoot.Children.Clear();
 
-        foreach (var line in lines)
+        var flow = new List<MarkdownBlock>();
+        var quotes = new List<MarkdownBlock>();
+
+        foreach (var block in AssistantMarkdownParser.Parse(markdown))
         {
-            if (line.TrimStart().StartsWith("```", StringComparison.Ordinal))
+            if (block.Kind == MarkdownBlockKind.Quote)
             {
-                if (inCode)
-                {
-                    AddParagraph(code.ToString(), isCode: true);
-                    code.Clear();
-                }
-
-                inCode = !inCode;
+                FlushFlow(flow);
+                quotes.Add(block);
                 continue;
             }
 
-            if (inCode)
-            {
-                if (code.Length > 0)
-                    code.AppendLine();
-                code.Append(line);
-                continue;
-            }
+            FlushQuotes(quotes);
 
-            var trimmed = line.TrimStart();
-            if (trimmed.StartsWith("# ", StringComparison.Ordinal))
-                AddParagraph(trimmed[2..], isHeading: true);
-            else if (trimmed.StartsWith("## ", StringComparison.Ordinal))
-                AddParagraph(trimmed[3..], isHeading: true);
-            else if (trimmed.StartsWith("### ", StringComparison.Ordinal))
-                AddParagraph(trimmed[4..], isHeading: true);
-            else if (trimmed.StartsWith("- ", StringComparison.Ordinal) || IsNumberedItem(trimmed))
-                AddParagraph(trimmed, isList: true);
-            else
-                AddParagraph(line);
+            switch (block.Kind)
+            {
+                case MarkdownBlockKind.CodeBlock:
+                    FlushFlow(flow);
+                    ContentRoot.Children.Add(BuildCodeBlock(block));
+                    break;
+                case MarkdownBlockKind.Table:
+                    FlushFlow(flow);
+                    ContentRoot.Children.Add(BuildTable(block));
+                    break;
+                case MarkdownBlockKind.Rule:
+                    FlushFlow(flow);
+                    ContentRoot.Children.Add(BuildRule());
+                    break;
+                default:
+                    flow.Add(block);
+                    break;
+            }
         }
 
-        if (inCode || code.Length > 0)
-            AddParagraph(code.ToString(), isCode: true);
+        FlushQuotes(quotes);
+        FlushFlow(flow);
     }
 
-    private void AddParagraph(string text, bool isHeading = false, bool isList = false, bool isCode = false)
+    private void FlushFlow(List<MarkdownBlock> flow)
     {
-        var paragraph = new Paragraph
+        if (flow.Count == 0)
+            return;
+
+        ContentRoot.Children.Add(BuildRichText(flow, quoted: false));
+        flow.Clear();
+    }
+
+    private void FlushQuotes(List<MarkdownBlock> quotes)
+    {
+        if (quotes.Count == 0)
+            return;
+
+        ContentRoot.Children.Add(new Border
         {
-            Margin = new Thickness(0, 2, 0, isHeading ? 6 : 2),
+            BorderThickness = new Thickness(3, 0, 0, 0),
+            BorderBrush = ThemeBrush("AccentFillColorDefaultBrush"),
+            Padding = new Thickness(10, 2, 0, 2),
+            Child = BuildRichText(quotes, quoted: true),
+        });
+
+        quotes.Clear();
+    }
+
+    private RichTextBlock BuildRichText(List<MarkdownBlock> blocks, bool quoted)
+    {
+        var rich = new RichTextBlock
+        {
+            TextWrapping = TextWrapping.Wrap,
+            IsTextSelectionEnabled = true,
+            Foreground = ThemeBrush(quoted ? "TextFillColorSecondaryBrush" : "TextFillColorPrimaryBrush"),
         };
 
-        if (isHeading)
-            paragraph.FontSize = 18;
-        if (isList)
-            text = "• " + (text.StartsWith("- ", StringComparison.Ordinal) ? text[2..] : text[(text.IndexOf('.', StringComparison.Ordinal) + 1)..].TrimStart());
-
-        AddInlineRuns(paragraph, text, isCode);
-        ContentBlock.Blocks.Add(paragraph);
-    }
-
-    private static bool IsNumberedItem(string text)
-    {
-        var dot = text.IndexOf('.', StringComparison.Ordinal);
-        return dot > 0 && dot <= 3 && int.TryParse(text[..dot], out _);
-    }
-
-    private static void AddInlineRuns(Paragraph paragraph, string text, bool isCode)
-    {
-        if (isCode)
+        foreach (var block in blocks)
         {
-            paragraph.FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas");
-            paragraph.Inlines.Add(new Run { Text = text });
-            return;
-        }
+            var paragraph = new Paragraph();
 
-        var position = 0;
-        while (position < text.Length)
-        {
-            var next = text.IndexOf('`', position);
-            if (next < 0)
+            switch (block.Kind)
             {
-                AddStyledText(paragraph, text[position..], FontStyle.Normal, false);
-                break;
+                case MarkdownBlockKind.Heading:
+                    paragraph.FontSize = block.Level switch { 1 => 20, 2 => 17, _ => 15 };
+                    paragraph.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
+                    paragraph.Margin = new Thickness(0, rich.Blocks.Count == 0 ? 0 : 10, 0, 2);
+                    break;
+                case MarkdownBlockKind.BulletItem:
+                case MarkdownBlockKind.OrderedItem:
+                    paragraph.Margin = new Thickness((block.Indent * 16) + 16, 1, 0, 1);
+                    paragraph.TextIndent = -16;
+                    paragraph.Inlines.Add(new Run
+                    {
+                        Text = block.Kind == MarkdownBlockKind.OrderedItem
+                            ? block.Marker + "\u00A0"
+                            : BulletGlyphs[block.Indent] + "\u00A0\u00A0",
+                    });
+                    break;
+                default:
+                    paragraph.Margin = new Thickness(0, 2, 0, 2);
+                    break;
             }
 
-            AddStyledText(paragraph, text[position..next], FontStyle.Normal, false);
-            var end = text.IndexOf('`', next + 1);
-            if (end < 0)
+            AppendInlines(paragraph.Inlines, block.Inlines);
+            rich.Blocks.Add(paragraph);
+        }
+
+        return rich;
+    }
+
+    private Border BuildRule() => new()
+    {
+        Height = 1,
+        Margin = new Thickness(0, 6, 0, 6),
+        Background = ThemeBrush("CardStrokeColorDefaultBrush"),
+    };
+
+    private Border BuildCodeBlock(MarkdownBlock block)
+    {
+        var layout = new Grid();
+        layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        layout.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        var header = new Grid();
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        header.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        header.Children.Add(new TextBlock
+        {
+            Text = block.Language ?? "code",
+            FontSize = 11,
+            VerticalAlignment = VerticalAlignment.Center,
+            Foreground = ThemeBrush("TextFillColorSecondaryBrush"),
+        });
+
+        var copy = new Button
+        {
+            Content = new FontIcon { Glyph = "\uE8C8", FontSize = 12 },
+            Background = null,
+            BorderThickness = new Thickness(0),
+            Padding = new Thickness(6, 2, 6, 2),
+            Tag = block.Literal,
+        };
+        AutomationProperties.SetName(copy, "Copy code");
+        ToolTipService.SetToolTip(copy, "Copy code");
+        copy.Click += CopyCode_Click;
+        Grid.SetColumn(copy, 1);
+        header.Children.Add(copy);
+
+        var code = new ScrollViewer
+        {
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollMode = ScrollMode.Auto,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            VerticalScrollMode = ScrollMode.Disabled,
+            Content = new TextBlock
             {
-                AddStyledText(paragraph, text[next..], FontStyle.Normal, false);
-                break;
+                Text = block.Literal,
+                FontFamily = CodeFont,
+                FontSize = 13,
+                TextWrapping = TextWrapping.NoWrap,
+                IsTextSelectionEnabled = true,
+            },
+        };
+        Grid.SetRow(code, 1);
+
+        layout.Children.Add(header);
+        layout.Children.Add(code);
+
+        return new Border
+        {
+            Background = ThemeBrush("CardBackgroundFillColorSecondaryBrush"),
+            BorderBrush = ThemeBrush("CardStrokeColorDefaultBrush"),
+            BorderThickness = new Thickness(1),
+            CornerRadius = new CornerRadius(4),
+            Padding = new Thickness(10, 4, 4, 8),
+            Child = layout,
+        };
+    }
+
+    private ScrollViewer BuildTable(MarkdownBlock block)
+    {
+        var stroke = ThemeBrush("CardStrokeColorDefaultBrush");
+        var columns = 0;
+        foreach (var row in block.Rows)
+            columns = Math.Max(columns, row.Cells.Count);
+
+        var grid = new Grid();
+        for (var column = 0; column < columns; column++)
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        for (var index = 0; index < block.Rows.Count; index++)
+        {
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            var row = block.Rows[index];
+
+            for (var column = 0; column < columns; column++)
+            {
+                var text = new TextBlock { TextWrapping = TextWrapping.Wrap };
+                if (row.IsHeader)
+                    text.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
+                if (column < row.Cells.Count)
+                    AppendInlines(text.Inlines, row.Cells[column]);
+
+                var cell = new Border
+                {
+                    BorderBrush = stroke,
+                    BorderThickness = new Thickness(0, 0, 1, 1),
+                    Padding = new Thickness(8, 4, 8, 4),
+                    Child = text,
+                };
+                Grid.SetRow(cell, index);
+                Grid.SetColumn(cell, column);
+                grid.Children.Add(cell);
+            }
+        }
+
+        return new ScrollViewer
+        {
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollMode = ScrollMode.Auto,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            VerticalScrollMode = ScrollMode.Disabled,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Content = new Border
+            {
+                BorderBrush = stroke,
+                BorderThickness = new Thickness(1, 1, 0, 0),
+                CornerRadius = new CornerRadius(4),
+                Child = grid,
+            },
+        };
+    }
+
+    private void AppendInlines(InlineCollection target, IReadOnlyList<MarkdownInline> inlines)
+    {
+        foreach (var inline in inlines)
+        {
+            if (inline.Style.HasFlag(MarkdownInlineStyle.LineBreak))
+            {
+                target.Add(new LineBreak());
+                continue;
             }
 
-            AddStyledText(paragraph, text[(next + 1)..end], FontStyle.Normal, true);
-            position = end + 1;
+            var run = new Run { Text = inline.Text };
+
+            if (inline.Style.HasFlag(MarkdownInlineStyle.Bold))
+                run.FontWeight = Microsoft.UI.Text.FontWeights.SemiBold;
+            if (inline.Style.HasFlag(MarkdownInlineStyle.Italic))
+                run.FontStyle = FontStyle.Italic;
+            if (inline.Style.HasFlag(MarkdownInlineStyle.Strikethrough))
+                run.TextDecorations = TextDecorations.Strikethrough;
+            if (inline.Style.HasFlag(MarkdownInlineStyle.Code))
+            {
+                run.FontFamily = CodeFont;
+                run.Foreground = ThemeBrush("TextFillColorSecondaryBrush");
+            }
+
+            target.Add(run);
         }
     }
 
-    private static void AddStyledText(Paragraph paragraph, string text, FontStyle style, bool code)
+    private static Brush? ThemeBrush(string key) =>
+        Application.Current.Resources.TryGetValue(key, out var value) ? value as Brush : null;
+
+    private void CopyCode_Click(object sender, RoutedEventArgs args)
     {
-        if (text.Length == 0)
+        if (sender is not Button { Tag: string code })
             return;
 
-        if (code)
-        {
-            var span = new Span { FontFamily = new Microsoft.UI.Xaml.Media.FontFamily("Consolas") };
-            span.Inlines.Add(new Run { Text = text });
-            paragraph.Inlines.Add(span);
-        }
-        else
-        {
-            paragraph.Inlines.Add(new Run { Text = text });
-        }
+        var package = new DataPackage { RequestedOperation = DataPackageOperation.Copy };
+        package.SetText(code);
+        Clipboard.SetContent(package);
     }
 }
+
