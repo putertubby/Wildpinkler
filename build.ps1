@@ -19,7 +19,8 @@ if (-not (Test-Path $vswhere)) {
     throw "vswhere.exe not found. Install Visual Studio 2022 - see the 'Build Environment Installation' section in spec.md."
 }
 
-$msbuild = & $vswhere -latest -products * `
+<# '-version 17' : Locks Visual Studio 2022, replace with '-latest' for latest installed. #>
+$msbuild = & $vswhere -version 17 -products * `
     -requires Microsoft.Component.MSBuild Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
     -find 'MSBuild\**\Bin\MSBuild.exe' | Select-Object -First 1
 
