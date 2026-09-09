@@ -749,8 +749,8 @@ public sealed partial class ProfilesPage : PageBase
 
         try
         {
-            var configPath = await _launchService.LaunchAsync(profile, target);
-            ShowInfo($"Launched {target.DisplayName} using {Path.GetFileName(configPath)}.", InfoBarSeverity.Success);
+            await _launchService.LaunchAsync(profile, target);
+            ShowInfo($"Launched {target.DisplayName} using profile '{profile.Name}'.", InfoBarSeverity.Success);
             Save("Save tool output version");
             RefreshWorkspace();
         }
