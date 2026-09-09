@@ -88,6 +88,32 @@ public sealed class AssistantPaneModelTests
         Assert.Contains(nameof(AssistantPaneModel.CanSend), notified);
     }
 
+    [Theory]
+    [InlineData(AssistantMode.Chat, "Chat only")]
+    [InlineData(AssistantMode.AskFirst, "Ask first")]
+    [InlineData(AssistantMode.Agent, "Agent")]
+    public void AssistantMode_ProvidesVisibleLabel(AssistantMode mode, string label)
+    {
+        var model = new AssistantPaneModel { AssistantMode = mode };
+
+        Assert.Equal(label, model.CurrentModeLabel);
+        Assert.False(string.IsNullOrWhiteSpace(model.CurrentModeDescription));
+    }
+
+    [Fact]
+    public void AssistantMode_Changed_NotifiesVisibleModeProperties()
+    {
+        var model = new AssistantPaneModel();
+        var notified = new List<string?>();
+        model.PropertyChanged += (_, args) => notified.Add(args.PropertyName);
+
+        model.AssistantMode = AssistantMode.Chat;
+
+        Assert.Contains(nameof(AssistantPaneModel.AssistantMode), notified);
+        Assert.Contains(nameof(AssistantPaneModel.CurrentModeLabel), notified);
+        Assert.Contains(nameof(AssistantPaneModel.CurrentModeDescription), notified);
+    }
+
     private static IReadOnlyList<ChatEntry> Entries(params string[] ids) =>
         ids.Select(id => new ChatEntry(id, ChatEntryKind.Assistant, id)).ToList();
 }

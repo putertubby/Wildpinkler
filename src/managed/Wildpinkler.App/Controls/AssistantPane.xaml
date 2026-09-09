@@ -128,20 +128,27 @@
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
             <TextBlock Style="{StaticResource BodyStrongTextBlockStyle}" Text="Assistant"
                        VerticalAlignment="Center" />
-            <ProgressRing Grid.Column="1"
-                          Width="16" Height="16"
-                          VerticalAlignment="Center"
-                          IsActive="{x:Bind Model.IsBusy, Mode=OneWay}"
-                          AutomationProperties.Name="The assistant is working" />
-            <Button Grid.Column="2"
+            <Button Grid.Column="1"
                     Background="Transparent"
                     BorderThickness="0"
-                    AutomationProperties.Name="More assistant options"
-                    ToolTipService.ToolTip="More assistant options">
-                <FontIcon Glyph="&#xE712;" />
+                    Padding="4,0"
+                    AutomationProperties.Name="{x:Bind Model.CurrentModeDescription, Mode=OneWay}"
+                    ToolTipService.ToolTip="Change assistant mode">
+                <StackPanel Orientation="Horizontal" Spacing="4">
+                    <TextBlock Text="{x:Bind Model.CurrentModeLabel, Mode=OneWay}"
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               TextTrimming="CharacterEllipsis"
+                               VerticalAlignment="Center" />
+                    <FontIcon Glyph="&#xE70D;"
+                              FontSize="10"
+                              Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                              VerticalAlignment="Center" />
+                </StackPanel>
                 <Button.Flyout>
                     <MenuFlyout Opening="OptionsFlyout_Opening">
                         <RadioMenuFlyoutItem x:Name="ChatModeItem" Text="Chat only"
@@ -150,14 +157,29 @@
                                              GroupName="AssistantMode" Click="Mode_Click" />
                         <RadioMenuFlyoutItem x:Name="AgentModeItem" Text="Look things up freely"
                                              GroupName="AssistantMode" Click="Mode_Click" />
-                        <MenuFlyoutSeparator />
+                    </MenuFlyout>
+                </Button.Flyout>
+            </Button>
+            <ProgressRing Grid.Column="2"
+                          Width="16" Height="16"
+                          VerticalAlignment="Center"
+                          IsActive="{x:Bind Model.IsBusy, Mode=OneWay}"
+                          AutomationProperties.Name="The assistant is working" />
+            <Button Grid.Column="3"
+                    Background="Transparent"
+                    BorderThickness="0"
+                    AutomationProperties.Name="More assistant options"
+                    ToolTipService.ToolTip="More assistant options">
+                <FontIcon Glyph="&#xE712;" />
+                <Button.Flyout>
+                    <MenuFlyout>
                         <MenuFlyoutItem Text="Clear conversation" Click="ClearConversation_Click" />
                         <MenuFlyoutItem Text="Regenerate last answer" Click="Regenerate_Click" />
                         <MenuFlyoutItem Text="Assistant settings" Click="OpenSettings_Click" />
                     </MenuFlyout>
                 </Button.Flyout>
             </Button>
-            <Button Grid.Column="3"
+            <Button Grid.Column="4"
                     Background="Transparent"
                     BorderThickness="0"
                     Click="Close_Click"

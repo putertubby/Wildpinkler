@@ -95,6 +95,7 @@ public sealed class AssistantPaneModel : ObservableObject
 {
     private string _promptText = string.Empty;
     private bool _isBusy;
+    private AssistantMode _assistantMode = AssistantMode.Agent;
     private string? _statusTitle;
     private string? _statusMessage;
     private bool _isStatusOpen;
@@ -107,6 +108,33 @@ public sealed class AssistantPaneModel : ObservableObject
     public ObservableCollection<ChatEntry> Entries { get; } = [];
 
     public bool IsEmpty => Entries.Count == 0;
+
+    public AssistantMode AssistantMode
+    {
+        get => _assistantMode;
+        set
+        {
+            if (!SetProperty(ref _assistantMode, value))
+                return;
+
+            OnPropertyChanged(nameof(CurrentModeLabel));
+            OnPropertyChanged(nameof(CurrentModeDescription));
+        }
+    }
+
+    public string CurrentModeLabel => AssistantMode switch
+    {
+        AssistantMode.Chat => "Chat only",
+        AssistantMode.AskFirst => "Ask first",
+        _ => "Agent",
+    };
+
+    public string CurrentModeDescription => AssistantMode switch
+    {
+        AssistantMode.Chat => "Chat only: the assistant cannot see or change your setup.",
+        AssistantMode.AskFirst => "Ask before every action: the assistant requests approval before using tools.",
+        _ => "Agent: read-only actions can run freely; destructive actions request approval.",
+    };
 
     public string EmptyStateMessage
     {

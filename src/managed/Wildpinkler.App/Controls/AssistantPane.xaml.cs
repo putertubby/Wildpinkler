@@ -171,6 +171,7 @@ public sealed partial class AssistantPane : UserControl, IDisposable, IAgentTool
 
     private void ReportConfiguration()
     {
+        _model.AssistantMode = _settings.AssistantMode;
         var chatOnly = _settings.AssistantMode == AssistantMode.Chat;
         _model.EmptyStateMessage = !_client.IsConfigured
             ? "Choose a provider in Settings to start a conversation."
@@ -226,6 +227,7 @@ public sealed partial class AssistantPane : UserControl, IDisposable, IAgentTool
             _ => AssistantMode.Agent,
         };
 
+        _model.AssistantMode = _settings.AssistantMode;
         AppServices.AppSettingsStore.Save(_settings);
         _model.Add(ChatEntryKind.Notice, $"Mode changed to {DescribeMode(_settings.AssistantMode)}.");
         ScrollToEnd(true);
