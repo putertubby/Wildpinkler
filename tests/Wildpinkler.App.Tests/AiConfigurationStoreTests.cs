@@ -41,7 +41,7 @@ public sealed class AiConfigurationStoreTests : IDisposable
     [Fact]
     public async Task GetAsync_MissingModel_FallsBackToPresetDefault()
     {
-        await _store.SaveAsync("openai", null, null, "sk-test", true, true, Token);
+        await _store.SaveAsync("openai", null, null, "sk-test", AssistantMode.Agent, true, Token);
 
         var configuration = await _store.GetAsync(Token);
 
@@ -51,7 +51,7 @@ public sealed class AiConfigurationStoreTests : IDisposable
     [Fact]
     public async Task SaveAsync_ApiKey_StoresInCredentialStoreNotSettingsFile()
     {
-        await _store.SaveAsync("openrouter", null, null, "sk-secret-value", true, true, Token);
+        await _store.SaveAsync("openrouter", null, null, "sk-secret-value", AssistantMode.Agent, true, Token);
 
         var settingsText = await File.ReadAllTextAsync(Path.Combine(_root, "app-settings.json"), Token);
         Assert.DoesNotContain("sk-secret-value", settingsText, StringComparison.Ordinal);
@@ -61,8 +61,8 @@ public sealed class AiConfigurationStoreTests : IDisposable
     [Fact]
     public async Task SaveAsync_KeyForOneProvider_LeavesAnotherProvidersKeyIntact()
     {
-        await _store.SaveAsync("openrouter", null, null, "router-key", true, true, Token);
-        await _store.SaveAsync("groq", null, null, "groq-key", true, true, Token);
+        await _store.SaveAsync("openrouter", null, null, "router-key", AssistantMode.Agent, true, Token);
+        await _store.SaveAsync("groq", null, null, "groq-key", AssistantMode.Agent, true, Token);
 
         Assert.Equal("router-key", await _credentials.GetAsync("assistant:openrouter"));
         Assert.Equal("groq-key", await _credentials.GetAsync("assistant:groq"));
@@ -71,8 +71,8 @@ public sealed class AiConfigurationStoreTests : IDisposable
     [Fact]
     public async Task SaveAsync_NullApiKey_LeavesStoredKeyUnchanged()
     {
-        await _store.SaveAsync("openai", null, null, "sk-original", true, true, Token);
-        await _store.SaveAsync("openai", null, "gpt-4o", null, true, true, Token);
+        await _store.SaveAsync("openai", null, null, "sk-original", AssistantMode.Agent, true, Token);
+        await _store.SaveAsync("openai", null, "gpt-4o", null, AssistantMode.Agent, true, Token);
 
         Assert.Equal("sk-original", await _credentials.GetAsync("assistant:openai"));
     }
@@ -80,8 +80,8 @@ public sealed class AiConfigurationStoreTests : IDisposable
     [Fact]
     public async Task SaveAsync_EmptyApiKey_ClearsStoredKey()
     {
-        await _store.SaveAsync("openai", null, null, "sk-original", true, true, Token);
-        await _store.SaveAsync("openai", null, null, string.Empty, true, true, Token);
+        await _store.SaveAsync("openai", null, null, "sk-original", AssistantMode.Agent, true, Token);
+        await _store.SaveAsync("openai", null, null, string.Empty, AssistantMode.Agent, true, Token);
 
         Assert.Null(await _credentials.GetAsync("assistant:openai"));
     }
@@ -89,7 +89,7 @@ public sealed class AiConfigurationStoreTests : IDisposable
     [Fact]
     public async Task SaveAsync_UnknownProvider_ReturnsFailure()
     {
-        var result = await _store.SaveAsync("nowhere", null, null, null, true, true, Token);
+        var result = await _store.SaveAsync("nowhere", null, null, null, AssistantMode.Agent, true, Token);
 
         Assert.False(result.Succeeded);
     }
@@ -97,7 +97,8 @@ public sealed class AiConfigurationStoreTests : IDisposable
     [Fact]
     public async Task SaveAsync_HttpEndpointOnRemoteHost_ReturnsFailure()
     {
-        var result = await _store.SaveAsync("custom", "http://evil.example/v1", "any", null, true, true, Token);
+        var result = await _store.SaveAsync(
+            "custom", "http://evil.example/v1", "any", null, AssistantMode.Agent, true, Token);
 
         Assert.False(result.Succeeded);
         Assert.Contains("https", result.Message!, StringComparison.OrdinalIgnoreCase);
@@ -106,7 +107,8 @@ public sealed class AiConfigurationStoreTests : IDisposable
     [Fact]
     public async Task SaveAsync_HttpEndpointOnLoopback_Succeeds()
     {
-        var result = await _store.SaveAsync("custom", "http://127.0.0.1:1234/v1", "any", null, true, true, Token);
+        var result = await _store.SaveAsync(
+            "custom", "http://127.0.0.1:1234/v1", "any", null, AssistantMode.Agent, true, Token);
 
         Assert.True(result.Succeeded);
     }
@@ -117,19 +119,19 @@ public sealed class AiConfigurationStoreTests : IDisposable
         var raised = 0;
         _store.Changed += (_, _) => raised++;
 
-        await _store.SaveAsync("openai", null, null, "sk-test", true, true, Token);
+        await _store.SaveAsync("openai", null, null, "sk-test", AssistantMode.Agent, true, Token);
 
         Assert.Equal(1, raised);
     }
 
     [Fact]
-    public async Task SaveAsync_Toggles_ArePersistedToTheSettingsFile()
+    public async Task SaveAsync_ModeAndToggle_ArePersistedToTheSettingsFile()
     {
-        await _store.SaveAsync("ollama", null, null, null, false, false, Token);
+        await _store.SaveAsync("ollama", null, null, null, AssistantMode.Chat, false, Token);
 
         var reloaded = new AppSettingsStore(_root).Load();
 
-        Assert.False(reloaded.AssistantAutoRunReadOnlyTools);
+        Assert.Equal(AssistantMode.Chat, reloaded.AssistantMode);
         Assert.False(reloaded.AssistantPersistTranscript);
     }
 
@@ -158,7 +160,7 @@ public sealed class AiConfigurationStoreTests : IDisposable
     [Fact]
     public async Task GetAsync_HostedProvider_IsReportedAsRemote()
     {
-        await _store.SaveAsync("openrouter", null, null, "sk-test", true, true, Token);
+        await _store.SaveAsync("openrouter", null, null, "sk-test", AssistantMode.Agent, true, Token);
 
         Assert.True((await _store.GetAsync(Token)).IsRemote);
     }

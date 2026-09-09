@@ -7,6 +7,10 @@
     xmlns:controls="using:Wildpinkler.App.Controls"
     MinWidth="280">
 
+    <UserControl.KeyboardAccelerators>
+        <KeyboardAccelerator Key="Escape" Invoked="StopAccelerator_Invoked" />
+    </UserControl.KeyboardAccelerators>
+
     <UserControl.Resources>
         <DataTemplate x:Key="UserEntryTemplate" x:DataType="agent:ChatEntry">
             <Border Background="{ThemeResource AccentFillColorDefaultBrush}"
@@ -129,7 +133,14 @@
                     ToolTipService.ToolTip="More assistant options">
                 <FontIcon Glyph="&#xE712;" />
                 <Button.Flyout>
-                    <MenuFlyout>
+                    <MenuFlyout Opening="OptionsFlyout_Opening">
+                        <RadioMenuFlyoutItem x:Name="ChatModeItem" Text="Chat only"
+                                             GroupName="AssistantMode" Click="Mode_Click" />
+                        <RadioMenuFlyoutItem x:Name="AskFirstModeItem" Text="Ask before every action"
+                                             GroupName="AssistantMode" Click="Mode_Click" />
+                        <RadioMenuFlyoutItem x:Name="AgentModeItem" Text="Look things up freely"
+                                             GroupName="AssistantMode" Click="Mode_Click" />
+                        <MenuFlyoutSeparator />
                         <MenuFlyoutItem Text="Clear conversation" Click="ClearConversation_Click" />
                         <MenuFlyoutItem Text="Assistant settings" Click="OpenSettings_Click" />
                     </MenuFlyout>

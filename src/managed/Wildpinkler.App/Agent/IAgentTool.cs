@@ -55,6 +55,19 @@ public interface IAgentContextProvider
     Task<string> DescribeWorkspaceAsync(CancellationToken cancellationToken = default);
 }
 
+/// <summary>How much the assistant is allowed to do without being asked.</summary>
+public enum AssistantMode
+{
+    /// <summary>No actions are offered to the model at all, so it can only talk.</summary>
+    Chat,
+
+    /// <summary>Every action waits for approval.</summary>
+    AskFirst,
+
+    /// <summary>Reading actions run on their own; anything that changes state waits for approval.</summary>
+    Agent,
+}
+
 public enum ChatRole
 {
     System,

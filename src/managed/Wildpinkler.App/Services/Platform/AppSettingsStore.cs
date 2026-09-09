@@ -43,8 +43,8 @@ public sealed class AppSettings
     // Null means "use the preset value", so changing a preset default reaches users who never overrode it.
     public string? AssistantEndpoint { get; set; }
     public string? AssistantModelId { get; set; }
-    public bool AssistantAutoRunReadOnlyTools { get; set; } = true;
     public bool AssistantPersistTranscript { get; set; } = true;
+    public Agent.AssistantMode AssistantMode { get; set; } = Agent.AssistantMode.Agent;
 
     // Hosts the user has agreed may receive conversation content. Loopback is never listed.
     public List<string> AssistantAcceptedRemoteHosts { get; set; } = [];

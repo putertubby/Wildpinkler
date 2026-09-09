@@ -85,7 +85,7 @@ public sealed class AiConfigurationStore
         string? endpoint,
         string? modelId,
         string? apiKey,
-        bool autoRunReadOnlyTools,
+        AssistantMode mode,
         bool persistTranscript,
         CancellationToken cancellationToken = default)
     {
@@ -101,7 +101,7 @@ public sealed class AiConfigurationStore
         _settings.AssistantProviderId = preset.Id;
         _settings.AssistantEndpoint = Normalize(endpoint) == preset.Endpoint ? null : Normalize(endpoint);
         _settings.AssistantModelId = Normalize(modelId) == preset.DefaultModel ? null : Normalize(modelId);
-        _settings.AssistantAutoRunReadOnlyTools = autoRunReadOnlyTools;
+        _settings.AssistantMode = mode;
         _settings.AssistantPersistTranscript = persistTranscript;
         _store.Save(_settings);
 

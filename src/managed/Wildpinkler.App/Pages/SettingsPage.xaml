@@ -151,9 +151,12 @@
 
                         <TextBlock x:Name="AssistantKeyState" Opacity="0.72" TextWrapping="Wrap" />
 
-                        <ToggleSwitch x:Name="AssistantAutoRunToggle" Header="Run read-only actions automatically"
-                                      OnContent="Look things up without asking" OffContent="Ask before every action"
-                                      Toggled="AssistantToggle_Toggled" />
+                        <RadioButtons x:Name="AssistantModeSelector" Header="What the assistant may do"
+                                      SelectionChanged="AssistantMode_SelectionChanged">
+                            <RadioButton Content="Chat only, with no access to your setup" />
+                            <RadioButton Content="Ask before every action" />
+                            <RadioButton Content="Look things up freely, ask before changing anything" />
+                        </RadioButtons>
 
                         <ToggleSwitch x:Name="AssistantPersistToggle" Header="Remember conversations"
                                       OnContent="Restore the last conversation" OffContent="Start fresh each time"

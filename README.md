@@ -409,6 +409,10 @@ appear in `app-settings.json` or in the logs.
 Reading actions run on their own. Anything that changes your setup is proposed in the conversation
 and waits for you to allow it.
 
+Three modes decide how much it may do, switchable from the pane's options menu or Settings:
+**chat only**, where no actions are offered to the model at all; **ask before every action**; and
+**look things up freely**, the default, where reading runs unattended and changes still wait for you.
+
 What you type, and the names and paths that actions return about your games, profiles and mods, are
 sent to whichever provider you choose. Wildpinkler asks you to confirm that once for each provider
 host, before the first question it sends there. The local Ollama default sends nothing anywhere.

@@ -165,9 +165,12 @@ public sealed partial class AssistantPane : UserControl, IDisposable, IAgentTool
 
     private void ReportConfiguration()
     {
-        _model.EmptyStateMessage = _client.IsConfigured
-            ? $"Ask about your games, profiles and mods. {_tools.Tools.Count} actions are available."
-            : "Choose a provider in Settings to start a conversation.";
+        var chatOnly = _settings.AssistantMode == AssistantMode.Chat;
+        _model.EmptyStateMessage = !_client.IsConfigured
+            ? "Choose a provider in Settings to start a conversation."
+            : chatOnly
+                ? "Ask a question. The assistant cannot see or change your setup in chat-only mode."
+                : $"Ask about your games, profiles and mods. {_tools.Tools.Count} actions are available.";
 
         if (_client.IsConfigured)
         {
@@ -200,6 +203,45 @@ public sealed partial class AssistantPane : UserControl, IDisposable, IAgentTool
 
     private void Close_Click(object sender, RoutedEventArgs args) => CloseRequested?.Invoke(this, EventArgs.Empty);
 
+    private void OptionsFlyout_Opening(object? sender, object args)
+    {
+        var mode = _settings.AssistantMode;
+        ChatModeItem.IsChecked = mode == AssistantMode.Chat;
+        AskFirstModeItem.IsChecked = mode == AssistantMode.AskFirst;
+        AgentModeItem.IsChecked = mode == AssistantMode.Agent;
+    }
+
+    private void Mode_Click(object sender, RoutedEventArgs args)
+    {
+        _settings.AssistantMode = sender switch
+        {
+            _ when ReferenceEquals(sender, ChatModeItem) => AssistantMode.Chat,
+            _ when ReferenceEquals(sender, AskFirstModeItem) => AssistantMode.AskFirst,
+            _ => AssistantMode.Agent,
+        };
+
+        AppServices.AppSettingsStore.Save(_settings);
+        _model.Add(ChatEntryKind.Notice, $"Mode changed to {DescribeMode(_settings.AssistantMode)}.");
+        ScrollToEnd(true);
+        ReportConfiguration();
+    }
+
+    private static string DescribeMode(AssistantMode mode) => mode switch
+    {
+        AssistantMode.Chat => "chat only",
+        AssistantMode.AskFirst => "ask before every action",
+        _ => "look things up freely",
+    };
+
+    private void StopAccelerator_Invoked(KeyboardAccelerator sender, KeyboardAcceleratorInvokedEventArgs args)
+    {
+        if (!_model.IsBusy)
+            return;
+
+        args.Handled = true;
+        CancelInFlight();
+    }
+
     private void OpenSettings_Click(object sender, RoutedEventArgs args) =>
         MainWindow.Instance?.NavigateToSettings();
 
@@ -220,13 +262,6 @@ public sealed partial class AssistantPane : UserControl, IDisposable, IAgentTool
 
     private void PromptBox_PreviewKeyDown(object sender, KeyRoutedEventArgs args)
     {
-        if (args.Key == Windows.System.VirtualKey.Escape && _model.IsBusy)
-        {
-            args.Handled = true;
-            CancelInFlight();
-            return;
-        }
-
         if (args.Key != Windows.System.VirtualKey.Enter)
             return;
 

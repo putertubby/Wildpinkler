@@ -84,7 +84,7 @@ public sealed class AgentConversationTests
     }
 
     [Fact]
-    public async Task SendAsync_AutoRunDisabled_RequestsApprovalForAReadOnlyTool()
+    public async Task SendAsync_AskFirstMode_RequestsApprovalForAReadOnlyTool()
     {
         var tool = new FakeAgentTool("list_mods", isDestructive: false, AgentToolResult.Ok("12"));
         var client = new FakeChatCompletionClient(
@@ -93,12 +93,57 @@ public sealed class AgentConversationTests
             [ChatCompletionUpdate.Text("done")],
         ]);
         var conversation = Build(client, out _, out var approval, out var settings, tool);
-        settings.AssistantAutoRunReadOnlyTools = false;
+        settings.AssistantMode = AssistantMode.AskFirst;
         approval.Answer = true;
 
         await Collect(conversation, "how many mods?");
 
         Assert.Equal(1, approval.Requests);
+    }
+
+    [Fact]
+    public async Task SendAsync_ChatMode_OffersNoToolsAndFinishesInOneTurn()
+    {
+        var tool = new FakeAgentTool("list_mods", isDestructive: false, AgentToolResult.Ok("12"));
+        var client = new FakeChatCompletionClient([[ChatCompletionUpdate.Text("I cannot look that up.")]]);
+        var conversation = Build(client, out _, out var approval, out var settings, tool);
+        settings.AssistantMode = AssistantMode.Chat;
+
+        var events = await Collect(conversation, "how many mods?");
+
+        Assert.Empty(client.LastTools);
+        Assert.Equal(0, tool.Invocations);
+        Assert.Equal(0, approval.Requests);
+        Assert.Contains(events, turnEvent => turnEvent is AgentTurnEvent.TurnCompleted);
+    }
+
+    [Fact]
+    public async Task SendAsync_ChatModeWithAHallucinatedToolCall_IgnoresItAndCompletes()
+    {
+        var tool = new FakeAgentTool("list_mods", isDestructive: false, AgentToolResult.Ok("12"));
+        var client = new FakeChatCompletionClient(
+        [
+            [ChatCompletionUpdate.Calls([new ChatToolCall("c1", "list_mods", "{}")])],
+        ]);
+        var conversation = Build(client, out _, out _, out var settings, tool);
+        settings.AssistantMode = AssistantMode.Chat;
+
+        var events = await Collect(conversation, "how many mods?");
+
+        Assert.Equal(0, tool.Invocations);
+        Assert.Contains(events, turnEvent => turnEvent is AgentTurnEvent.TurnCompleted);
+    }
+
+    [Fact]
+    public async Task SendAsync_AgentMode_SendsTheToolCatalog()
+    {
+        var tool = new FakeAgentTool("list_mods", isDestructive: false, AgentToolResult.Ok("12"));
+        var client = new FakeChatCompletionClient([[ChatCompletionUpdate.Text("hi")]]);
+        var conversation = Build(client, out _, out _, out _, tool);
+
+        await Collect(conversation, "hello");
+
+        Assert.Single(client.LastTools);
     }
 
     [Fact]
@@ -352,6 +397,8 @@ public sealed class AgentConversationTests
 
         public Exception? Failure { get; init; }
 
+        public IReadOnlyList<IAgentTool> LastTools { get; private set; } = [];
+
         public bool IsConfigured => true;
 
         public string? ConfigurationProblem => null;
@@ -362,6 +409,7 @@ public sealed class AgentConversationTests
             ChatCompletionRequest request,
             [EnumeratorCancellation] CancellationToken cancellationToken)
         {
+            LastTools = request.Tools;
             await Task.Yield();
             if (Failure is not null)
                 throw Failure;

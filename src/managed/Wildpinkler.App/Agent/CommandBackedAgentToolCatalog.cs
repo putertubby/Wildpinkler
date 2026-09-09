@@ -163,10 +163,23 @@ public sealed class AgentContextProvider : IAgentContextProvider
         var profiles = await _dispatcher.SendAsync(new ListProfilesCommand(), cancellationToken);
         var mods = await _dispatcher.SendAsync(new ListModsCommand(), cancellationToken);
 
+        // Names, not identifiers: enough to orient an answer without inviting the model to guess ids.
         return string.Join(Environment.NewLine,
-            $"Games: {games.Count}",
-            $"Profiles: {profiles.Count}",
+            $"Games ({games.Count}): {Describe(games.Select(game => game.Name))}",
+            $"Profiles ({profiles.Count}): {Describe(profiles.Select(profile => profile.Name))}",
             $"Mods: {mods.Count}");
+    }
+
+    private static string Describe(IEnumerable<string> names)
+    {
+        const int Limit = 12;
+        var listed = names.Where(name => !string.IsNullOrWhiteSpace(name)).Take(Limit + 1).ToList();
+        if (listed.Count == 0)
+            return "none";
+
+        return listed.Count > Limit
+            ? string.Join(", ", listed.Take(Limit)) + ", and more"
+            : string.Join(", ", listed);
     }
 
     public IReadOnlyList<AppCommandRecord> RecentActivity(int count = 20) => _journal.Recent(count);

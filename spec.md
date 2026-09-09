@@ -97,7 +97,8 @@ All three commands must succeed and the last must print an installation path. Th
   with no result. That approval is a second gate, not a replacement: tools still execute through the
   dispatcher, so the confirmation gate and the audit journal remain the last word. Before the first
   turn against a given remote host the user is asked to confirm that conversation content may leave
-  the machine.
+  the machine. `AppSettings.AssistantMode` selects how much is offered: `Chat` sends no tools at all,
+  `AskFirst` gates every call, `Agent` gates only destructive ones.
 
 ### Naming conventions
 

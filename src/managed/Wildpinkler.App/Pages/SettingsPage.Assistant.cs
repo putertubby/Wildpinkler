@@ -35,7 +35,8 @@ public sealed partial class SettingsPage
             AssistantProviderBox.SelectedItem = AiProviderPresets.GetOrDefault(configuration.ProviderId);
             AssistantEndpointBox.Text = configuration.Endpoint?.AbsoluteUri ?? string.Empty;
             AssistantModelBox.Text = configuration.ModelId;
-            AssistantAutoRunToggle.IsOn = AppServices.AppSettings.AssistantAutoRunReadOnlyTools;
+            // Item order matches the AssistantMode members.
+            AssistantModeSelector.SelectedIndex = (int)AppServices.AppSettings.AssistantMode;
             AssistantPersistToggle.IsOn = AppServices.AppSettings.AssistantPersistTranscript;
 
             await ApplyPresetChromeAsync();
@@ -50,6 +51,15 @@ public sealed partial class SettingsPage
 
     private void LoadAssistant() =>
         UiTask.Run(LoadAssistantAsync, nameof(LoadAssistant), ShowAssistantError);
+
+    // The pane can change the mode too, so it is re-read on every visit rather than only at construction.
+    protected override void OnNavigatedTo(Microsoft.UI.Xaml.Navigation.NavigationEventArgs e)
+    {
+        base.OnNavigatedTo(e);
+        _isApplyingAssistantState = true;
+        AssistantModeSelector.SelectedIndex = (int)AppServices.AppSettings.AssistantMode;
+        _isApplyingAssistantState = false;
+    }
 
     private async Task ApplyPresetChromeAsync()
     {
@@ -136,6 +146,14 @@ public sealed partial class SettingsPage
         UiTask.Run(() => SaveAssistantAsync(), nameof(AssistantToggle_Toggled), ShowAssistantError);
     }
 
+    private void AssistantMode_SelectionChanged(object sender, SelectionChangedEventArgs args)
+    {
+        if (_isApplyingAssistantState || AssistantModeSelector.SelectedIndex < 0)
+            return;
+
+        UiTask.Run(() => SaveAssistantAsync(), nameof(AssistantMode_SelectionChanged), ShowAssistantError);
+    }
+
     private void AssistantKey_PasswordChanged(object sender, RoutedEventArgs args)
     {
         if (_isApplyingAssistantState)
@@ -151,7 +169,7 @@ public sealed partial class SettingsPage
             AssistantEndpointBox.Text,
             AssistantModelBox.Text,
             _pendingApiKey,
-            AssistantAutoRunToggle.IsOn,
+            (AssistantMode)Math.Max(AssistantModeSelector.SelectedIndex, 0),
             AssistantPersistToggle.IsOn);
 
         if (!result.Succeeded)
