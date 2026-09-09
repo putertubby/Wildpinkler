@@ -37,6 +37,9 @@ public sealed partial class AssistantPane : UserControl, IDisposable, IAgentTool
     private readonly Dictionary<string, ChatEntry> _runningTools = [];
     private readonly List<ChatReference> _references = [];
     private readonly ObservableCollection<ReferenceSuggestion> _suggestions = [];
+    private readonly PointerEventHandler _scrollPointerPressed;
+    private readonly PointerEventHandler _scrollPointerReleased;
+    private readonly PointerEventHandler _scrollPointerWheel;
 
     private ScrollViewer? _transcriptScroll;
     private CancellationTokenSource? _inFlight;
@@ -44,6 +47,10 @@ public sealed partial class AssistantPane : UserControl, IDisposable, IAgentTool
     private bool _disposed;
     private bool _stickToBottom = true;
     private bool _autoScrolling;
+    private bool _userScrolling;
+    private bool _autoScrollPending;
+    private double _autoScrollTarget;
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer? _autoScrollTimer;
     private ChatEntry? _retryEntry;
     private Microsoft.UI.Dispatching.DispatcherQueueTimer? _retryTimer;
     private DateTimeOffset _retryStartedAt;
@@ -54,6 +61,10 @@ public sealed partial class AssistantPane : UserControl, IDisposable, IAgentTool
     public AssistantPane()
     {
         InitializeComponent();
+        _scrollPointerPressed = (_, _) => BeginUserScroll();
+        _scrollPointerReleased = (_, _) => EndUserScroll();
+        // A wheel notch is not a drag, but it does mean the next settled change is the user's, not ours.
+        _scrollPointerWheel = (_, _) => _autoScrolling = false;
         _client = AppHost.Get<IChatCompletionClient>();
         _tools = AppHost.Get<IAgentToolCatalog>();
         _transcript = AppHost.Get<ChatTranscript>();
@@ -71,7 +82,7 @@ public sealed partial class AssistantPane : UserControl, IDisposable, IAgentTool
         {
             _transcriptScroll = FindScrollViewer(TranscriptList);
             if (_transcriptScroll is not null)
-                _transcriptScroll.ViewChanged += TranscriptScroll_ViewChanged;
+                SubscribeToScroll(_transcriptScroll);
         };
         Unloaded += (_, _) => CancelInFlight();
 
@@ -698,25 +709,83 @@ public sealed partial class AssistantPane : UserControl, IDisposable, IAgentTool
         _transcriptScroll is null
         || _transcriptScroll.ScrollableHeight - _transcriptScroll.VerticalOffset < 32;
 
-    /// <summary>Our own animated scroll takes a while to settle; ignore the ViewChanged it raises and
-    /// only treat a settled view change as the user's own scroll for updating the stick-to-bottom flag.</summary>
-    private void TranscriptScroll_ViewChanged(object? sender, ScrollViewerViewChangedEventArgs args)
+    /// <summary>Pointer events are watched alongside ViewChanged because a thumb drag only ever reports
+    /// intermediate view changes, so the settled ones alone cannot tell us the user has taken over.</summary>
+    private void SubscribeToScroll(ScrollViewer scroll)
     {
-        if (args.IsIntermediate)
+        scroll.ViewChanged += TranscriptScroll_ViewChanged;
+        scroll.DirectManipulationStarted += Scroll_ManipulationStarted;
+        scroll.DirectManipulationCompleted += Scroll_ManipulationCompleted;
+        scroll.AddHandler(PointerPressedEvent, _scrollPointerPressed, handledEventsToo: true);
+        scroll.AddHandler(PointerReleasedEvent, _scrollPointerReleased, handledEventsToo: true);
+        scroll.AddHandler(PointerCaptureLostEvent, _scrollPointerReleased, handledEventsToo: true);
+        scroll.AddHandler(PointerCanceledEvent, _scrollPointerReleased, handledEventsToo: true);
+        scroll.AddHandler(PointerWheelChangedEvent, _scrollPointerWheel, handledEventsToo: true);
+    }
+
+    private void UnsubscribeFromScroll(ScrollViewer scroll)
+    {
+        scroll.ViewChanged -= TranscriptScroll_ViewChanged;
+        scroll.DirectManipulationStarted -= Scroll_ManipulationStarted;
+        scroll.DirectManipulationCompleted -= Scroll_ManipulationCompleted;
+        scroll.RemoveHandler(PointerPressedEvent, _scrollPointerPressed);
+        scroll.RemoveHandler(PointerReleasedEvent, _scrollPointerReleased);
+        scroll.RemoveHandler(PointerCaptureLostEvent, _scrollPointerReleased);
+        scroll.RemoveHandler(PointerCanceledEvent, _scrollPointerReleased);
+        scroll.RemoveHandler(PointerWheelChangedEvent, _scrollPointerWheel);
+    }
+
+    private void Scroll_ManipulationStarted(object? sender, object args) => BeginUserScroll();
+
+    private void Scroll_ManipulationCompleted(object? sender, object args) => EndUserScroll();
+
+    /// <summary>Auto-scrolling into an active drag cancels the manipulation, which drops the thumb's
+    /// pointer capture and forces the user to grab it again; nothing scrolls itself until they let go.</summary>
+    private void BeginUserScroll()
+    {
+        _userScrolling = true;
+        _autoScrolling = false;
+    }
+
+    private void EndUserScroll()
+    {
+        if (!_userScrolling)
             return;
 
-        if (_autoScrolling)
+        _userScrolling = false;
+        _stickToBottom = IsScrolledToBottom();
+        var pending = _autoScrollPending;
+        _autoScrollPending = false;
+        if (pending && _stickToBottom)
+            ScrollToEnd(true);
+    }
+
+    /// <summary>A settled change that did not land where we asked it to is the user's, not ours.</summary>
+    private void TranscriptScroll_ViewChanged(object? sender, ScrollViewerViewChangedEventArgs args)
+    {
+        if (_transcriptScroll is null)
+            return;
+
+        if (args.IsIntermediate)
         {
-            _autoScrolling = false;
+            if (!_autoScrolling)
+                BeginUserScroll();
             return;
         }
 
+        var wasOurs = _autoScrolling
+            && Math.Abs(_transcriptScroll.VerticalOffset - _autoScrollTarget) < 1;
+        _autoScrolling = false;
+        if (wasOurs)
+            return;
+
+        EndUserScroll();
         _stickToBottom = IsScrolledToBottom();
     }
 
     /// <summary>Animates to the new bottom as the response grows, instead of teleporting there, so the
-    /// list appears to smoothly make room for it. Keeps animating on every call while the caller wants to
-    /// stick to bottom, rather than relying on a since-lapsed snapshot of the scroll position.</summary>
+    /// list appears to smoothly make room for it. Streamed deltas arrive far faster than the animation
+    /// settles, so the requests are throttled rather than restarting the animation on every token.</summary>
     private void ScrollToEnd(bool stickToBottom)
     {
         if (!stickToBottom || _model.Entries.Count == 0)
@@ -728,9 +797,53 @@ public sealed partial class AssistantPane : UserControl, IDisposable, IAgentTool
             return;
         }
 
-        TranscriptList.UpdateLayout();
+        if (_userScrolling)
+        {
+            _autoScrollPending = true;
+            return;
+        }
+
+        _autoScrollTimer ??= CreateAutoScrollTimer();
+        if (_autoScrollTimer.IsRunning)
+        {
+            _autoScrollPending = true;
+            return;
+        }
+
+        ScrollToEndNow();
+    }
+
+    private void ScrollToEndNow()
+    {
+        if (_transcriptScroll is null)
+            return;
+
+        _autoScrollPending = false;
         _autoScrolling = true;
-        _transcriptScroll.ChangeView(null, _transcriptScroll.ScrollableHeight, null, disableAnimation: false);
+        _autoScrollTarget = _transcriptScroll.ScrollableHeight;
+        _transcriptScroll.ChangeView(null, _autoScrollTarget, null, disableAnimation: false);
+        _autoScrollTimer?.Start();
+    }
+
+    /// <summary>Also catches up when the content grew after the last request settled - markdown renders
+    /// on a debounce of its own, so the final delta can make the list taller than we scrolled to.</summary>
+    private Microsoft.UI.Dispatching.DispatcherQueueTimer CreateAutoScrollTimer()
+    {
+        var timer = DispatcherQueue.CreateTimer();
+        timer.Interval = TimeSpan.FromMilliseconds(100);
+        timer.IsRepeating = false;
+        timer.Tick += (_, _) =>
+        {
+            var grew = _transcriptScroll is not null
+                && _transcriptScroll.ScrollableHeight - _autoScrollTarget > 1;
+            if (!_autoScrollPending && !grew)
+                return;
+
+            _autoScrollPending = false;
+            if (_stickToBottom && !_userScrolling)
+                ScrollToEndNow();
+        };
+        return timer;
     }
 
     /// <summary>Quick fade-in for a freshly realized entry; disabled list transitions mean this is the
@@ -880,7 +993,8 @@ public sealed partial class AssistantPane : UserControl, IDisposable, IAgentTool
         _transcript.Cleared -= Transcript_Cleared;
         _configuration.Changed -= Configuration_Changed;
         if (_transcriptScroll is not null)
-            _transcriptScroll.ViewChanged -= TranscriptScroll_ViewChanged;
+            UnsubscribeFromScroll(_transcriptScroll);
+        _autoScrollTimer?.Stop();
         CancelInFlight();
     }
 }

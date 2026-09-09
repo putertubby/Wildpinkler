@@ -25,6 +25,7 @@ public sealed partial class AssistantMarkdown : UserControl
 
     private readonly DispatcherQueueTimer _renderTimer;
     private string _pendingText = string.Empty;
+    private string _renderedText = string.Empty;
 
     public AssistantMarkdown()
     {
@@ -50,19 +51,26 @@ public sealed partial class AssistantMarkdown : UserControl
         ((AssistantMarkdown)sender).ScheduleRender((string?)args.NewValue ?? string.Empty);
 
     /// <summary>Streaming rewrites Text many times a second; rebuilding the whole visual tree that often
-    /// is what causes the flicker, so updates are coalesced and only the first paint renders immediately.</summary>
+    /// is what causes the flicker, so appends are coalesced. Anything that is not an append is a
+    /// different entry (the list recycles containers) and must render now: a debounced swap would change
+    /// the row's height after it was measured and jerk the scroll position.</summary>
     private void ScheduleRender(string markdown)
     {
         _pendingText = markdown;
         _renderTimer.Stop();
-        if (ContentRoot.Children.Count == 0)
-            Render(markdown);
-        else
+
+        if (markdown == _renderedText)
+            return;
+
+        if (_renderedText.Length > 0 && markdown.StartsWith(_renderedText, StringComparison.Ordinal))
             _renderTimer.Start();
+        else
+            Render(markdown);
     }
 
     private void Render(string markdown)
     {
+        _renderedText = markdown;
         ContentRoot.Children.Clear();
 
         var flow = new List<MarkdownBlock>();
