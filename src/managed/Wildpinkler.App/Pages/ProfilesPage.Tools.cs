@@ -104,8 +104,15 @@ public sealed partial class ProfilesPage
     {
         // Don't rely on the x:Bind TwoWay push having already run before this handler - read the
         // switch's own state directly so a same-event ordering race can never read a stale IsEnabled.
-        if (sender is ToggleSwitch { DataContext: ProfileToolRow row } toggle)
-            row.IsEnabled = toggle.IsOn;
+        if (sender is not ToggleSwitch { DataContext: ProfileToolRow row } toggle)
+            return;
+
+        // A container rebuild can re-realize the switch and re-fire Toggled with the value it already
+        // has - only a real change should trigger another save.
+        if (row.IsEnabled == toggle.IsOn)
+            return;
+
+        row.IsEnabled = toggle.IsOn;
 
         CommitToolBindings();
     }

@@ -18,10 +18,18 @@ public sealed partial class ProfilesPage
 
     private void AttachLoadOrder(Profile profile)
     {
-        DetachLoadOrder();
-        _loadOrderSubscribedProfile = profile;
-        profile.LoadOrder.CollectionChanged += LoadOrderFolders_CollectionChanged;
-        FolderList.ItemsSource = profile.LoadOrder;
+        // Re-invoked on every store resync even when the same profile is still selected - resetting
+        // FolderList.ItemsSource unconditionally would tear down and rebuild every row container (and
+        // can spuriously re-fire each ToggleSwitch's Toggled event), so only reattach when the
+        // profile identity actually changed.
+        if (!ReferenceEquals(profile, _loadOrderSubscribedProfile))
+        {
+            DetachLoadOrder();
+            _loadOrderSubscribedProfile = profile;
+            profile.LoadOrder.CollectionChanged += LoadOrderFolders_CollectionChanged;
+            FolderList.ItemsSource = profile.LoadOrder;
+        }
+
         UpdateProfileViewBranchCount(profile);
         LoadOrderErrorText.Visibility = Visibility.Collapsed;
     }
@@ -72,8 +80,15 @@ public sealed partial class ProfilesPage
         if (SelectedProfile is not { } profile || !_runAccess.CanModify(profile))
             return;
 
-        if (sender is ToggleSwitch { DataContext: ProfileFolder folder } toggle)
-            folder.IsEnabled = toggle.IsOn;
+        if (sender is not ToggleSwitch { DataContext: ProfileFolder folder } toggle)
+            return;
+
+        // A container rebuild (e.g. from a resync) can re-realize the switch and re-fire Toggled with
+        // the value it already has - only a real change should trigger another save.
+        if (folder.IsEnabled == toggle.IsOn)
+            return;
+
+        folder.IsEnabled = toggle.IsOn;
 
         RefreshWorkspace();
         Save("Save load order");

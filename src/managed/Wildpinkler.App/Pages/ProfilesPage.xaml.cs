@@ -984,7 +984,13 @@ public sealed partial class ProfilesPage : PageBase
         QueueStatus.Text = $"{label} queued";
         _queue.Enqueue(async () =>
         {
-            try { await operation(); }
+            try
+            {
+                await operation();
+                // Our own write already bumped the store's revision - adopt it now so the resulting
+                // ProfileStore.Changed doesn't send this page into a redundant resync of its own data.
+                DispatcherQueue.TryEnqueue(() => _profilesRevision = _store.Revision);
+            }
             catch (Exception exception) { DispatcherQueue.TryEnqueue(() => QueueStatus.Text = exception.Message); }
         });
     }
