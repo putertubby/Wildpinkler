@@ -8,7 +8,8 @@
     xmlns:models="using:Wildpinkler.App.Models"
     xmlns:controls="using:Wildpinkler.App.Controls"
     xmlns:controlsToolkit="using:CommunityToolkit.WinUI.Controls"
-    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
+    KeyboardAcceleratorPlacementMode="Hidden">
 
     <Page.KeyboardAccelerators>
         <KeyboardAccelerator Modifiers="Control" Key="F" Invoked="FocusSearch_Invoked" />

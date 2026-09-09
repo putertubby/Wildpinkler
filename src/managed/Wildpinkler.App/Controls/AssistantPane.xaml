@@ -5,7 +5,8 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:agent="using:Wildpinkler.App.Agent"
     xmlns:controls="using:Wildpinkler.App.Controls"
-    MinWidth="280">
+    MinWidth="280"
+    KeyboardAcceleratorPlacementMode="Hidden">
 
     <UserControl.KeyboardAccelerators>
         <KeyboardAccelerator Key="Escape" Invoked="StopAccelerator_Invoked" />

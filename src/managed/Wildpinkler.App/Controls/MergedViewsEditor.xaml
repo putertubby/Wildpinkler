@@ -84,7 +84,7 @@
                                           ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                                     <ListView.ItemTemplate>
                                         <DataTemplate>
-                                            <Grid x:Name="BranchRowRoot" ColumnSpacing="8" Padding="0,4">
+                                            <Grid x:Name="BranchRowRoot" ColumnSpacing="8" Padding="0,4" KeyboardAcceleratorPlacementMode="Hidden">
                                                 <Grid.ColumnDefinitions>
                                                     <ColumnDefinition Width="Auto" />
                                                     <ColumnDefinition Width="*" />

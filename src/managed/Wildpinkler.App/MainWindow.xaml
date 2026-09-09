@@ -26,7 +26,7 @@
                   IsPaneToggleButtonVisible="True"
                   PaneToggleRequested="AppTitleBar_PaneToggleRequested" />
 
-        <Grid x:Name="ShellGrid" Grid.Row="1" SizeChanged="ShellGrid_SizeChanged">
+        <Grid x:Name="ShellGrid" Grid.Row="1" SizeChanged="ShellGrid_SizeChanged" KeyboardAcceleratorPlacementMode="Hidden">
             <Grid.KeyboardAccelerators>
                 <KeyboardAccelerator Key="F6" Invoked="CycleRegion_Invoked" />
                 <KeyboardAccelerator Key="F6" Modifiers="Shift" Invoked="CycleRegion_Invoked" />

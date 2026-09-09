@@ -402,6 +402,7 @@ private void AppTitleBar_PaneToggleRequested(TitleBar sender, object args)
 - Use a `SplitButton` only when the primary action has a common default plus closely related alternatives. Use a `MenuFlyout` for a compact, contextual command group.
 - Keep a command in the same location across pages where it means the same thing. Enable it only when its prerequisites are met, and retain a tooltip that explains an unavailable state where useful.
 - Use familiar accelerators only for frequent operations, such as `Ctrl+N`, `Ctrl+S`, and `Ctrl+F`. Define `KeyboardAccelerator` behavior and expose the shortcut in tooltip and `AutomationProperties.AcceleratorKey`; the latter announces metadata but does not implement the shortcut.
+- WinUI shows an automatic floating tooltip with the key-combo text for any `KeyboardAccelerator` whose owning element has no tooltip of its own. This is appropriate on `Button`/`AppBarButton`/`AppBarToggleButton`, where it augments or is overridden by an explicit `ToolTipService.ToolTip`. When an accelerator instead sits on a `Grid`, `Page`, `UserControl`, or another non-tooltipped element (for example a virtualized list row used as a `ScopeOwner`), set `KeyboardAcceleratorPlacementMode="Hidden"` on that owning element; otherwise the tooltip has no sensible anchor and can appear misplaced or fail to dismiss.
 
 ### Collections and list/details
 
@@ -500,7 +501,7 @@ private void AppTitleBar_PaneToggleRequested(TitleBar sender, object args)
 - Enter/Space invokes focused commands; Escape dismisses transient UI; arrows navigate within lists, trees, menus, and related control groups; Home/End work in lists and scrolling regions.
 - Do not set initial focus to a destructive command. On a task page, target the primary meaningful region/action; on a dialog, let a focusable form field receive focus when appropriate.
 - Add accelerators for high-frequency commands and access keys for important in-window controls where their localization and discoverability can be supported.
-- Implement `F6`/`Shift+F6` cycling for major app regions when the shell becomes complex (for example: navigation, page commands or search, main content, and details). It is not automatic; each target should have an accessible name.
+- Implement `F6`/`Shift+F6` cycling for major app regions when the shell becomes complex (for example: navigation, page commands or search, main content, and details). It is not automatic; each target should have an accessible name. Since the region-cycling accelerator typically lives on a `Grid`/`Page` rather than a tooltipped control, see the `KeyboardAcceleratorPlacementMode` guidance under Commands, Lists, and Status.
 
 ### Contrast, scaling, and localization
 
