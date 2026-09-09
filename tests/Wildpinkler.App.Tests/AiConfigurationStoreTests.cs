@@ -78,6 +78,18 @@ public sealed class AiConfigurationStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task ResolveAsync_ReplacementKey_UsesDraftWithoutChangingSavedCredential()
+    {
+        await _store.SaveAsync("openai", null, null, "sk-saved", AssistantMode.Agent, true, Token);
+
+        var result = await _store.ResolveAsync("openai", null, null, "sk-draft", Token);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal("sk-draft", result.Configuration!.ApiKey);
+        Assert.Equal("sk-saved", await _credentials.GetAsync("assistant:openai"));
+    }
+
+    [Fact]
     public async Task SaveAsync_EmptyApiKey_ClearsStoredKey()
     {
         await _store.SaveAsync("openai", null, null, "sk-original", AssistantMode.Agent, true, Token);

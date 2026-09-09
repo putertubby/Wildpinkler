@@ -96,6 +96,16 @@ internal sealed class SiteRow : ObservableObject
         IsEnabled = IsEnabled,
         DownloadMethod = MethodIndex == 0 ? RemoteDownloadMethod.Api : RemoteDownloadMethod.Browser,
     };
+
+    public void UpdateFrom(RemoteSite site)
+    {
+        Name = site.Name;
+        BaseUrl = site.BaseUrl;
+        ApiKey = site.ApiKey;
+        IsEnabled = site.IsEnabled;
+        MethodIndex = site.DownloadMethod == RemoteDownloadMethod.Api ? 0 : 1;
+        ValidationMessage = string.Empty;
+    }
 }
 
 public sealed partial class SettingsPage : PageBase
@@ -106,15 +116,30 @@ public sealed partial class SettingsPage : PageBase
     private bool _isApplyingSavedTheme;
     private bool _isLoading = true;
     private bool _hasNoSites;
+    private bool _isAppearanceDirty;
+    private bool _areSitesDirty;
+    private bool _areDownloadLinksDirty;
+    private bool _areDiagnosticsDirty;
+    private bool _isRefreshingSites;
 
     public bool IsLoading { get => _isLoading; private set => SetProperty(ref _isLoading, value); }
     public bool HasNoSites { get => _hasNoSites; private set => SetProperty(ref _hasNoSites, value); }
+    public bool IsAppearanceDirty { get => _isAppearanceDirty; private set => SetDirty(ref _isAppearanceDirty, value, SaveAppearanceCommand, RevertAppearanceCommand); }
+    public bool AreSitesDirty { get => _areSitesDirty; private set => SetDirty(ref _areSitesDirty, value, SaveSitesCommand, RevertSitesCommand); }
+    public bool AreDownloadLinksDirty { get => _areDownloadLinksDirty; private set => SetDirty(ref _areDownloadLinksDirty, value, SaveDownloadLinksCommand, RevertDownloadLinksCommand); }
+    public bool AreDiagnosticsDirty { get => _areDiagnosticsDirty; private set => SetDirty(ref _areDiagnosticsDirty, value, SaveDiagnosticsCommand, RevertDiagnosticsCommand); }
 
     public SettingsPage()
     {
         InitializeComponent();
         SiteList.ItemsSource = _sites;
         _sites.CollectionChanged += (_, _) => HasNoSites = !IsLoading && _sites.Count == 0;
+        LogFolderText.Text = AppDiagnostics.LogDirectory;
+    }
+
+    protected override void OnNavigatedTo(Microsoft.UI.Xaml.Navigation.NavigationEventArgs e)
+    {
+        base.OnNavigatedTo(e);
 
         // Item order matches the AppThemePreference members.
         _isApplyingSavedTheme = true;
@@ -125,10 +150,12 @@ public sealed partial class SettingsPage : PageBase
         _isApplyingHandlerState = true;
         ConfirmDownloadsToggle.IsOn = AppServices.AppSettings.ConfirmRemoteDownloads;
         LogLevelBox.SelectedIndex = LevelToIndex(AppServices.AppSettings.LogLevel);
-        LogFolderText.Text = AppDiagnostics.LogDirectory;
         _isApplyingHandlerState = false;
 
-        _ = LoadSitesAsync();
+        IsAppearanceDirty = false;
+        AreDownloadLinksDirty = false;
+        AreDiagnosticsDirty = false;
+        UiTask.Run(LoadSitesAsync, nameof(OnNavigatedTo), exception => ShowInfo($"Unable to load the remote sites: {exception.Message}", InfoBarSeverity.Error));
         LoadAssistant();
     }
 
@@ -147,10 +174,7 @@ public sealed partial class SettingsPage : PageBase
         if (_isApplyingHandlerState || LogLevelBox.SelectedIndex < 0)
             return;
 
-        var level = SelectableLogLevels[LogLevelBox.SelectedIndex];
-        AppDiagnostics.Verbosity.Level = level;
-        AppServices.AppSettings.LogLevel = level;
-        AppServices.AppSettingsStore.Save(AppServices.AppSettings);
+        AreDiagnosticsDirty = true;
     }
 
     private void OpenLogFolder_Click(object sender, RoutedEventArgs args)
@@ -223,30 +247,87 @@ public sealed partial class SettingsPage : PageBase
         if (_isApplyingHandlerState)
             return;
 
-        // Read the control rather than trusting a two-way push-back to have landed already.
-        var wantsHandler = ((ToggleSwitch)sender).IsOn;
+        AreDownloadLinksDirty = true;
+    }
+
+    private void ConfirmDownloads_Toggled(object sender, RoutedEventArgs args)
+    {
+        if (!_isApplyingHandlerState)
+            AreDownloadLinksDirty = true;
+    }
+
+    private bool CanSaveAppearance() => IsAppearanceDirty;
+
+    [RelayCommand(CanExecute = nameof(CanSaveAppearance))]
+    private void SaveAppearance()
+    {
+        if (AppServices.ThemeService.SetPreference((AppThemePreference)ThemeSelector.SelectedIndex))
+        {
+            IsAppearanceDirty = false;
+            return;
+        }
+
+        ShowInfo("The appearance settings could not be written to disk.", InfoBarSeverity.Error);
+    }
+
+    private bool CanRevertAppearance() => IsAppearanceDirty;
+
+    [RelayCommand(CanExecute = nameof(CanRevertAppearance))]
+    private void RevertAppearance()
+    {
+        _isApplyingSavedTheme = true;
+        ThemeSelector.SelectedIndex = (int)AppServices.ThemeService.Preference;
+        _isApplyingSavedTheme = false;
+        IsAppearanceDirty = false;
+    }
+
+    private bool CanSaveDownloadLinks() => AreDownloadLinksDirty;
+
+    [RelayCommand(CanExecute = nameof(CanSaveDownloadLinks))]
+    private void SaveDownloadLinks()
+    {
+        // Read the controls rather than trusting a two-way push-back to have landed already.
+        var wantsHandler = NxmHandlerToggle.IsOn;
+        var previousConfirmDownloads = AppServices.AppSettings.ConfirmRemoteDownloads;
         try
         {
             if (wantsHandler)
                 AppServices.NxmProtocolRegistrar.Register();
             else
                 AppServices.NxmProtocolRegistrar.Unregister();
+
+            AppServices.AppSettings.ConfirmRemoteDownloads = ConfirmDownloadsToggle.IsOn;
+            if (!AppServices.AppSettingsStore.Save(AppServices.AppSettings))
+            {
+                AppServices.AppSettings.ConfirmRemoteDownloads = previousConfirmDownloads;
+                HandlerInfoBar.Severity = InfoBarSeverity.Error;
+                HandlerInfoBar.Message = "The download-link settings could not be written to disk.";
+                HandlerInfoBar.IsOpen = true;
+                return;
+            }
+
+            AreDownloadLinksDirty = false;
         }
         catch (Exception exception)
         {
-            ShowInfo(exception.Message, InfoBarSeverity.Error);
+            HandlerInfoBar.Severity = InfoBarSeverity.Error;
+            HandlerInfoBar.Message = exception.Message;
+            HandlerInfoBar.IsOpen = true;
         }
 
         RefreshHandlerState();
     }
 
-    private void ConfirmDownloads_Toggled(object sender, RoutedEventArgs args)
-    {
-        if (_isApplyingHandlerState)
-            return;
+    private bool CanRevertDownloadLinks() => AreDownloadLinksDirty;
 
-        AppServices.AppSettings.ConfirmRemoteDownloads = ((ToggleSwitch)sender).IsOn;
-        AppServices.AppSettingsStore.Save(AppServices.AppSettings);
+    [RelayCommand(CanExecute = nameof(CanRevertDownloadLinks))]
+    private void RevertDownloadLinks()
+    {
+        RefreshHandlerState();
+        _isApplyingHandlerState = true;
+        ConfirmDownloadsToggle.IsOn = AppServices.AppSettings.ConfirmRemoteDownloads;
+        _isApplyingHandlerState = false;
+        AreDownloadLinksDirty = false;
     }
 
     private void ThemeSelector_SelectionChanged(object sender, SelectionChangedEventArgs args)
@@ -254,17 +335,41 @@ public sealed partial class SettingsPage : PageBase
         if (_isApplyingSavedTheme || ThemeSelector.SelectedIndex < 0)
             return;
 
-        AppServices.ThemeService.SetPreference((AppThemePreference)ThemeSelector.SelectedIndex);
+        IsAppearanceDirty = true;
     }
 
     private async Task LoadSitesAsync()
     {
         IsLoading = true;
+        _isRefreshingSites = true;
         try
         {
-            _sites.Clear();
-            foreach (var site in await _siteStore.LoadAsync())
-                _sites.Add(SiteRow.FromSite(site));
+            var incoming = await _siteStore.LoadAsync();
+            var siteIds = incoming.Select(site => site.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            for (var index = _sites.Count - 1; index >= 0; index--)
+            {
+                if (!siteIds.Contains(_sites[index].Id))
+                    _sites.RemoveAt(index);
+            }
+
+            for (var index = 0; index < incoming.Count; index++)
+            {
+                var site = incoming[index];
+                var existingIndex = _sites.ToList().FindIndex(row =>
+                    string.Equals(row.Id, site.Id, StringComparison.OrdinalIgnoreCase));
+                if (existingIndex < 0)
+                {
+                    var insertedRow = SiteRow.FromSite(site);
+                    insertedRow.PropertyChanged += SiteRow_PropertyChanged;
+                    _sites.Insert(index, insertedRow);
+                    continue;
+                }
+
+                var row = _sites[existingIndex];
+                row.UpdateFrom(site);
+                if (existingIndex != index)
+                    _sites.Move(existingIndex, index);
+            }
         }
         catch (Exception exception)
         {
@@ -272,24 +377,83 @@ public sealed partial class SettingsPage : PageBase
         }
         finally
         {
+            _isRefreshingSites = false;
             IsLoading = false;
             HasNoSites = _sites.Count == 0;
+            AreSitesDirty = false;
         }
     }
 
-    [RelayCommand]
+    private bool CanSaveSites() => AreSitesDirty;
+
+    [RelayCommand(CanExecute = nameof(CanSaveSites))]
     private async Task SaveSitesAsync()
     {
         try
         {
             await _siteStore.SaveAsync(_sites.Select(row => row.ToSite()).ToList());
             AppServices.RemoteSiteContext.Invalidate();
+            AreSitesDirty = false;
             ShowInfo("Remote sites saved.", InfoBarSeverity.Success);
         }
         catch (Exception exception)
         {
             ShowInfo($"Unable to save the remote sites: {exception.Message}", InfoBarSeverity.Error);
         }
+    }
+
+    private bool CanRevertSites() => AreSitesDirty;
+
+    [RelayCommand(CanExecute = nameof(CanRevertSites))]
+    private Task RevertSitesAsync() => LoadSitesAsync();
+
+    private void SiteRow_PropertyChanged(object? sender, PropertyChangedEventArgs args)
+    {
+        if (_isRefreshingSites)
+            return;
+
+        if (args.PropertyName is nameof(SiteRow.IsEnabled) or nameof(SiteRow.MethodIndex) or nameof(SiteRow.ApiKey))
+            AreSitesDirty = true;
+    }
+
+    private bool CanSaveDiagnostics() => AreDiagnosticsDirty;
+
+    [RelayCommand(CanExecute = nameof(CanSaveDiagnostics))]
+    private void SaveDiagnostics()
+    {
+        var level = SelectableLogLevels[LogLevelBox.SelectedIndex];
+        var previousLevel = AppServices.AppSettings.LogLevel;
+        AppServices.AppSettings.LogLevel = level;
+        if (!AppServices.AppSettingsStore.Save(AppServices.AppSettings))
+        {
+            AppServices.AppSettings.LogLevel = previousLevel;
+            ShowDiagnosticsInfo("The diagnostic settings could not be written to disk.", InfoBarSeverity.Error);
+            return;
+        }
+
+        AppDiagnostics.Verbosity.Level = level;
+        AreDiagnosticsDirty = false;
+    }
+
+    private bool CanRevertDiagnostics() => AreDiagnosticsDirty;
+
+    [RelayCommand(CanExecute = nameof(CanRevertDiagnostics))]
+    private void RevertDiagnostics()
+    {
+        _isApplyingHandlerState = true;
+        LogLevelBox.SelectedIndex = LevelToIndex(AppServices.AppSettings.LogLevel);
+        _isApplyingHandlerState = false;
+        AreDiagnosticsDirty = false;
+    }
+
+    private bool SetDirty(ref bool storage, bool value, IRelayCommand saveCommand, IRelayCommand revertCommand)
+    {
+        if (!SetProperty(ref storage, value))
+            return false;
+
+        saveCommand.NotifyCanExecuteChanged();
+        revertCommand.NotifyCanExecuteChanged();
+        return true;
     }
 
     private void SsoSignIn_Click(object sender, RoutedEventArgs args)

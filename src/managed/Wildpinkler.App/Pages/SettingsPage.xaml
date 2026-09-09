@@ -23,7 +23,19 @@
 
                 <Border Style="{StaticResource ContentCardStyle}" Padding="16">
                     <StackPanel Spacing="12">
-                        <TextBlock Style="{StaticResource SectionLabelStyle}" Text="APPEARANCE" />
+                        <Grid ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Style="{StaticResource SectionLabelStyle}" Text="APPEARANCE" VerticalAlignment="Center" />
+                            <CommandBar Grid.Column="1" DefaultLabelPosition="Right" Background="Transparent">
+                                <AppBarButton Command="{x:Bind SaveAppearanceCommand}" Icon="Save" Label="Save"
+                                              ToolTipService.ToolTip="Save appearance settings" />
+                                <AppBarButton Command="{x:Bind RevertAppearanceCommand}" Icon="Undo" Label="Revert"
+                                              ToolTipService.ToolTip="Discard appearance changes" />
+                            </CommandBar>
+                        </Grid>
                         <RadioButtons x:Name="ThemeSelector" Header="App theme" SelectionChanged="ThemeSelector_SelectionChanged">
                             <RadioButton Content="Use system setting" />
                             <RadioButton Content="Light" />
@@ -42,8 +54,12 @@
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <TextBlock Style="{StaticResource SectionLabelStyle}" Text="REMOTE SITES" VerticalAlignment="Center" />
-                            <Button Grid.Column="1" Command="{x:Bind SaveSitesCommand}" Content="Save"
-                                    Style="{StaticResource AccentButtonStyle}" />
+                            <CommandBar Grid.Column="1" DefaultLabelPosition="Right" Background="Transparent">
+                                <AppBarButton Command="{x:Bind SaveSitesCommand}" Icon="Save" Label="Save"
+                                              ToolTipService.ToolTip="Save remote-site settings" />
+                                <AppBarButton Command="{x:Bind RevertSitesCommand}" Icon="Undo" Label="Revert"
+                                              ToolTipService.ToolTip="Discard remote-site changes" />
+                            </CommandBar>
                         </Grid>
 
                         <ProgressRing IsActive="{x:Bind IsLoading, Mode=OneWay}" Visibility="{x:Bind IsLoading, Mode=OneWay}"
@@ -110,7 +126,19 @@
 
                 <Border Style="{StaticResource ContentCardStyle}" Padding="16">
                     <StackPanel Spacing="12">
-                        <TextBlock Style="{StaticResource SectionLabelStyle}" Text="ASSISTANT" />
+                        <Grid ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Style="{StaticResource SectionLabelStyle}" Text="ASSISTANT" VerticalAlignment="Center" />
+                            <CommandBar Grid.Column="1" DefaultLabelPosition="Right" Background="Transparent">
+                                <AppBarButton Command="{x:Bind SaveAssistantCommand}" Icon="Save" Label="Save"
+                                              ToolTipService.ToolTip="Save assistant settings" />
+                                <AppBarButton Command="{x:Bind RevertAssistantCommand}" Icon="Undo" Label="Revert"
+                                              ToolTipService.ToolTip="Discard assistant changes" />
+                            </CommandBar>
+                        </Grid>
 
                         <InfoBar x:Name="AssistantInfoBar" IsOpen="False" IsClosable="False" />
 
@@ -179,7 +207,19 @@
 
                 <Border Style="{StaticResource ContentCardStyle}" Padding="16">
                     <StackPanel Spacing="12">
-                        <TextBlock Style="{StaticResource SectionLabelStyle}" Text="DOWNLOAD LINKS" />
+                        <Grid ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Style="{StaticResource SectionLabelStyle}" Text="DOWNLOAD LINKS" VerticalAlignment="Center" />
+                            <CommandBar Grid.Column="1" DefaultLabelPosition="Right" Background="Transparent">
+                                <AppBarButton Command="{x:Bind SaveDownloadLinksCommand}" Icon="Save" Label="Save"
+                                              ToolTipService.ToolTip="Save download-link settings" />
+                                <AppBarButton Command="{x:Bind RevertDownloadLinksCommand}" Icon="Undo" Label="Revert"
+                                              ToolTipService.ToolTip="Discard download-link changes" />
+                            </CommandBar>
+                        </Grid>
 
                         <InfoBar x:Name="HandlerInfoBar" IsOpen="False" IsClosable="False" />
 
@@ -195,7 +235,19 @@
 
                 <Border Style="{StaticResource ContentCardStyle}" Padding="16">
                     <StackPanel Spacing="12">
-                        <TextBlock Style="{StaticResource SectionLabelStyle}" Text="DIAGNOSTICS" />
+                        <Grid ColumnSpacing="12">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Style="{StaticResource SectionLabelStyle}" Text="DIAGNOSTICS" VerticalAlignment="Center" />
+                            <CommandBar Grid.Column="1" DefaultLabelPosition="Right" Background="Transparent">
+                                <AppBarButton Command="{x:Bind SaveDiagnosticsCommand}" Icon="Save" Label="Save"
+                                              ToolTipService.ToolTip="Save diagnostic settings" />
+                                <AppBarButton Command="{x:Bind RevertDiagnosticsCommand}" Icon="Undo" Label="Revert"
+                                              ToolTipService.ToolTip="Discard diagnostic changes" />
+                            </CommandBar>
+                        </Grid>
 
                         <ComboBox x:Name="LogLevelBox" Header="Log detail" Width="220"
                                   AutomationProperties.Name="Log detail"

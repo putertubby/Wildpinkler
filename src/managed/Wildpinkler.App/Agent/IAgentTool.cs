@@ -176,4 +176,7 @@ public interface IChatCompletionClient
 
     /// <summary>Sends a minimal request so a provider can be verified without starting a conversation.</summary>
     Task<AgentToolResult> TestAsync(CancellationToken cancellationToken);
+
+    /// <summary>Sends a minimal request using an uncommitted settings draft.</summary>
+    Task<AgentToolResult> TestAsync(AiConfiguration configuration, CancellationToken cancellationToken);
 }

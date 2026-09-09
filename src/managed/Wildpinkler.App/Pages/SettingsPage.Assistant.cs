@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Wildpinkler.App.Agent;
@@ -19,7 +20,22 @@ public sealed partial class SettingsPage
     private readonly AiModelCatalog _aiModels = AppHost.Get<AiModelCatalog>();
 
     private bool _isApplyingAssistantState;
+    private bool _hasPendingApiKey;
     private string? _pendingApiKey;
+    private bool _isAssistantDirty;
+
+    public bool IsAssistantDirty
+    {
+        get => _isAssistantDirty;
+        private set
+        {
+            if (SetProperty(ref _isAssistantDirty, value))
+            {
+                SaveAssistantCommand.NotifyCanExecuteChanged();
+                RevertAssistantCommand.NotifyCanExecuteChanged();
+            }
+        }
+    }
 
     private AiProviderPreset SelectedPreset =>
         AssistantProviderBox.SelectedItem as AiProviderPreset ?? AiProviderPresets.Default;
@@ -35,6 +51,9 @@ public sealed partial class SettingsPage
             AssistantProviderBox.SelectedItem = AiProviderPresets.GetOrDefault(configuration.ProviderId);
             AssistantEndpointBox.Text = configuration.Endpoint?.AbsoluteUri ?? string.Empty;
             AssistantModelBox.Text = configuration.ModelId;
+            AssistantKeyBox.Password = string.Empty;
+            _pendingApiKey = null;
+            _hasPendingApiKey = false;
             // Item order matches the AssistantMode members.
             AssistantModeSelector.SelectedIndex = (int)AppServices.AppSettings.AssistantMode;
             AssistantPersistToggle.IsOn = AppServices.AppSettings.AssistantPersistTranscript;
@@ -42,6 +61,7 @@ public sealed partial class SettingsPage
             AssistantShowUsageToggle.IsOn = AppServices.AppSettings.AssistantShowUsage;
 
             await ApplyPresetChromeAsync();
+            IsAssistantDirty = false;
         }
         finally
         {
@@ -59,8 +79,7 @@ public sealed partial class SettingsPage
         if (_isApplyingAssistantState)
             return;
 
-        AppServices.AppSettings.AssistantOffersAllTools = AssistantOffersAllToolsToggle.IsOn;
-        AppServices.AppSettingsStore.Save(AppServices.AppSettings);
+        IsAssistantDirty = true;
     }
 
     private void AssistantShowUsage_Toggled(object sender, RoutedEventArgs args)
@@ -68,19 +87,7 @@ public sealed partial class SettingsPage
         if (_isApplyingAssistantState)
             return;
 
-        AppServices.AppSettings.AssistantShowUsage = AssistantShowUsageToggle.IsOn;
-        AppServices.AppSettingsStore.Save(AppServices.AppSettings);
-    }
-
-    // The pane can change the mode too, so it is re-read on every visit rather than only at construction.
-    protected override void OnNavigatedTo(Microsoft.UI.Xaml.Navigation.NavigationEventArgs e)
-    {
-        base.OnNavigatedTo(e);
-        _isApplyingAssistantState = true;
-        AssistantModeSelector.SelectedIndex = (int)AppServices.AppSettings.AssistantMode;
-        AssistantOffersAllToolsToggle.IsOn = AppServices.AppSettings.AssistantOffersAllTools;
-        AssistantShowUsageToggle.IsOn = AppServices.AppSettings.AssistantShowUsage;
-        _isApplyingAssistantState = false;
+        IsAssistantDirty = true;
     }
 
     private async Task ApplyPresetChromeAsync()
@@ -126,22 +133,29 @@ public sealed partial class SettingsPage
         if (_isApplyingAssistantState)
             return;
 
-        UiTask.Run(ApplyProviderChangeAsync, nameof(AssistantProvider_SelectionChanged), ShowAssistantError);
+        ApplyProviderChange();
     }
 
-    private async Task ApplyProviderChangeAsync()
+    private void ApplyProviderChange()
     {
         var preset = SelectedPreset;
         _isApplyingAssistantState = true;
-        AssistantEndpointBox.Text = preset.Endpoint;
-        AssistantModelBox.Text = preset.DefaultModel;
-        AssistantModelBox.ItemsSource = null;
-        AssistantKeyBox.Password = string.Empty;
-        _pendingApiKey = null;
-        _isApplyingAssistantState = false;
+        try
+        {
+            AssistantEndpointBox.Text = preset.Endpoint;
+            AssistantModelBox.Text = preset.DefaultModel;
+            AssistantModelBox.ItemsSource = null;
+            AssistantKeyBox.Password = string.Empty;
+            _hasPendingApiKey = false;
+            _pendingApiKey = null;
+        }
+        finally
+        {
+            _isApplyingAssistantState = false;
+        }
 
-        await ApplyPresetChromeAsync();
-        await SaveAssistantAsync();
+        IsAssistantDirty = true;
+        UiTask.Run(ApplyPresetChromeAsync, nameof(AssistantProvider_SelectionChanged), ShowAssistantError);
     }
 
     private void AssistantModel_SelectionChanged(object sender, SelectionChangedEventArgs args)
@@ -149,7 +163,7 @@ public sealed partial class SettingsPage
         if (_isApplyingAssistantState || args.AddedItems.Count == 0)
             return;
 
-        UiTask.Run(() => SaveAssistantAsync(), nameof(AssistantModel_SelectionChanged), ShowAssistantError);
+        IsAssistantDirty = true;
     }
 
     private void AssistantField_LostFocus(object sender, RoutedEventArgs args)
@@ -157,7 +171,7 @@ public sealed partial class SettingsPage
         if (_isApplyingAssistantState)
             return;
 
-        UiTask.Run(() => SaveAssistantAsync(), nameof(AssistantField_LostFocus), ShowAssistantError);
+        IsAssistantDirty = true;
     }
 
     private void AssistantToggle_Toggled(object sender, RoutedEventArgs args)
@@ -165,7 +179,7 @@ public sealed partial class SettingsPage
         if (_isApplyingAssistantState)
             return;
 
-        UiTask.Run(() => SaveAssistantAsync(), nameof(AssistantToggle_Toggled), ShowAssistantError);
+        IsAssistantDirty = true;
     }
 
     private void AssistantMode_SelectionChanged(object sender, SelectionChangedEventArgs args)
@@ -173,7 +187,7 @@ public sealed partial class SettingsPage
         if (_isApplyingAssistantState || AssistantModeSelector.SelectedIndex < 0)
             return;
 
-        UiTask.Run(() => SaveAssistantAsync(), nameof(AssistantMode_SelectionChanged), ShowAssistantError);
+        IsAssistantDirty = true;
     }
 
     private void AssistantKey_PasswordChanged(object sender, RoutedEventArgs args)
@@ -182,54 +196,81 @@ public sealed partial class SettingsPage
             return;
 
         _pendingApiKey = AssistantKeyBox.Password;
+        _hasPendingApiKey = true;
+        IsAssistantDirty = true;
     }
 
-    private async Task<bool> SaveAssistantAsync()
+    private bool CanSaveAssistant() => IsAssistantDirty;
+
+    [RelayCommand(CanExecute = nameof(CanSaveAssistant))]
+    private async Task SaveAssistantAsync()
     {
+        var previousOffersAllTools = AppServices.AppSettings.AssistantOffersAllTools;
+        var previousShowUsage = AppServices.AppSettings.AssistantShowUsage;
+        AppServices.AppSettings.AssistantOffersAllTools = AssistantOffersAllToolsToggle.IsOn;
+        AppServices.AppSettings.AssistantShowUsage = AssistantShowUsageToggle.IsOn;
+
         var result = await _aiConfiguration.SaveAsync(
             SelectedPreset.Id,
             AssistantEndpointBox.Text,
             AssistantModelBox.Text,
-            _pendingApiKey,
+            _hasPendingApiKey ? _pendingApiKey : null,
             (AssistantMode)Math.Max(AssistantModeSelector.SelectedIndex, 0),
             AssistantPersistToggle.IsOn);
 
         if (!result.Succeeded)
         {
+            AppServices.AppSettings.AssistantOffersAllTools = previousOffersAllTools;
+            AppServices.AppSettings.AssistantShowUsage = previousShowUsage;
             ShowAssistantInfo(result.Message!, InfoBarSeverity.Error);
-            return false;
+            return;
         }
 
-        if (_pendingApiKey is not null)
+        if (_hasPendingApiKey)
         {
+            _hasPendingApiKey = false;
             _pendingApiKey = null;
-            AssistantKeyBox.Password = string.Empty;
+            _isApplyingAssistantState = true;
+            try
+            {
+                AssistantKeyBox.Password = string.Empty;
+            }
+            finally
+            {
+                _isApplyingAssistantState = false;
+            }
             await ApplyPresetChromeAsync();
         }
+
+        IsAssistantDirty = false;
 
         // Saving an incomplete provider is allowed, but the user is told it will not answer yet.
         var problem = (await _aiConfiguration.GetAsync()).Problem;
         if (problem is not null)
         {
             ShowAssistantInfo(problem, InfoBarSeverity.Informational);
-            return true;
+            return;
         }
 
         AssistantInfoBar.IsOpen = false;
-        return true;
     }
+
+    private bool CanRevertAssistant() => IsAssistantDirty;
+
+    [RelayCommand(CanExecute = nameof(CanRevertAssistant))]
+    private Task RevertAssistantAsync() => LoadAssistantAsync();
 
     private void RefreshAssistantModels_Click(object sender, RoutedEventArgs args) =>
         UiTask.Run(RefreshAssistantModelsAsync, nameof(RefreshAssistantModels_Click), ShowAssistantError);
 
     private async Task RefreshAssistantModelsAsync()
     {
-        if (!await SaveAssistantAsync())
+        var draft = await ResolveAssistantDraftAsync();
+        if (draft is null)
             return;
 
         _aiModels.Invalidate();
-        var configuration = await _aiConfiguration.GetAsync();
-        var models = await _aiModels.ListModelsAsync(configuration);
+        var models = await _aiModels.ListModelsAsync(draft);
         if (models.Count == 0)
         {
             ShowAssistantInfo(
@@ -249,7 +290,8 @@ public sealed partial class SettingsPage
 
     private async Task TestAssistantAsync()
     {
-        if (!await SaveAssistantAsync())
+        var draft = await ResolveAssistantDraftAsync();
+        if (draft is null)
             return;
 
         ShowAssistantInfo("Contacting the provider\u2026", InfoBarSeverity.Informational);
@@ -257,7 +299,7 @@ public sealed partial class SettingsPage
         AgentToolResult result;
         try
         {
-            result = await AppHost.Get<IChatCompletionClient>().TestAsync(timeout.Token);
+            result = await AppHost.Get<IChatCompletionClient>().TestAsync(draft, timeout.Token);
         }
         catch (OperationCanceledException)
         {
@@ -266,6 +308,22 @@ public sealed partial class SettingsPage
         }
 
         ShowAssistantInfo(result.Content, result.Succeeded ? InfoBarSeverity.Success : InfoBarSeverity.Error);
+    }
+
+    private async Task<AiConfiguration?> ResolveAssistantDraftAsync()
+    {
+        var result = await _aiConfiguration.ResolveAsync(
+            SelectedPreset.Id,
+            AssistantEndpointBox.Text,
+            AssistantModelBox.Text,
+            _hasPendingApiKey ? _pendingApiKey : null,
+            PageToken);
+
+        if (result.Succeeded)
+            return result.Configuration;
+
+        ShowAssistantInfo(result.Message!, InfoBarSeverity.Error);
+        return null;
     }
 
     private void ClearAssistantHistory_Click(object sender, RoutedEventArgs args) =>

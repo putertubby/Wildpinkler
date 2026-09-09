@@ -444,6 +444,9 @@ public sealed class AgentConversationTests
 
         public Task<AgentToolResult> TestAsync(CancellationToken cancellationToken) =>
             Task.FromResult(AgentToolResult.Ok("ready"));
+
+        public Task<AgentToolResult> TestAsync(AiConfiguration configuration, CancellationToken cancellationToken) =>
+            Task.FromResult(AgentToolResult.Ok("ready"));
     }
 
     private sealed class FakeToolCatalog : IAgentToolCatalog

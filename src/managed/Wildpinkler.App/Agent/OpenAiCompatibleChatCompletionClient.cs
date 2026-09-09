@@ -99,9 +99,18 @@ public sealed class OpenAiCompatibleChatCompletionClient : IChatCompletionClient
 
     public async Task<AgentToolResult> TestAsync(CancellationToken cancellationToken)
     {
+        var configuration = await _configuration.GetAsync(cancellationToken);
+        return await TestAsync(configuration, cancellationToken);
+    }
+
+    public async Task<AgentToolResult> TestAsync(AiConfiguration configuration, CancellationToken cancellationToken)
+    {
         try
         {
-            var client = await GetClientAsync(cancellationToken);
+            if (!configuration.IsUsable)
+                throw new InvalidOperationException(configuration.Problem ?? "The assistant is not configured.");
+
+            var client = CreateClient(configuration);
             var completion = await client.CompleteChatAsync(
                 [new OpenAiChat.UserChatMessage("Reply with the single word: ready.")],
                 new OpenAiChat.ChatCompletionOptions { MaxOutputTokenCount = 16 },
@@ -163,18 +172,22 @@ public sealed class OpenAiCompatibleChatCompletionClient : IChatCompletionClient
             if (_client is not null && _clientConfiguration == configuration)
                 return _client;
 
-            var options = new OpenAIClientOptions { Endpoint = configuration.Endpoint };
-            if (IsOpenRouter(configuration.Endpoint!))
-                options.AddPolicy(new OpenRouterAttributionPolicy(), PipelinePosition.PerCall);
-
-            // Keyless local servers still require a non-empty credential for the Authorization header.
-            var credential = new ApiKeyCredential(
-                string.IsNullOrEmpty(configuration.ApiKey) ? "not-required" : configuration.ApiKey);
-
-            _client = new OpenAiChat.ChatClient(configuration.ModelId, credential, options);
+            _client = CreateClient(configuration);
             _clientConfiguration = configuration;
             return _client;
         }
+    }
+
+    private static OpenAiChat.ChatClient CreateClient(AiConfiguration configuration)
+    {
+        var options = new OpenAIClientOptions { Endpoint = configuration.Endpoint };
+        if (IsOpenRouter(configuration.Endpoint!))
+            options.AddPolicy(new OpenRouterAttributionPolicy(), PipelinePosition.PerCall);
+
+        // Keyless local servers still require a non-empty credential for the Authorization header.
+        var credential = new ApiKeyCredential(
+            string.IsNullOrEmpty(configuration.ApiKey) ? "not-required" : configuration.ApiKey);
+        return new OpenAiChat.ChatClient(configuration.ModelId, credential, options);
     }
 
     private static bool IsOpenRouter(Uri endpoint) =>

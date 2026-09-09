@@ -92,7 +92,8 @@ public sealed class AppSettingsStore
         }
     }
 
-    public void Save(AppSettings settings)
+    /// <summary>Writes settings atomically and reports whether the write reached disk.</summary>
+    public bool Save(AppSettings settings)
     {
         settings.SchemaVersion = CurrentSchemaVersion;
         try
@@ -101,9 +102,11 @@ public sealed class AppSettingsStore
             var temporaryPath = _path + ".tmp";
             File.WriteAllText(temporaryPath, JsonSerializer.Serialize(settings, JsonOptions));
             File.Move(temporaryPath, _path, true);
+            return true;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
+            return false;
         }
     }
 }

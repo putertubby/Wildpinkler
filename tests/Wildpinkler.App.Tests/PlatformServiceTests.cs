@@ -148,6 +148,15 @@ public sealed class AppSettingsStoreTests : IDisposable
         Assert.NotNull(new AppSettingsStore().Load());
     }
 
+    [Fact]
+    public void Save_WhenRootIsAFile_ReturnsFalse()
+    {
+        var rootFile = Path.Combine(_root, "not-a-directory");
+        File.WriteAllText(rootFile, string.Empty);
+
+        Assert.False(new AppSettingsStore(rootFile).Save(new AppSettings()));
+    }
+
     public void Dispose()
     {
         Environment.SetEnvironmentVariable("LOCALAPPDATA", _previousLocalAppData);

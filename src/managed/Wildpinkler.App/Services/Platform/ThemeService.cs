@@ -25,17 +25,23 @@ public sealed class ThemeService
             root.RequestedTheme = CurrentElementTheme;
     }
 
-    // Saved immediately rather than at window close so a crash cannot lose the choice.
-    public void SetPreference(AppThemePreference preference)
+    /// <summary>Applies a saved preference to the current window.</summary>
+    public bool SetPreference(AppThemePreference preference)
     {
         if (_settings.Theme == preference)
-            return;
+            return true;
 
+        var previous = _settings.Theme;
         _settings.Theme = preference;
+        if (!_store.Save(_settings))
+        {
+            _settings.Theme = previous;
+            return false;
+        }
+
         if (MainWindow.Instance is { } window)
             ApplyToWindow(window);
-
-        _store.Save(_settings);
+        return true;
     }
 
     private static ElementTheme ToElementTheme(AppThemePreference preference) => preference switch

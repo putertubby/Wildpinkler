@@ -37,6 +37,13 @@ public sealed record AiConfigurationSaveResult(bool Succeeded, string? Message)
     public static AiConfigurationSaveResult Failed(string message) => new(false, message);
 }
 
+public sealed record AiConfigurationResolutionResult(bool Succeeded, AiConfiguration? Configuration, string? Message)
+{
+    public static AiConfigurationResolutionResult Ok(AiConfiguration configuration) => new(true, configuration, null);
+
+    public static AiConfigurationResolutionResult Failed(string message) => new(false, null, message);
+}
+
 /// <summary>
 /// Owns the assistant's provider choice. Non-secret settings go to <see cref="AppSettingsStore"/>;
 /// the API key goes to <see cref="CredentialStore"/> in a per-provider slot so switching providers
@@ -77,6 +84,36 @@ public sealed class AiConfigurationStore
         return new AiConfiguration(preset.Id, endpoint, model, preset.RequiresApiKey, key);
     }
 
+    /// <summary>Resolves a draft without changing the saved provider configuration or credentials.</summary>
+    public async Task<AiConfigurationResolutionResult> ResolveAsync(
+        string providerId,
+        string? endpoint,
+        string? modelId,
+        string? changedApiKey,
+        CancellationToken cancellationToken = default)
+    {
+        if (!AiProviderPresets.TryGet(providerId, out var preset))
+            return AiConfigurationResolutionResult.Failed($"'{providerId}' is not a known provider.");
+
+        var endpointText = Coalesce(endpoint, preset.Endpoint);
+        if (endpointText is null)
+            return AiConfigurationResolutionResult.Failed("Enter the endpoint address.");
+
+        if (!TryParseEndpoint(endpointText, out var resolvedEndpoint, out var problem))
+            return AiConfigurationResolutionResult.Failed(problem!);
+
+        string? key = null;
+        if (preset.RequiresApiKey)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            key = changedApiKey ?? await _credentials.GetAsync(CredentialKeyFor(preset.Id));
+        }
+
+        var model = Coalesce(modelId, preset.DefaultModel) ?? string.Empty;
+        return AiConfigurationResolutionResult.Ok(new AiConfiguration(
+            preset.Id, resolvedEndpoint, model, preset.RequiresApiKey, key));
+    }
+
     /// <summary>
     /// A null <paramref name="apiKey"/> leaves the stored key untouched; an empty string clears it.
     /// </summary>
@@ -98,12 +135,25 @@ public sealed class AiConfigurationStore
 
         cancellationToken.ThrowIfCancellationRequested();
 
+        var previousProviderId = _settings.AssistantProviderId;
+        var previousEndpoint = _settings.AssistantEndpoint;
+        var previousModelId = _settings.AssistantModelId;
+        var previousMode = _settings.AssistantMode;
+        var previousPersistTranscript = _settings.AssistantPersistTranscript;
         _settings.AssistantProviderId = preset.Id;
         _settings.AssistantEndpoint = Normalize(endpoint) == preset.Endpoint ? null : Normalize(endpoint);
         _settings.AssistantModelId = Normalize(modelId) == preset.DefaultModel ? null : Normalize(modelId);
         _settings.AssistantMode = mode;
         _settings.AssistantPersistTranscript = persistTranscript;
-        _store.Save(_settings);
+        if (!_store.Save(_settings))
+        {
+            _settings.AssistantProviderId = previousProviderId;
+            _settings.AssistantEndpoint = previousEndpoint;
+            _settings.AssistantModelId = previousModelId;
+            _settings.AssistantMode = previousMode;
+            _settings.AssistantPersistTranscript = previousPersistTranscript;
+            return AiConfigurationSaveResult.Failed("The assistant settings could not be written to disk.");
+        }
 
         if (apiKey is not null)
             await _credentials.SetAsync(CredentialKeyFor(preset.Id), apiKey);
