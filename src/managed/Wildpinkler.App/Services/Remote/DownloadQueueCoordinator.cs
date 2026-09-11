@@ -169,6 +169,8 @@ public sealed record RemoteDownloadPreview(
 public sealed class DownloadQueueCoordinator
 {
     private readonly RemoteArchiveAcquisitionService _acquisition;
+    private readonly object _inFlightGate = new();
+    private readonly List<DownloadJob> _inFlight = new();
     private DispatcherQueue? _dispatcher;
 
     public DownloadQueueCoordinator(RemoteArchiveAcquisitionService acquisition) => _acquisition = acquisition;
@@ -197,7 +199,17 @@ public sealed class DownloadQueueCoordinator
             return null;
         }
 
-        var job = new DownloadJob(link, link.SiteId, confirmedGameIds);
+        DownloadJob job;
+        lock (_inFlightGate)
+        {
+            var existing = _inFlight.FirstOrDefault(item => IsSameDownload(item.Link, link));
+            if (existing is not null)
+                return existing;
+
+            job = new DownloadJob(link, link.SiteId, confirmedGameIds);
+            _inFlight.Add(job);
+        }
+
         Post(() => Jobs.Add(job));
         _ = RunAsync(job);
         return job;
@@ -270,7 +282,15 @@ public sealed class DownloadQueueCoordinator
                 job.State = DownloadJobState.Failed;
             });
         }
+        finally
+        {
+            lock (_inFlightGate)
+                _inFlight.Remove(job);
+        }
     }
+
+    private static bool IsSameDownload(RemoteLink left, RemoteLink right) =>
+        left.ToRef().IsSameFile(right.ToRef());
 
     private void Set(DownloadJob job, Action mutate) => Post(mutate);
 
