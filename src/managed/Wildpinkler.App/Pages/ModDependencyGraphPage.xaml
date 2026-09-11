@@ -14,22 +14,14 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <Grid Height="32" ColumnSpacing="12" VerticalAlignment="Center">
+        <Grid ColumnSpacing="16">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
-            <TextBlock Style="{StaticResource TitleTextBlockStyle}" Text="Mod dependency graph" />
-
-            <TextBox x:Name="GraphSearchBox" Grid.Column="1" Width="190" Height="32" MinHeight="32" VerticalAlignment="Center"
-                     PlaceholderText="Find a mod..."
-                     KeyDown="GraphSearchBox_KeyDown" TextChanged="GraphSearchBox_TextChanged"
-                     AutomationProperties.Name="Find a mod in the dependency graph" />
-            
-            <AppBarButton Grid.Column="2" Height="32" MinHeight="32" Icon="Help" Label="Legend">
+            <TextBlock Style="{StaticResource TitleTextBlockStyle}" Text="Mod dependency graph" VerticalAlignment="Center" />
+            <CommandBar Grid.Column="1" DefaultLabelPosition="Right" HorizontalAlignment="Right" Background="Transparent">
+                <AppBarButton Icon="Help" Label="Legend">
                 <AppBarButton.Flyout>
                     <Flyout Placement="BottomEdgeAlignedRight">
                         <StackPanel Spacing="12" MaxWidth="400">
@@ -102,41 +94,28 @@
                         </StackPanel>
                     </Flyout>
                 </AppBarButton.Flyout>
-            </AppBarButton>
-
-            <StackPanel Grid.Column="3" Height="32" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                <Button Height="32" MinHeight="32" Padding="8,0" Click="FitGraph_Click" ToolTipService.ToolTip="Fit all mods in view"
-                        AutomationProperties.Name="Fit graph to view">
-                    <FontIcon Glyph="&#xE799;" />
-                </Button>
-                <Slider x:Name="ZoomSlider" Width="120" Minimum="25" Maximum="200" Value="100"
-                        StepFrequency="5" ValueChanged="ZoomSlider_ValueChanged"
-                        ToolTipService.ToolTip="Graph zoom percentage"
-                        AutomationProperties.Name="Graph zoom" />
-                <TextBlock x:Name="ZoomText" Width="42" VerticalAlignment="Center" Text="100%" />
-            </StackPanel>
-
-            <CommandBar Grid.Column="4" Height="32" MinHeight="32" DefaultLabelPosition="Collapsed" HorizontalAlignment="Right" Background="Transparent">
-                <AppBarButton Height="32" MinHeight="32" Icon="More" Label="More" AutomationProperties.Name="More graph actions">
-                    <AppBarButton.Flyout>
-                        <MenuFlyout x:Name="GraphActionsFlyout">
-                            <MenuFlyoutItem Icon="Bookmarks" Text="Presets..." Click="OpenPresetsMenu_Click" />
-                            <MenuFlyoutItem Icon="Refresh" Text="Arrange..." Click="OpenArrangeMenu_Click" />
-                            <MenuFlyoutSeparator />
-                            <MenuFlyoutItem Icon="Save" Text="Export dependencies" Click="ExportSubgraph_Click" />
-                            <MenuFlyoutItem Icon="OpenFile" Text="Import dependencies" Click="ImportSubgraph_Click" />
-                            <MenuFlyoutSeparator />
-                            <MenuFlyoutItem Icon="Add" Text="Add dependency to selected mods" Click="AddBatchDependency_Click" />
-                            <MenuFlyoutItem Icon="Copy" Text="Copy dependencies to selected mods" Click="CopySelectedDependencies_Click" />
-                            <MenuFlyoutItem Icon="Delete" Text="Remove conflicts from selected mods" Click="RemoveSelectedConflicts_Click" />
-                            <MenuFlyoutSeparator />
-                            <MenuFlyoutItem Icon="Forward" Text="Select dependencies" Click="SelectDependencies_Click" />
-                            <MenuFlyoutItem Icon="Back" Text="Select dependents" Click="SelectDependents_Click" />
-                        </MenuFlyout>
-                    </AppBarButton.Flyout>
                 </AppBarButton>
-                <AppBarButton Height="32" MinHeight="32" Icon="Cancel" Label="Close" Click="BackToMods_Click"
+                <AppBarButton Label="Fit graph" Click="FitGraph_Click"
+                              ToolTipService.ToolTip="Fit all mods in view"
+                              AutomationProperties.Name="Fit graph to view">
+                    <FontIcon Glyph="&#xE799;" />
+                </AppBarButton>
+                <AppBarButton Icon="Back" Label="Back to Mods" Click="BackToMods_Click"
                               AutomationProperties.Name="Back to mods" />
+                <CommandBar.SecondaryCommands>
+                    <AppBarButton Icon="Bookmarks" Label="Presets..." Click="OpenPresetsMenu_Click" />
+                    <AppBarButton Icon="Refresh" Label="Arrange..." Click="OpenArrangeMenu_Click" />
+                    <AppBarSeparator />
+                    <AppBarButton Icon="Save" Label="Export dependencies" Click="ExportSubgraph_Click" />
+                    <AppBarButton Icon="OpenFile" Label="Import dependencies" Click="ImportSubgraph_Click" />
+                    <AppBarSeparator />
+                    <AppBarButton Icon="Add" Label="Add dependency to selected mods" Click="AddBatchDependency_Click" />
+                    <AppBarButton Icon="Copy" Label="Copy dependencies to selected mods" Click="CopySelectedDependencies_Click" />
+                    <AppBarButton Icon="Delete" Label="Remove conflicts from selected mods" Click="RemoveSelectedConflicts_Click" />
+                    <AppBarSeparator />
+                    <AppBarButton Icon="Forward" Label="Select dependencies" Click="SelectDependencies_Click" />
+                    <AppBarButton Icon="Back" Label="Select dependents" Click="SelectDependents_Click" />
+                </CommandBar.SecondaryCommands>
             </CommandBar>
         </Grid>
 
@@ -167,13 +146,37 @@
             <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
 
-                <TextBlock x:Name="SelectionCountText" Grid.Row="0" Margin="12,8,12,4" Opacity="0.7" Style="{StaticResource CaptionTextBlockStyle}"
+                <Grid Grid.Row="0" Margin="12,12,12,4" ColumnSpacing="12">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" MinWidth="160" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBox x:Name="GraphSearchBox" PlaceholderText="Find a mod..."
+                             KeyDown="GraphSearchBox_KeyDown" TextChanged="GraphSearchBox_TextChanged"
+                             AutomationProperties.Name="Find a mod in the dependency graph" />
+                    <Button Grid.Column="1" Padding="8,4" Click="FitGraph_Click"
+                            ToolTipService.ToolTip="Fit all mods in view"
+                            AutomationProperties.Name="Fit graph to view">
+                        <FontIcon Glyph="&#xE799;" />
+                    </Button>
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                        <Slider x:Name="ZoomSlider" Width="120" Minimum="25" Maximum="200" Value="100"
+                                StepFrequency="5" ValueChanged="ZoomSlider_ValueChanged"
+                                ToolTipService.ToolTip="Graph zoom percentage"
+                                AutomationProperties.Name="Graph zoom" />
+                        <TextBlock x:Name="ZoomText" Width="42" VerticalAlignment="Center" Text="100%" />
+                    </StackPanel>
+                </Grid>
+
+                <TextBlock x:Name="SelectionCountText" Grid.Row="1" Margin="12,4,12,4" Opacity="0.7" Style="{StaticResource CaptionTextBlockStyle}"
                            Visibility="Collapsed" />
 
-                <ScrollViewer Grid.Row="1" x:Name="GraphScrollViewer"
+                <ScrollViewer Grid.Row="2" x:Name="GraphScrollViewer"
                               HorizontalScrollMode="Auto" HorizontalScrollBarVisibility="Auto"
                               VerticalScrollMode="Auto" VerticalScrollBarVisibility="Auto"
                               ZoomMode="Enabled" MinZoomFactor="0.25" MaxZoomFactor="2"
@@ -185,11 +188,11 @@
                             KeyDown="Graph_KeyDown" />
                 </ScrollViewer>
 
-                <ProgressRing Grid.Row="1" HorizontalAlignment="Center" VerticalAlignment="Center" Width="32" Height="32"
+                <ProgressRing Grid.Row="2" HorizontalAlignment="Center" VerticalAlignment="Center" Width="32" Height="32"
                               IsActive="{x:Bind IsLoading, Mode=OneWay}"
                               Visibility="{x:Bind IsLoading, Mode=OneWay}" />
 
-                <StackPanel Grid.Row="1" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8" MaxWidth="320"
+                <StackPanel Grid.Row="2" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8" MaxWidth="320"
                             Visibility="{x:Bind HasNoMods, Mode=OneWay}">
                     <FontIcon HorizontalAlignment="Center" Glyph="&#xE9CE;" FontSize="40" Opacity="0.5" />
                     <TextBlock HorizontalAlignment="Center" Style="{StaticResource SubtitleTextBlockStyle}" Text="No mods to graph yet" />
