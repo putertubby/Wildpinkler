@@ -157,12 +157,14 @@ public sealed partial class ModsPage : PageBase
     {
         try
         {
-            _allMods.Clear();
             _games = (await AppServices.GameStore.LoadAsync()).ToList();
             DispatcherQueue.TryEnqueue(BuildGameFilterMenu);
 
-            foreach (var mod in await _store.LoadAsync())
-                _allMods.Add(mod);
+            CollectionReconciler.Reconcile(
+                _allMods,
+                (await _store.LoadAsync()).ToList(),
+                mod => mod.Id,
+                (current, desired) => current.UpdateFrom(desired));
             ApplyGameNames();
         }
         catch (Exception exception)

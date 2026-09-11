@@ -25,6 +25,18 @@ public sealed partial class ToolEntry : ObservableObject
     public string Id { get => _id; set => SetProperty(ref _id, value); }
     public string Name { get => _name; set => SetProperty(ref _name, value); }
 
+    /// <summary>Updates persisted tool data without replacing the instance bound to a cached page.</summary>
+    public void UpdateFrom(ToolEntry source)
+    {
+        Name = source.Name;
+        InstallPath = source.InstallPath;
+        LaunchArguments = source.LaunchArguments;
+        AddedAt = source.AddedAt;
+        DefinitionId = source.DefinitionId;
+        DefinitionVersion = source.DefinitionVersion;
+        GameIds = source.GameIds.ToList();
+    }
+
     /// <summary>The tool's local install folder.</summary>
     public string InstallPath
     {

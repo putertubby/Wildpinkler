@@ -100,7 +100,6 @@
                                         </Grid.ContextFlyout>
                                         <Border Style="{StaticResource RowAvatarStyle}">
                                             <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="SemiBold"
-                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                                        Text="{x:Bind Name, Mode=OneWay, Converter={StaticResource InitialLetterConverter}}" />
                                         </Border>
                                         <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
@@ -111,7 +110,7 @@
                                                     <ColumnDefinition Width="*" />
                                                     <ColumnDefinition Width="Auto" />
                                                 </Grid.ColumnDefinitions>
-                                                <TextBlock Style="{StaticResource ModRowTextStyle}" Opacity="0.62"
+                                                <TextBlock Style="{StaticResource ModRowTextStyle}"
                                                            Text="{x:Bind InstallPath, Mode=OneWay}" />
                                                 <TextBlock Grid.Column="1" Opacity="0.56" Text="{x:Bind ProfileCountText, Mode=OneWay}" />
                                             </Grid>

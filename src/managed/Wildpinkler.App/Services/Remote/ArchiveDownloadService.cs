@@ -23,16 +23,37 @@ public sealed class ArchiveDownloadService
             request.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(existingLength, null);
 
         using var response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-        if (existingLength > 0 && response.StatusCode == HttpStatusCode.OK)
+        if (existingLength == 0)
         {
-            existingLength = 0;
+            if (response.StatusCode != HttpStatusCode.OK)
+                throw new HttpRequestException($"The download server returned {response.StatusCode} for a new download.");
+
+            await WriteAsync(response, partialPath, finalPath, 0, progress, cancellationToken);
+            return;
+        }
+        else if (response.StatusCode == HttpStatusCode.OK)
+        {
+            await WriteAsync(response, partialPath, finalPath, 0, progress, cancellationToken);
+            return;
+        }
+        else if (response.StatusCode == HttpStatusCode.RequestedRangeNotSatisfiable)
+        {
             response.Dispose();
+            File.Delete(partialPath);
             using var restart = await _client.GetAsync(source, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-            await WriteAsync(restart, partialPath, finalPath, existingLength, progress, cancellationToken);
+            restart.EnsureSuccessStatusCode();
+            await WriteAsync(restart, partialPath, finalPath, 0, progress, cancellationToken);
             return;
         }
 
-        response.EnsureSuccessStatusCode();
+        if (response.StatusCode != HttpStatusCode.PartialContent ||
+            response.Content.Headers.ContentRange is not { From: var from } range ||
+            !string.Equals(range.Unit, "bytes", StringComparison.OrdinalIgnoreCase) ||
+            from != existingLength)
+        {
+            throw new HttpRequestException("The download server returned an invalid partial response.");
+        }
+
         await WriteAsync(response, partialPath, finalPath, existingLength, progress, cancellationToken);
     }
 

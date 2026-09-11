@@ -121,18 +121,13 @@ public sealed class BackgroundOperationQueueTests
 public sealed class AppSettingsStoreTests : IDisposable
 {
     private readonly string _root = Path.Combine(Path.GetTempPath(), "wp-settings-" + Guid.NewGuid().ToString("N"));
-    private readonly string _previousLocalAppData = Environment.GetEnvironmentVariable("LOCALAPPDATA") ?? string.Empty;
 
-    public AppSettingsStoreTests()
-    {
-        Directory.CreateDirectory(_root);
-        Environment.SetEnvironmentVariable("LOCALAPPDATA", _root);
-    }
+    public AppSettingsStoreTests() => Directory.CreateDirectory(_root);
 
     [Fact]
     public void Load_WithNoFile_ReturnsDefaults()
     {
-        var settings = new AppSettingsStore().Load();
+        var settings = new AppSettingsStore(_root).Load();
 
         Assert.NotNull(settings);
         Assert.True(settings.ConfirmRemoteDownloads);
@@ -141,11 +136,9 @@ public sealed class AppSettingsStoreTests : IDisposable
     [Fact]
     public void Load_WithCorruptFile_FallsBackToDefaultsInsteadOfThrowing()
     {
-        var directory = Path.Combine(_root, "Wildpinkler");
-        Directory.CreateDirectory(directory);
-        File.WriteAllText(Path.Combine(directory, "app-settings.json"), "{ not json");
+        File.WriteAllText(Path.Combine(_root, "app-settings.json"), "{ not json");
 
-        Assert.NotNull(new AppSettingsStore().Load());
+        Assert.NotNull(new AppSettingsStore(_root).Load());
     }
 
     [Fact]
@@ -167,9 +160,20 @@ public sealed class AppSettingsStoreTests : IDisposable
         Assert.False(store.Load().ShowGraphEdgeLabels);
     }
 
+    [Fact]
+    public void Load_WhenPrimaryFileIsCorrupt_UsesLastKnownGoodBackup()
+    {
+        var store = new AppSettingsStore(_root);
+        Assert.True(store.Save(new AppSettings { ShowGraphEdgeLabels = false }));
+        Assert.True(store.Save(new AppSettings { ShowGraphEdgeLabels = true }));
+
+        File.WriteAllText(Path.Combine(_root, "app-settings.json"), "{ not json");
+
+        Assert.False(store.Load().ShowGraphEdgeLabels);
+    }
+
     public void Dispose()
     {
-        Environment.SetEnvironmentVariable("LOCALAPPDATA", _previousLocalAppData);
         if (Directory.Exists(_root))
             Directory.Delete(_root, recursive: true);
     }

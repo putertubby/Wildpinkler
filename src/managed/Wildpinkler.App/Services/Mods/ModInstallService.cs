@@ -90,12 +90,9 @@ public sealed class ModInstallService
             SelectionSignature = signature,
             SelectionSummary = selectionSummary
         };
-        installation.FolderPath = Path.Combine(_installsRoot, mod.Id, installation.Id);
-        Directory.CreateDirectory(installation.FolderPath);
-
-        ExtractFomodFiles(mod.ArchivePath, resolvedFiles, installation.FolderPath);
-        await _store.AddAsync(installation);
-        return installation;
+        return await ExtractAndPublishAsync(
+            installation,
+            destination => ExtractFomodFiles(mod.ArchivePath, resolvedFiles, destination));
     }
 
     public async Task<ModInstallation> FindOrCreateFromRecipeAsync(
@@ -185,14 +182,42 @@ public sealed class ModInstallService
             SelectionSignature = signature,
             SelectionSummary = $"{(sourceRoot.Length == 0 ? "Archive root" : sourceRoot)} -> {(destination.Length == 0 ? "Profile root" : destination)}"
         };
-        installation.FolderPath = Path.Combine(_installsRoot, mod.Id, installation.Id);
-        Directory.CreateDirectory(installation.FolderPath);
+        return await ExtractAndPublishAsync(installation, stagingRoot =>
+        {
+            var mountRoot = destination.Length == 0 ? stagingRoot : Path.Combine(stagingRoot, destination);
+            Directory.CreateDirectory(mountRoot);
+            ExtractWholeArchive(mod.ArchivePath, sourceRoot, mountRoot, _extractionLimits);
+        });
+    }
 
-        var mountRoot = destination.Length == 0 ? installation.FolderPath : Path.Combine(installation.FolderPath, destination);
-        Directory.CreateDirectory(mountRoot);
-        ExtractWholeArchive(mod.ArchivePath, sourceRoot, mountRoot, _extractionLimits);
-        await _store.AddAsync(installation);
-        return installation;
+    private async Task<ModInstallation> ExtractAndPublishAsync(
+        ModInstallation installation,
+        Action<string> extract)
+    {
+        var installParent = Path.Combine(_installsRoot, installation.ModId);
+        var stagingPath = Path.Combine(installParent, $".pending-{installation.Id}");
+        installation.FolderPath = Path.Combine(installParent, installation.Id);
+
+        try
+        {
+            Directory.CreateDirectory(stagingPath);
+            extract(stagingPath);
+            Directory.Move(stagingPath, installation.FolderPath);
+            await _store.AddAsync(installation);
+            return installation;
+        }
+        catch
+        {
+            DeleteDirectoryIfPresent(stagingPath);
+            DeleteDirectoryIfPresent(installation.FolderPath);
+            throw;
+        }
+    }
+
+    private static void DeleteDirectoryIfPresent(string path)
+    {
+        if (Directory.Exists(path))
+            Directory.Delete(path, recursive: true);
     }
 
     private string ReadFomodModuleSha256(ModEntry mod)
@@ -270,6 +295,8 @@ public sealed class ModInstallService
         if (!string.IsNullOrEmpty(directory))
             ArchiveExtractionBudget.CreateDirectoryWithoutLinks(destinationRoot, directory);
 
+        RejectExistingLink(destinationPath);
+
         long written;
         using (var source = entry.OpenEntryStream())
         using (var target = new FileStream(destinationPath, FileMode.Create, FileAccess.Write, FileShare.None))
@@ -280,6 +307,22 @@ public sealed class ModInstallService
 
         budget.AccountForWrittenBytes(entry.Key ?? destinationPath, written);
         ArchiveExtractionBudget.VerifyWrittenFile(destinationPath);
+    }
+
+    private static void RejectExistingLink(string path)
+    {
+        try
+        {
+            if (File.GetAttributes(path).HasFlag(FileAttributes.ReparsePoint))
+                throw new ArchiveEntryRejectedException(
+                    $"'{path}' is a link, so Wildpinkler will not overwrite it.");
+        }
+        catch (FileNotFoundException)
+        {
+        }
+        catch (DirectoryNotFoundException)
+        {
+        }
     }
 
     private static string CombineRelative(string destination, string relative) =>

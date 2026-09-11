@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
@@ -66,6 +67,17 @@ public sealed class CollectionReconcilerTests
         Assert.Equal(new[] { "c", "a", "b" }, target.Select(row => row.Id));
         Assert.Contains(System.Collections.Specialized.NotifyCollectionChangedAction.Move, actions);
         Assert.DoesNotContain(System.Collections.Specialized.NotifyCollectionChangedAction.Reset, actions);
+    }
+
+    [Fact]
+    public void Reconcile_DuplicateSourceKeys_AreRejected()
+    {
+        var target = new ObservableCollection<Row> { new("a", "a") };
+
+        Assert.Throws<ArgumentException>(() => CollectionReconciler.Reconcile(
+            target,
+            new[] { new Row("b", "first"), new Row("b", "second") },
+            row => row.Id));
     }
 
     private sealed record Row(string Id, string Value);

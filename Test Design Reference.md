@@ -101,6 +101,28 @@ The default unit-test command must be usable without the application running, a 
 
 When a test needs a special environment, classify it explicitly and keep it out of the default unit run. Report failures with the individual test name and scenario, not only an aggregate count.
 
+## Windows UI Verification
+
+The managed test project does not replace UI automation. Before a release, run the application on
+Windows and verify the following flows with keyboard navigation and Accessibility Insights for
+Windows (Narrator where available):
+
+- Light, Dark, and High Contrast themes, including selected list rows, focus visuals, status text,
+	validation messages, and disabled controls.
+- 100% and enlarged text scaling, narrow and wide window sizes, compact NavigationView, list/details
+	drill-in and Back behavior, and persisted splitter widths.
+- Tab and Shift+Tab order, list arrows/Home/End, Enter/Space activation, Escape dismissal, Delete,
+	Ctrl+F, Ctrl+N, and F6/Shift+F6 region cycling.
+- Refresh while an item is selected or expanded, while a flyout/dialog is open, and while an edit is
+	in progress. Selection, query text, scroll position, focus, expansion, and draft input must remain
+	stable unless the affected item was removed.
+- Accessible names and states for navigation, command buttons, icon-only controls, list selection,
+	progress indicators, InfoBars, dialogs, splitters, and tree nodes.
+
+Keep these checks separate from the default unit/persistence test run because they require a running
+WinUI application and Windows accessibility tooling. Record the Windows version, display scale,
+text scale, theme, and test result with release verification artifacts.
+
 ## Review Checklist
 
 Before merging a test:

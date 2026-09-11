@@ -119,6 +119,31 @@ public sealed class ArchiveExtractionSecurityTests : IDisposable
     }
 
     [Fact]
+    public void ExtractWholeArchive_OverAnExistingFileLink_IsRefused()
+    {
+        var destination = Path.Combine(_root, "install");
+        var outside = Path.Combine(_root, "outside.txt");
+        Directory.CreateDirectory(destination);
+        File.WriteAllText(outside, "original");
+
+        try
+        {
+            File.CreateSymbolicLink(Path.Combine(destination, "payload.txt"), outside);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return;
+        }
+
+        var archive = CreateArchive(("payload.txt", "replacement"));
+
+        Assert.Throws<ArchiveEntryRejectedException>(
+            () => ModInstallService.ExtractWholeArchive(archive, string.Empty, destination));
+
+        Assert.Equal("original", File.ReadAllText(outside));
+    }
+
+    [Fact]
     public void ExtractWholeArchive_WellFormedArchive_StillExtracts()
     {
         var archive = CreateArchive(("wrapper/Data/test.txt", "content"));

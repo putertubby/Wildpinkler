@@ -163,7 +163,10 @@ public sealed class ModListBuildCoordinatorTests : IDisposable
         var provisioner = new ProfileFolderService(Path.Combine(_root, "profiles"));
         var registry = new RemoteSiteRegistry();
         var acquisition = new RemoteArchiveAcquisitionService(
-            registry, new RemoteSiteContext(new RemoteSiteStore(registry, new CredentialStore())), new ArchiveDownloadService(), modStore);
+            registry,
+            new RemoteSiteContext(new RemoteSiteStore(registry, new CredentialStore(_root), _root)),
+            new ArchiveDownloadService(),
+            modStore);
         var launcher = new LaunchService(new ProfileConfigExporter(), provisioner, new ActiveRunRegistry(), new NeverProcessLauncher(), Path.Combine(_root, "loader.exe"));
         return new ModListBuildCoordinator(
             new ModListBuildStore(_root), new ModListPreflightService(), provisioner, acquisition,

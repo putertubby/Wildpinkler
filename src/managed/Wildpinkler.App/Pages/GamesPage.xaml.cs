@@ -131,9 +131,11 @@ public sealed partial class GamesPage : PageBase
     {
         try
         {
-            _allGames.Clear();
-            foreach (var game in await _store.LoadAsync())
-                _allGames.Add(game);
+            CollectionReconciler.Reconcile(
+                _allGames,
+                (await _store.LoadAsync()).ToList(),
+                game => game.Id,
+                MergeGame);
 
             _profilesRevision = _profileStore.Revision;
             _profiles = (await _profileStore.LoadAsync()).ToList();
@@ -159,6 +161,16 @@ public sealed partial class GamesPage : PageBase
                     ShowLoadError($"Unable to load the games list. {LoadErrorMessage}");
             });
         }
+    }
+
+    private static void MergeGame(GameEntry target, GameEntry source)
+    {
+        target.Name = source.Name;
+        target.InstallPath = source.InstallPath;
+        target.LaunchArguments = source.LaunchArguments;
+        target.AddedAt = source.AddedAt;
+        target.DefinitionId = source.DefinitionId;
+        target.DefinitionVersion = source.DefinitionVersion;
     }
 
     [RelayCommand]

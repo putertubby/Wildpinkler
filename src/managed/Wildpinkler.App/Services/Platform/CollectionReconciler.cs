@@ -15,7 +15,17 @@ public static class CollectionReconciler
     {
         var incomingKeys = new HashSet<TKey>();
         foreach (var item in source)
-            incomingKeys.Add(keySelector(item));
+        {
+            if (!incomingKeys.Add(keySelector(item)))
+                throw new ArgumentException("The source collection contains duplicate keys.", nameof(source));
+        }
+
+        var existingKeys = new HashSet<TKey>();
+        foreach (var item in target)
+        {
+            if (!existingKeys.Add(keySelector(item)))
+                throw new ArgumentException("The target collection contains duplicate keys.", nameof(target));
+        }
 
         for (var index = target.Count - 1; index >= 0; index--)
         {

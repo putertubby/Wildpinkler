@@ -21,6 +21,7 @@ public sealed class CredentialStore : IDisposable
     private static readonly JsonSerializerOptions JsonOptions = new();
 
     private readonly string _path;
+    private readonly string _backupPath;
     private readonly string _entropyPath;
     private readonly SemaphoreSlim _lock = new(1, 1);
     private byte[]? _entropy;
@@ -30,6 +31,7 @@ public sealed class CredentialStore : IDisposable
         var directory = root ?? Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Wildpinkler");
         _path = Path.Combine(directory, "credentials.json");
+        _backupPath = Path.Combine(directory, "credentials.json.bak");
         _entropyPath = Path.Combine(directory, "credentials.entropy");
     }
 
@@ -119,7 +121,7 @@ public sealed class CredentialStore : IDisposable
         Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
         var temporaryPath = _path + ".tmp";
         await File.WriteAllTextAsync(temporaryPath, JsonSerializer.Serialize(values, JsonOptions));
-        File.Move(temporaryPath, _path, true);
+        AtomicFile.Publish(temporaryPath, _path, _backupPath);
     }
 
     private async Task<Dictionary<string, string>> LoadAsync()
@@ -128,14 +130,31 @@ public sealed class CredentialStore : IDisposable
             return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         try
         {
-            await using var stream = File.OpenRead(_path);
-            return await JsonSerializer.DeserializeAsync<Dictionary<string, string>>(stream, JsonOptions)
-                ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            return await ReadAsync(_path);
         }
         catch (Exception exception) when (exception is JsonException or IOException or UnauthorizedAccessException)
         {
+            if (File.Exists(_backupPath))
+            {
+                try
+                {
+                    return await ReadAsync(_backupPath);
+                }
+                catch (Exception backupException) when (backupException is JsonException or IOException or UnauthorizedAccessException)
+                {
+                }
+            }
+
             return new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         }
+    }
+
+    private static async Task<Dictionary<string, string>> ReadAsync(string path)
+    {
+        await using var stream = File.OpenRead(path);
+        var loaded = await JsonSerializer.DeserializeAsync<Dictionary<string, string>>(stream, JsonOptions)
+            ?? new Dictionary<string, string>();
+        return new Dictionary<string, string>(loaded, StringComparer.OrdinalIgnoreCase);
     }
 
     public void Dispose() => _lock.Dispose();

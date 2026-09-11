@@ -48,6 +48,39 @@ public sealed partial class ModEntry : ObservableObject
     public string Id { get => _id; set => SetProperty(ref _id, value); }
     public string Name { get => _name; set => SetProperty(ref _name, value); }
 
+    /// <summary>Updates persisted mod data without replacing the instance held by a cached page.</summary>
+    public void UpdateFrom(ModEntry source)
+    {
+        Name = source.Name;
+        GameIds = source.GameIds.ToList();
+        Version = source.Version;
+        Source = source.Source;
+        Status = source.Status;
+        ArchivePath = source.ArchivePath;
+        Remote = source.Remote;
+        FileName = source.FileName;
+        Md5 = source.Md5;
+        Sha256 = source.Sha256;
+        FileSize = source.FileSize;
+        CategoryName = source.CategoryName;
+        Author = source.Author;
+        Description = source.Description;
+        Website = source.Website;
+        UploadedAt = source.UploadedAt;
+        AddedAt = source.AddedAt;
+        HasFomod = source.HasFomod;
+        FomodState = source.FomodState;
+        LastManualInstallPath = source.LastManualInstallPath;
+        RemoteFileCategory = source.RemoteFileCategory;
+        IsPrimaryFile = source.IsPrimaryFile;
+        ChangelogText = source.ChangelogText;
+        RemoteUpdatedAt = source.RemoteUpdatedAt;
+        RequirementsRaw = source.RequirementsRaw;
+        Dependencies = source.Dependencies.ToList();
+        ProvidedGameVersion = source.ProvidedGameVersion;
+        GameNamesText = source.GameNamesText;
+    }
+
     /// <summary>Ids of <c>GameEntry</c> this mod is associated with; empty means "all games".</summary>
     public List<string> GameIds
     {

@@ -184,7 +184,6 @@
                                         </Grid.ContextFlyout>
                                         <Border Style="{StaticResource RowAvatarStyle}">
                                             <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="SemiBold"
-                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                                        Text="{x:Bind Name, Mode=OneWay, Converter={StaticResource InitialLetterConverter}}" />
                                         </Border>
                                         <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
@@ -206,7 +205,7 @@
                                                     <ColumnDefinition Width="*" />
                                                     <ColumnDefinition Width="Auto" />
                                                 </Grid.ColumnDefinitions>
-                                                <TextBlock Grid.Column="0" Style="{StaticResource ModRowTextStyle}" Opacity="0.62" TextTrimming="CharacterEllipsis">
+                                                <TextBlock Grid.Column="0" Style="{StaticResource ModRowTextStyle}" TextTrimming="CharacterEllipsis">
                                                     <Run Text="{x:Bind GameNamesText, Mode=OneWay}" />
                                                     <Run Text=" &#183; " />
                                                     <Run Text="{x:Bind DependencySummaryText, Mode=OneWay}" />

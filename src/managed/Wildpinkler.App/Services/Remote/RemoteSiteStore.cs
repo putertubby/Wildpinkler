@@ -34,15 +34,19 @@ public sealed class RemoteSite
 public sealed class RemoteSiteStore
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
-    private readonly string _path = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Wildpinkler", "remote-sites.json");
+    private readonly string _path;
+    private readonly string _backupPath;
     private readonly CredentialStore _credentials;
     private readonly RemoteSiteRegistry _registry;
 
-    public RemoteSiteStore(RemoteSiteRegistry registry, CredentialStore credentials)
+    public RemoteSiteStore(RemoteSiteRegistry registry, CredentialStore credentials, string? root = null)
     {
         _registry = registry;
         _credentials = credentials;
+        var directory = root ?? Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Wildpinkler");
+        _path = Path.Combine(directory, "remote-sites.json");
+        _backupPath = Path.Combine(directory, "remote-sites.json.bak");
     }
 
     /// <summary>
@@ -78,8 +82,9 @@ public sealed class RemoteSiteStore
             await _credentials.SetAsync(site.Id, site.ApiKey);
 
         Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
-        await using var stream = File.Create(_path);
-        await JsonSerializer.SerializeAsync(stream, snapshot, JsonOptions);
+        var temporaryPath = _path + ".tmp";
+        await File.WriteAllTextAsync(temporaryPath, JsonSerializer.Serialize(snapshot, JsonOptions));
+        AtomicFile.Publish(temporaryPath, _path, _backupPath);
     }
 
     public Task<string?> GetCredentialAsync(string siteId) => _credentials.GetAsync(siteId);

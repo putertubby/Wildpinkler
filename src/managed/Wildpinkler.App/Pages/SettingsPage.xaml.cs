@@ -409,7 +409,7 @@ public sealed partial class SettingsPage : PageBase
         try
         {
             await _siteStore.SaveAsync(_sites.Select(row => row.ToSite()).ToList());
-            AppServices.RemoteSiteContext.Invalidate();
+            await AppServices.RemoteSiteContext.InvalidateAsync(PageToken);
             AreSitesDirty = false;
             ShowInfo("Remote sites saved.", InfoBarSeverity.Success);
         }
@@ -520,7 +520,7 @@ public sealed partial class SettingsPage : PageBase
             row.ValidationMessage = $"{account.Name}: {(account.IsPremium ? "Premium" : "Free")}.{remaining}";
 
             // A newly validated key must replace whatever the shared context validated before.
-            AppServices.RemoteSiteContext.Invalidate();
+            await AppServices.RemoteSiteContext.InvalidateAsync();
         }
         catch (Wildpinkler.Remote.RemoteSiteException exception)
         {

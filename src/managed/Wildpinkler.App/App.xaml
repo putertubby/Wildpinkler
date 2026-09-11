@@ -10,6 +10,18 @@
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
             </ResourceDictionary.MergedDictionaries>
 
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Light">
+                    <SolidColorBrush x:Key="MetadataTextBrush" Color="{StaticResource TextFillColorSecondary}" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Dark">
+                    <SolidColorBrush x:Key="MetadataTextBrush" Color="{StaticResource TextFillColorSecondary}" />
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="HighContrast">
+                    <SolidColorBrush x:Key="MetadataTextBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+
             <converters:InitialLetterConverter x:Key="InitialLetterConverter" />
             <converters:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibilityConverter" />
 
@@ -21,7 +33,7 @@
             <Style x:Key="SectionLabelStyle" TargetType="TextBlock">
                 <Setter Property="FontSize" Value="12" />
                 <Setter Property="FontWeight" Value="SemiBold" />
-                <Setter Property="Opacity" Value="0.68" />
+                <Setter Property="Foreground" Value="{ThemeResource MetadataTextBrush}" />
             </Style>
             <Style x:Key="ModRowTextStyle" TargetType="TextBlock">
                 <Setter Property="VerticalAlignment" Value="Center" />

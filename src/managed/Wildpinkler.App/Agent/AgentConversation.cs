@@ -203,7 +203,14 @@ public sealed class AgentConversation
     {
         if (string.Equals(call.ToolName, "tools_enable", StringComparison.OrdinalIgnoreCase))
         {
-            var group = ReadStringArgument(call.ArgumentsJson, "group");
+            var group = ReadStringArgument(call.ArgumentsJson, "group", out var argumentError);
+            if (argumentError is not null)
+            {
+                yield return new AgentTurnEvent.ToolFinished(call, AgentToolResult.Error(argumentError));
+                RecordToolResult(call, answered, argumentError);
+                yield break;
+            }
+
             if (group is null || !_tools.Groups.Contains(group, StringComparer.OrdinalIgnoreCase))
             {
                 const string invalid = "That tool group is not available.";
@@ -284,15 +291,42 @@ public sealed class AgentConversation
         RecordToolResult(call, answered, result.Succeeded ? result.Content : $"The action failed: {result.Content}");
     }
 
-    private static string? ReadStringArgument(string argumentsJson, string propertyName)
+    private static string? ReadStringArgument(string argumentsJson, string propertyName, out string? error)
     {
+        error = null;
         try
         {
             using var document = System.Text.Json.JsonDocument.Parse(argumentsJson);
-            return document.RootElement.TryGetProperty(propertyName, out var value) ? value.GetString() : null;
+            if (document.RootElement.ValueKind != System.Text.Json.JsonValueKind.Object)
+            {
+                error = "The action arguments must be a JSON object.";
+                return null;
+            }
+
+            if (!document.RootElement.TryGetProperty(propertyName, out var value))
+            {
+                error = "The action arguments must include a string 'group'.";
+                return null;
+            }
+
+            if (value.ValueKind != System.Text.Json.JsonValueKind.String)
+            {
+                error = "The 'group' argument must be a string.";
+                return null;
+            }
+
+            var group = value.GetString();
+            if (string.IsNullOrWhiteSpace(group))
+            {
+                error = "The 'group' argument cannot be empty.";
+                return null;
+            }
+
+            return group;
         }
         catch (System.Text.Json.JsonException)
         {
+            error = "The action arguments are not valid JSON.";
             return null;
         }
     }

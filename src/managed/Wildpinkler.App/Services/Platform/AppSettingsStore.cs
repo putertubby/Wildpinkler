@@ -75,12 +75,14 @@ public sealed class AppSettingsStore
         Converters = { new JsonStringEnumConverter() },
     };
     private readonly string _path;
+    private readonly string _backupPath;
 
     public AppSettingsStore(string? root = null)
     {
         var directory = root ?? Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Wildpinkler");
         _path = Path.Combine(directory, "app-settings.json");
+        _backupPath = Path.Combine(directory, "app-settings.json.bak");
     }
 
     public AppSettings Load()
@@ -90,15 +92,18 @@ public sealed class AppSettingsStore
             if (!File.Exists(_path))
                 return new AppSettings();
 
-            var settings = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(_path), JsonOptions);
-            if (settings is null || settings.SchemaVersion > CurrentSchemaVersion)
-                return new AppSettings();
-
-            return settings;
+            return ReadSettings(_path);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
         {
-            return new AppSettings();
+            try
+            {
+                return File.Exists(_backupPath) ? ReadSettings(_backupPath) : new AppSettings();
+            }
+            catch (Exception backupException) when (backupException is IOException or UnauthorizedAccessException or JsonException)
+            {
+                return new AppSettings();
+            }
         }
     }
 
@@ -111,12 +116,20 @@ public sealed class AppSettingsStore
             Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
             var temporaryPath = _path + ".tmp";
             File.WriteAllText(temporaryPath, JsonSerializer.Serialize(settings, JsonOptions));
-            File.Move(temporaryPath, _path, true);
+            AtomicFile.Publish(temporaryPath, _path, _backupPath);
             return true;
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
             return false;
         }
+    }
+
+    private static AppSettings ReadSettings(string path)
+    {
+        var settings = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(path), JsonOptions);
+        return settings is null || settings.SchemaVersion > CurrentSchemaVersion
+            ? new AppSettings()
+            : settings;
     }
 }

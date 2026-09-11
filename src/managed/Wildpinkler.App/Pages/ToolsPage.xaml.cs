@@ -135,9 +135,11 @@ public sealed partial class ToolsPage : PageBase
     {
         try
         {
-            _allTools.Clear();
-            foreach (var tool in await _store.LoadAsync())
-                _allTools.Add(tool);
+            CollectionReconciler.Reconcile(
+                _allTools,
+                (await _store.LoadAsync()).ToList(),
+                tool => tool.Id,
+                (current, desired) => current.UpdateFrom(desired));
 
             _games = (await AppServices.GameStore.LoadAsync()).ToList();
             DispatcherQueue.TryEnqueue(BuildGameFilterMenu);

@@ -16,15 +16,17 @@ public sealed class RemoteSiteContext : IDisposable
     private string? _validatedFor;
     private RemoteCredential _credential = RemoteCredential.None;
     private RemoteAccount? _account;
+    private int _generation;
 
     public RemoteSiteContext(RemoteSiteStore siteStore) => _siteStore = siteStore;
 
     /// <summary>Drops the cached validation so the next call re-reads and re-validates the key.</summary>
-    public void Invalidate()
+    public async Task InvalidateAsync(CancellationToken cancellationToken = default)
     {
-        _gate.Wait();
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            _generation++;
             _validatedFor = null;
             _credential = RemoteCredential.None;
             _account = null;
@@ -39,9 +41,11 @@ public sealed class RemoteSiteContext : IDisposable
         IRemoteSiteProvider provider, CancellationToken cancellationToken = default)
     {
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        string key;
+        int generation;
         try
         {
-            var key = await _siteStore.GetCredentialAsync(provider.SiteId).ConfigureAwait(false);
+            key = await _siteStore.GetCredentialAsync(provider.SiteId).ConfigureAwait(false) ?? string.Empty;
             if (string.IsNullOrWhiteSpace(key))
                 throw new RemoteSiteException(
                     RemoteErrorKind.Unauthorized,
@@ -50,12 +54,26 @@ public sealed class RemoteSiteContext : IDisposable
             if (_account is not null && _validatedFor == $"{provider.SiteId}:{key}")
                 return (_credential, _account);
 
-            var credential = new RemoteCredential(RemoteCredentialKind.ApiKey, key.Trim());
-            var account = await provider.ValidateAsync(credential, cancellationToken).ConfigureAwait(false);
+            generation = _generation;
+        }
+        finally
+        {
+            _gate.Release();
+        }
 
-            _credential = credential;
-            _account = account;
-            _validatedFor = $"{provider.SiteId}:{key}";
+        var credential = new RemoteCredential(RemoteCredentialKind.ApiKey, key.Trim());
+        var account = await provider.ValidateAsync(credential, cancellationToken).ConfigureAwait(false);
+
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            if (generation == _generation)
+            {
+                _credential = credential;
+                _account = account;
+                _validatedFor = $"{provider.SiteId}:{key}";
+            }
+
             return (credential, account);
         }
         finally
