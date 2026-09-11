@@ -50,7 +50,10 @@ public sealed partial class SettingsPage
             var configuration = await _aiConfiguration.GetAsync();
             AssistantProviderBox.SelectedItem = AiProviderPresets.GetOrDefault(configuration.ProviderId);
             AssistantEndpointBox.Text = configuration.Endpoint?.AbsoluteUri ?? string.Empty;
-            AssistantModelBox.Text = configuration.ModelId;
+            var modelOptions = AiModelCatalog.ComposeModels(configuration.ModelId, []);
+            AssistantModelBox.ItemsSource = modelOptions;
+            AssistantModelBox.SelectedItem = modelOptions[0];
+            AssistantModelBox.Text = modelOptions[0];
             AssistantKeyBox.Password = string.Empty;
             _pendingApiKey = null;
             _hasPendingApiKey = false;
@@ -280,8 +283,13 @@ public sealed partial class SettingsPage
         }
 
         var current = AssistantModelBox.Text;
-        AssistantModelBox.ItemsSource = models;
-        AssistantModelBox.Text = models.Contains(current, StringComparer.OrdinalIgnoreCase) ? current : models[0];
+    var modelOptions = AiModelCatalog.ComposeModels(current, models);
+    AssistantModelBox.ItemsSource = modelOptions;
+        var selectedModel = string.IsNullOrWhiteSpace(current)
+            ? modelOptions[0]
+            : modelOptions.First(model => string.Equals(model, current.Trim(), StringComparison.OrdinalIgnoreCase));
+        AssistantModelBox.SelectedItem = selectedModel;
+        AssistantModelBox.Text = selectedModel;
         ShowAssistantInfo($"Found {models.Count} models.", InfoBarSeverity.Success);
     }
 

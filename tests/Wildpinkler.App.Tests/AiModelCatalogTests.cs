@@ -9,6 +9,26 @@ namespace Wildpinkler.App.Tests;
 public sealed class AiModelCatalogTests
 {
     [Fact]
+    public void ComposeModels_EmptyDiscovery_RetainsConfiguredModel() =>
+        Assert.Equal(["gpt-4o"], AiModelCatalog.ComposeModels("gpt-4o", []));
+
+    [Fact]
+    public void ComposeModels_ConfiguredModelAlreadyDiscovered_DeduplicatesIgnoringCase()
+    {
+        var models = AiModelCatalog.ComposeModels("GPT-4O", ["gpt-4o", "gpt-4o-mini"]);
+
+        Assert.Equal(["gpt-4o", "gpt-4o-mini"], models);
+    }
+
+    [Fact]
+    public void ComposeModels_FiltersBlankValuesAndSorts()
+    {
+        var models = AiModelCatalog.ComposeModels(" zeta ", ["beta", " ", "alpha"]);
+
+        Assert.Equal(["alpha", "beta", "zeta"], models);
+    }
+
+    [Fact]
     public void ParseModels_OpenAiShape_ReturnsSortedDistinctIds()
     {
         const string json = """

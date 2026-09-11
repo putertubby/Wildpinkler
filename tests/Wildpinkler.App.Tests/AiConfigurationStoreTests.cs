@@ -49,6 +49,18 @@ public sealed class AiConfigurationStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task GetAsync_ReloadedSettings_ReturnsSavedNonDefaultModel()
+    {
+        await _store.SaveAsync("openai", null, "gpt-4o", "sk-test", AssistantMode.Agent, true, Token);
+        var reloadedSettings = new AppSettingsStore(_root).Load();
+        var reloadedStore = new AiConfigurationStore(reloadedSettings, new AppSettingsStore(_root), _credentials);
+
+        var configuration = await reloadedStore.GetAsync(Token);
+
+        Assert.Equal("gpt-4o", configuration.ModelId);
+    }
+
+    [Fact]
     public async Task SaveAsync_ApiKey_StoresInCredentialStoreNotSettingsFile()
     {
         await _store.SaveAsync("openrouter", null, null, "sk-secret-value", AssistantMode.Agent, true, Token);

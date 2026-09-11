@@ -55,6 +55,16 @@ public sealed class AiModelCatalog : IDisposable
 
     public void Invalidate() => _cache.Clear();
 
+    /// <summary>Combines a configured model with discovered models without losing a manual choice.</summary>
+    public static IReadOnlyList<string> ComposeModels(string? configuredModel, IEnumerable<string> discoveredModels) =>
+        discoveredModels
+            .Append(configuredModel)
+            .Where(model => !string.IsNullOrWhiteSpace(model))
+            .Select(model => model!.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(model => model, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
     /// <summary>Answers whether the endpoint is listening, so a local server that is not running can be named.</summary>
     public async Task<bool> IsReachableAsync(AiConfiguration configuration, CancellationToken cancellationToken = default)
     {
