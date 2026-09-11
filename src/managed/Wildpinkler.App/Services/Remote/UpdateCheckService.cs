@@ -29,7 +29,7 @@ public sealed record ModUpdateCheckResult(
     public bool IsComplete => Failures.Count == 0;
 }
 
-public sealed class UpdateCheckService
+public sealed partial class UpdateCheckService
 {
     private readonly RemoteSiteRegistry _registry;
     private readonly RemoteSiteContext _context;
@@ -101,11 +101,14 @@ public sealed class UpdateCheckService
             }
             catch (RemoteSiteException exception)
             {
-                _logger.LogWarning(exception, "Update check failed for {SiteId}/{GameKey}.", siteId, gameKey);
+                LogUpdateCheckFailed(siteId, gameKey, exception);
                 failures.Add(new ModUpdateCheckFailure(siteId, provider.DisplayName, gameKey, $"{exception.Message} {exception.Remedy}".Trim()));
             }
         }
 
         return new ModUpdateCheckResult(candidates, failures);
     }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Update check failed for {SiteId}/{GameKey}.")]
+    private partial void LogUpdateCheckFailed(string siteId, string gameKey, Exception exception);
 }

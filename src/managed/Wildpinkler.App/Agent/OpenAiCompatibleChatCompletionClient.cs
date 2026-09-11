@@ -18,7 +18,7 @@ namespace Wildpinkler.App.Agent;
 /// Talks to any endpoint that speaks the OpenAI chat completions API: OpenAI itself, Azure OpenAI,
 /// OpenRouter, Groq, or a local Ollama or LM Studio server. Only the base address and key change.
 /// </summary>
-public sealed class OpenAiCompatibleChatCompletionClient : IChatCompletionClient
+public sealed partial class OpenAiCompatibleChatCompletionClient : IChatCompletionClient
 {
     private readonly AiConfigurationStore _configuration;
     private readonly ILogger<OpenAiCompatibleChatCompletionClient> _logger;
@@ -52,7 +52,7 @@ public sealed class OpenAiCompatibleChatCompletionClient : IChatCompletionClient
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            _logger.LogWarning(exception, "The assistant configuration could not be read.");
+            LogConfigurationUnreadable(exception);
         }
 
         return IsConfigured;
@@ -482,6 +482,9 @@ public sealed class OpenAiCompatibleChatCompletionClient : IChatCompletionClient
 
         return new OpenAiChat.AssistantChatMessage(calls);
     }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "The assistant configuration could not be read.")]
+    private partial void LogConfigurationUnreadable(Exception exception);
 }
 
 /// <summary>OpenRouter asks callers to identify themselves; the headers are optional and carry no user data.</summary>

@@ -208,7 +208,7 @@ The managed test project is `tests/Wildpinkler.App.Tests`. Build the solution wi
 
 Wildpinkler is distributed as an unpackaged x64 desktop application. The release pipeline produces both an Inno Setup installer and a portable ZIP archive from the same staged application directory. It remains framework-dependent: users must have the x64 [.NET 8 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/8.0/runtime) installed. The Windows App SDK runtime is not a user prerequisite because the application deploys its Windows App SDK files locally.
 
-Creating a distribution requires the .NET 8 SDK, the Visual Studio C++/MSBuild toolchain used by `build.ps1`, and [Inno Setup 6](https://jrsoftware.org/isinfo.php). It also requires an externally built x64 VFS asset bundle. For now that bundle is separate from this repository and must contain at least:
+Creating a distribution requires the .NET SDK pinned in `global.json` (9.0, `rollForward: latestFeature`), the Visual Studio C++/MSBuild toolchain used by `build.ps1`, and [Inno Setup 6](https://jrsoftware.org/isinfo.php). The pin keeps the analyzer rule set identical on every machine; a newer SDK band would surface new diagnostics as build errors because `TreatWarningsAsErrors` is on. It also requires an externally built x64 VFS asset bundle. For now that bundle is separate from this repository and must contain at least:
 
 ```text
 vfs-assets/

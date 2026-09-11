@@ -17,7 +17,7 @@ namespace Wildpinkler.App.Commands;
 /// app needs exactly once: a correlation id, structured logging, confirmation for destructive
 /// operations, and an entry in the audit journal.
 /// </summary>
-public sealed class AppCommandDispatcher : IAppCommandDispatcher
+public sealed partial class AppCommandDispatcher : IAppCommandDispatcher
 {
     private readonly IServiceProvider _services;
     private readonly IAppCommandCatalog _catalog;
@@ -58,7 +58,7 @@ public sealed class AppCommandDispatcher : IAppCommandDispatcher
         if (!isDryRun && descriptor.RequiresConfirmation &&
             !await _confirmation.ConfirmAsync(descriptor, command.ToString() ?? descriptor.Name, cancellationToken))
         {
-            _logger.LogInformation("Command {CommandName} was declined ({CorrelationId}).", descriptor.Name, correlationId);
+            LogDeclined(descriptor.Name, correlationId);
             _journal.Record(new AppCommandRecord(correlationId, descriptor.Name, AppCommandOutcome.Declined, null, TimeSpan.Zero));
             throw new AppCommandDeclinedException(descriptor.Name);
         }
@@ -70,11 +70,10 @@ public sealed class AppCommandDispatcher : IAppCommandDispatcher
         var stopwatch = Stopwatch.StartNew();
         try
         {
-            _logger.LogInformation("Command {CommandName} started ({CorrelationId}).", descriptor.Name, correlationId);
+            LogStarted(descriptor.Name, correlationId);
             var result = await InvokeHandlerAsync<TResult>(handlerType, handler, command, cancellationToken);
             stopwatch.Stop();
-            _logger.LogInformation("Command {CommandName} completed in {ElapsedMs} ms ({CorrelationId}).",
-                descriptor.Name, stopwatch.ElapsedMilliseconds, correlationId);
+            LogCompleted(descriptor.Name, stopwatch.ElapsedMilliseconds, correlationId);
             _journal.Record(new AppCommandRecord(correlationId, descriptor.Name, AppCommandOutcome.Succeeded, null, stopwatch.Elapsed));
             return result;
         }
@@ -87,7 +86,7 @@ public sealed class AppCommandDispatcher : IAppCommandDispatcher
         catch (Exception exception)
         {
             stopwatch.Stop();
-            _logger.LogError(exception, "Command {CommandName} failed ({CorrelationId}).", descriptor.Name, correlationId);
+            LogFailed(descriptor.Name, correlationId, exception);
             _journal.Record(new AppCommandRecord(correlationId, descriptor.Name, AppCommandOutcome.Failed, exception.Message, stopwatch.Elapsed));
             throw;
         }
@@ -112,6 +111,18 @@ public sealed class AppCommandDispatcher : IAppCommandDispatcher
             throw;
         }
     }
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Command {CommandName} was declined ({CorrelationId}).")]
+    private partial void LogDeclined(string commandName, string correlationId);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Command {CommandName} started ({CorrelationId}).")]
+    private partial void LogStarted(string commandName, string correlationId);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Command {CommandName} completed in {ElapsedMs} ms ({CorrelationId}).")]
+    private partial void LogCompleted(string commandName, long elapsedMs, string correlationId);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Command {CommandName} failed ({CorrelationId}).")]
+    private partial void LogFailed(string commandName, string correlationId, Exception exception);
 }
 
 public enum AppCommandOutcome

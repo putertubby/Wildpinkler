@@ -7,7 +7,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Wildpinkler.App.Services;
 
-public sealed class BackgroundOperationQueue : IAsyncDisposable
+public sealed partial class BackgroundOperationQueue : IAsyncDisposable
 {
     private readonly Channel<Func<Task>> _operations = Channel.CreateUnbounded<Func<Task>>();
     private readonly CancellationTokenSource _shutdown = new();
@@ -49,7 +49,7 @@ public sealed class BackgroundOperationQueue : IAsyncDisposable
                 {
                     // One failed operation must not take the worker down with it: the queue is shared
                     // by every background job for the lifetime of the app.
-                    _logger.LogError(exception, "A queued background operation failed.");
+                    LogOperationFailed(exception);
                 }
                 finally
                 {
@@ -70,4 +70,7 @@ public sealed class BackgroundOperationQueue : IAsyncDisposable
         try { await _worker; } catch (OperationCanceledException) { }
         _shutdown.Dispose();
     }
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "A queued background operation failed.")]
+    private partial void LogOperationFailed(Exception exception);
 }

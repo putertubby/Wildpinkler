@@ -72,7 +72,7 @@ public sealed partial class MainWindow : Window
     /// </summary>
     private void ApplyAssistantPaneState()
     {
-        var fits = ShellGrid.ActualWidth <= 0 || ShellGrid.ActualWidth >= Layout.SideBySideThreshold;
+        var fits = ShellGrid.ActualWidth is <= 0 or >= Layout.SideBySideThreshold;
         var visible = _settings.IsAssistantPaneOpen && fits;
 
         if (!visible)

@@ -258,7 +258,7 @@ public static partial class AssistantMarkdownParser
     private static string? NormalizeLanguage(string value)
     {
         var candidate = value.Trim();
-        if (candidate.Length == 0 || candidate.Length > MaxLanguageCharacters)
+        if (candidate.Length is 0 or > MaxLanguageCharacters)
             return null;
 
         foreach (var character in candidate)
@@ -278,7 +278,7 @@ public static partial class AssistantMarkdownParser
             return null;
 
         var headers = SplitCells(lines[index]);
-        if (headers.Count < 2 || headers.Count > MaxTableColumns)
+        if (headers.Count is < 2 or > MaxTableColumns)
             return null;
 
         var rows = new List<MarkdownTableRow> { BuildRow(headers, isHeader: true) };

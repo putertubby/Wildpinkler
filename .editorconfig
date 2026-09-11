@@ -78,11 +78,11 @@ dotnet_diagnostic.CA1062.severity = none
 dotnet_diagnostic.CS1591.severity = none
 # BackgroundOperationQueue really is a queue; this is a library-design rule for public APIs.
 dotnet_diagnostic.CA1711.severity = none
-# LoggerMessage delegates buy nothing at desktop-app logging volumes.
-dotnet_diagnostic.CA1848.severity = none
 
 # --- Analyzer rules we escalate ------------------------------------------
 dotnet_diagnostic.CA2007.severity = none
+# All app logging goes through [LoggerMessage] partial methods; CA1848 keeps new code in line.
+dotnet_diagnostic.CA1848.severity = warning
 dotnet_diagnostic.CA1063.severity = warning
 dotnet_diagnostic.CA2016.severity = warning
 dotnet_diagnostic.CA1305.severity = error

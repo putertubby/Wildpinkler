@@ -11,7 +11,7 @@ namespace Wildpinkler.App.Services;
 /// <see cref="ILogger{TCategoryName}"/> from the container should do so; this exists for the entry
 /// point and for code paths that run before the container is built.
 /// </summary>
-public static class AppDiagnostics
+public static partial class AppDiagnostics
 {
     private static ILoggerFactory _factory = NullLoggerFactory.Instance;
     private static ILogger _logger = NullLogger.Instance;
@@ -45,10 +45,16 @@ public static class AppDiagnostics
     public static void Write(string operation, Exception? exception = null)
     {
         if (exception is null)
-            _logger.LogInformation("{Operation}", operation);
+            LogOperation(_logger, operation);
         else
-            _logger.LogError(exception, "{Operation}", operation);
+            LogOperationFailed(_logger, operation, exception);
     }
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "{Operation}")]
+    private static partial void LogOperation(ILogger logger, string operation);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "{Operation}")]
+    private static partial void LogOperationFailed(ILogger logger, string operation, Exception exception);
 
     public static void Shutdown()
     {
