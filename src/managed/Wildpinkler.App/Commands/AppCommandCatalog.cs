@@ -78,11 +78,74 @@ public sealed class AppCommandCatalog : IAppCommandCatalog
 
         new AppCommandDescriptor(
             "profiles.diagnoseDependencies",
-            "Finds missing, disabled, conflicting or incorrectly ordered dependencies in a profile.",
+            "Finds missing, disabled, conflicting or incorrectly ordered dependency PROBLEMS among a profile's " +
+            "currently ENABLED mods only. An empty result means no problems were found - it does not mean the " +
+            "mods have no dependencies. Use mods.getDependencies to see a mod's actual dependency edges.",
             typeof(DiagnoseProfileDependenciesCommand), typeof(IReadOnlyList<DependencyIssue>),
             Group: "diagnostics",
             IsDestructive: false, RequiresConfirmation: false,
             Parameters: [new AppCommandParameter("profileId", "string", "The profile to diagnose.", IsRequired: true)]),
+
+        new AppCommandDescriptor(
+            "mods.getDependencies",
+            "Lists a mod's own dependency edges (Requires, LoadAfter, LoadBefore, Conflicts, GameVersion) exactly " +
+            "as declared, regardless of whether the mod or its targets are enabled in any profile.",
+            typeof(GetModDependenciesCommand), typeof(IReadOnlyList<ModDependencyDto>),
+            Group: "core",
+            IsDestructive: false, RequiresConfirmation: false,
+            Parameters:
+            [
+                new AppCommandParameter("modId", "string", "The local Wildpinkler mod id.", IsRequired: true),
+                new AppCommandParameter("profileId", "string", "If given, also report whether each dependency target is enabled in this profile.", IsRequired: false)
+            ]),
+
+        new AppCommandDescriptor(
+            "mods.addDependency",
+            "Adds a dependency edge (Requires, LoadAfter, LoadBefore, Conflicts or GameVersion) to a mod. " +
+            "Rejected if the same edge already exists, or if it contradicts one that does (Requires vs. " +
+            "Conflicts, or LoadAfter vs. LoadBefore, for the same target).",
+            typeof(AddModDependencyCommand), typeof(ModDependencyDto),
+            Group: "mods",
+            IsDestructive: true, RequiresConfirmation: true,
+            Parameters:
+            [
+                new AppCommandParameter("modId", "string", "The mod to modify.", IsRequired: true),
+                new AppCommandParameter("kind", "string", "The dependency kind.", IsRequired: true,
+                    EnumValues: ["Requires", "LoadAfter", "LoadBefore", "Conflicts", "GameVersion"]),
+                new AppCommandParameter("targetModId", "string", "The local mod id to depend on. Omit for GameVersion.", IsRequired: false),
+                new AppCommandParameter("targetDisplayName", "string", "Display name for the target, used when targetModId is unknown locally.", IsRequired: false),
+                new AppCommandParameter("versionConstraint", "object", "Required for GameVersion: the game version constraint.", IsRequired: false)
+            ]),
+
+        new AppCommandDescriptor(
+            "mods.removeDependency",
+            "Removes one dependency edge from a mod.",
+            typeof(RemoveModDependencyCommand), typeof(bool),
+            Group: "mods",
+            IsDestructive: true, RequiresConfirmation: true,
+            Parameters:
+            [
+                new AppCommandParameter("modId", "string", "The mod to modify.", IsRequired: true),
+                new AppCommandParameter("dependencyId", "string", "The dependency id, from mods.getDependencies.", IsRequired: true)
+            ]),
+
+        new AppCommandDescriptor(
+            "mods.updateDependency",
+            "Changes the kind, target or version constraint of an existing dependency edge on a mod. " +
+            "Rejected if the change would duplicate or contradict another existing edge to the same target.",
+            typeof(UpdateModDependencyCommand), typeof(ModDependencyDto),
+            Group: "mods",
+            IsDestructive: true, RequiresConfirmation: true,
+            Parameters:
+            [
+                new AppCommandParameter("modId", "string", "The mod to modify.", IsRequired: true),
+                new AppCommandParameter("dependencyId", "string", "The dependency id, from mods.getDependencies.", IsRequired: true),
+                new AppCommandParameter("kind", "string", "The new dependency kind, if changing it.", IsRequired: false,
+                    EnumValues: ["Requires", "LoadAfter", "LoadBefore", "Conflicts", "GameVersion"]),
+                new AppCommandParameter("targetModId", "string", "The new target mod id, if changing it.", IsRequired: false),
+                new AppCommandParameter("targetDisplayName", "string", "The new target display name, if changing it.", IsRequired: false),
+                new AppCommandParameter("versionConstraint", "object", "The new game version constraint, if changing it.", IsRequired: false)
+            ]),
 
         new AppCommandDescriptor(
             "remote.getMod",
@@ -234,6 +297,10 @@ public static class CommandRegistration
         services.AddSingleton<IAppCommandHandler<SetModEnabledCommand, bool>, SetModEnabledHandler>();
         services.AddSingleton<IAppCommandHandler<SetToolEnabledCommand, bool>, SetToolEnabledHandler>();
         services.AddSingleton<IAppCommandHandler<ReorderModCommand, IReadOnlyList<string>>, ReorderModHandler>();
+        services.AddSingleton<IAppCommandHandler<GetModDependenciesCommand, IReadOnlyList<ModDependencyDto>>, GetModDependenciesHandler>();
+        services.AddSingleton<IAppCommandHandler<AddModDependencyCommand, ModDependencyDto>, AddModDependencyHandler>();
+        services.AddSingleton<IAppCommandHandler<RemoveModDependencyCommand, bool>, RemoveModDependencyHandler>();
+        services.AddSingleton<IAppCommandHandler<UpdateModDependencyCommand, ModDependencyDto>, UpdateModDependencyHandler>();
         return services;
     }
 }

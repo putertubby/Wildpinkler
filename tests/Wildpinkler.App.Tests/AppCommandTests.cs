@@ -170,6 +170,19 @@ public sealed class AgentToolCatalogTests
             Assert.Contains(tools, tool => tool.Name == "profiles_diagnoseDependencies");
         }
 
+        [Fact]
+        public void ToolsForGroups_Mods_IncludesDependencyMutationCommands()
+        {
+            var catalog = new CommandBackedAgentToolCatalog(new AppCommandCatalog(), new ThrowingDispatcher());
+
+            var tools = catalog.ToolsForGroups(new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "core", "mods" });
+
+            Assert.Contains(tools, tool => tool.Name == "mods_getDependencies");
+            Assert.Contains(tools, tool => tool.Name == "mods_addDependency");
+            Assert.Contains(tools, tool => tool.Name == "mods_removeDependency");
+            Assert.Contains(tools, tool => tool.Name == "mods_updateDependency");
+        }
+
     [Fact]
     public void ParameterSchema_IsValidJsonSchemaWithRequiredFields()
     {
