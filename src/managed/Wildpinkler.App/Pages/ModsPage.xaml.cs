@@ -571,7 +571,7 @@ public sealed partial class ModsPage : PageBase
 
         var picker = new GameAssociationPicker { Header = "GAMES" };
         // A mixed batch has no single existing state to show, so this starts from "All games" rather than guessing.
-        picker.Initialize(_games, Array.Empty<string>());
+        picker.Initialize(_games, selected.Count == 1 ? selected[0].GameIds : Array.Empty<string>());
 
         var dialog = new ContentDialog
         {
