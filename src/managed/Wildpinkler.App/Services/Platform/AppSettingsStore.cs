@@ -13,12 +13,22 @@ public enum AppThemePreference
     Dark,
 }
 
+public enum GraphLayoutKind
+{
+    Hierarchical,
+    Grid,
+    Circular,
+}
+
 public sealed class AppSettings
 {
     public int SchemaVersion { get; set; } = 1;
     public bool IsNavigationPaneOpen { get; set; }
     public bool IsWindowMaximized { get; set; }
     public AppThemePreference Theme { get; set; } = AppThemePreference.System;
+    public bool ShowGraphEdgeLabels { get; set; } = true;
+    public bool ShowAdvisoryDependencyWarnings { get; set; } = true;
+    public GraphLayoutKind GraphLayoutKind { get; set; } = GraphLayoutKind.Hierarchical;
 
     // Restore bounds only; the maximized size is never stored here.
     public int? WindowLeft { get; set; }

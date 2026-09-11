@@ -31,7 +31,7 @@ public sealed class AssistantListDtoTests
     public void ModSummaryDto_DoesNotContainArchivePathHashesOrProfileIds()
     {
         var json = JsonSerializer.Serialize(new ModSummaryDto(
-            "mod", "Example", "skyrim", "1.0", "Nexus", "Available", "nexus", "123", 2, DependencyState.Ok));
+            "mod", "Example", new[] { "game" }, "1.0", "Nexus", "Available", "nexus", "123", 2, DependencyState.Ok));
 
         Assert.DoesNotContain("ArchivePath", json, StringComparison.Ordinal);
         Assert.DoesNotContain("Sha256", json, StringComparison.Ordinal);

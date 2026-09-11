@@ -92,6 +92,11 @@ public static class ServiceRegistration
         services.AddSingleton<ModInstallService>();
         services.AddSingleton<DependencyExtractionService>();
         services.AddSingleton<DependencyGraphService>();
+        services.AddSingleton<DependencySubgraphService>();
+        services.AddSingleton<BatchDependencyService>();
+        services.AddSingleton<DependencyCatalogValidator>();
+        services.AddSingleton<GraphLayoutStore>();
+        services.AddSingleton<DependencyPresetStore>();
         return services;
     }
 
@@ -100,6 +105,7 @@ public static class ServiceRegistration
         services.AddSingleton<ModListManifestSerializer>();
         services.AddSingleton<ModListCatalogStore>();
         services.AddSingleton<ModListExportService>();
+        services.AddSingleton<ModListDependencyMapper>();
         services.AddSingleton<ModListBuildStore>();
         services.AddSingleton<ModListPreflightService>();
         services.AddSingleton<ModListBuildCoordinator>();

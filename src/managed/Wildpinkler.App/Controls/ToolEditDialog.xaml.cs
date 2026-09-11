@@ -12,7 +12,7 @@ public sealed partial class ToolEditDialog : ContentDialog
     private readonly IReadOnlyList<string> _existingNames;
 
     // existingTool == null means add mode; existingNames excludes the tool being edited.
-    public ToolEditDialog(ToolEntry? existingTool, IReadOnlyList<string> existingNames, ToolDefinition? definition)
+    public ToolEditDialog(ToolEntry? existingTool, IReadOnlyList<string> existingNames, ToolDefinition? definition, IReadOnlyList<GameEntry> games)
     {
         InitializeComponent();
         // ContentDialog subclasses don't reliably inherit the implicit style from XAML alone.
@@ -25,6 +25,7 @@ public sealed partial class ToolEditDialog : ContentDialog
         NameBox.Text = existingTool?.Name ?? GetInitialToolName(definition);
         InstallPathBox.Text = existingTool?.InstallPath ?? string.Empty;
         LaunchArgumentsBox.Text = existingTool?.LaunchArguments ?? definition?.DefaultLaunchArguments ?? string.Empty;
+        GamePicker.Initialize(games, existingTool?.GameIds ?? new List<string>());
 
         if (definition is not null)
         {
@@ -44,7 +45,9 @@ public sealed partial class ToolEditDialog : ContentDialog
 
     public string LaunchArguments => LaunchArgumentsBox.Text.Trim();
 
-    private void Field_Changed(object sender, TextChangedEventArgs args) => UpdateValidity();
+    public IReadOnlyList<string> GameIds => GamePicker.SelectedGameIds;
+
+    private void Field_Changed(object sender, object args) => UpdateValidity();
 
     private string GetInitialToolName(ToolDefinition? definition)
     {
@@ -68,7 +71,7 @@ public sealed partial class ToolEditDialog : ContentDialog
         var isDuplicate = _existingNames.Any(name => name.Equals(ToolName, StringComparison.OrdinalIgnoreCase));
         NameErrorText.Visibility = isDuplicate ? Visibility.Visible : Visibility.Collapsed;
 
-        IsPrimaryButtonEnabled = ToolName.Length > 0 && !isDuplicate && InstallPath.Length > 0;
+        IsPrimaryButtonEnabled = ToolName.Length > 0 && !isDuplicate && InstallPath.Length > 0 && GamePicker.IsSelectionValid;
     }
 
     private async void BrowseInstallPath_Click(object sender, RoutedEventArgs args)

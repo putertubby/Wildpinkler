@@ -25,7 +25,12 @@ public sealed partial class ToolsPage : PageBase
     private readonly BackgroundOperationQueue _queue = AppServices.BackgroundOperationQueue;
     private readonly ObservableCollection<ToolEntry> _allTools = new();
     private readonly ObservableCollection<ToolEntry> _visibleTools = new();
+    private readonly ObservableCollection<ToolFilterChip> _filterChips = new();
     private List<Profile> _profiles = new();
+    private List<GameEntry> _games = new();
+    private readonly HashSet<string> _gameFilterIds = new(StringComparer.Ordinal);
+    private bool _allGamesOnlyFilter;
+    private const string AllGamesFilterTag = "__all_games_only__";
     private IReadOnlyList<ToolDefinition> _definitions = Array.Empty<ToolDefinition>();
     private double _listDetailsWidth;
     private long _profilesRevision;
@@ -51,6 +56,9 @@ public sealed partial class ToolsPage : PageBase
 
     public string SelectedCountText => SelectedCount > 1 ? $"{SelectedCount} selected" : string.Empty;
 
+    public string FilterButtonText => _gameFilterIds.Count == 0 && !_allGamesOnlyFilter ? "Filter" : $"Filter ({(_allGamesOnlyFilter ? 1 : _gameFilterIds.Count)})";
+    public bool HasActiveFilters => _filterChips.Count > 0;
+
     // Side-by-side vs. stacked drill-in is judged from the list/details Grid's own measured width,
     // not window width, so the docked NavigationView pane is accounted for.
     private double _detailsWidth = AppServices.AppSettings.ToolsDetailsWidth ?? 360;
@@ -60,6 +68,7 @@ public sealed partial class ToolsPage : PageBase
         InitializeComponent();
         NavigationCacheMode = Microsoft.UI.Xaml.Navigation.NavigationCacheMode.Required;
         ToolList.ItemsSource = _visibleTools;
+        FilterChipList.ItemsSource = _filterChips;
         DetailsColumnDef.RegisterPropertyChangedCallback(ColumnDefinition.WidthProperty, DetailsColumnDef_WidthChanged);
         _queue.Changed += Queue_Changed;
         _profileStore.Changed += ProfileStore_Changed;
@@ -130,6 +139,8 @@ public sealed partial class ToolsPage : PageBase
             foreach (var tool in await _store.LoadAsync())
                 _allTools.Add(tool);
 
+            _games = (await AppServices.GameStore.LoadAsync()).ToList();
+            DispatcherQueue.TryEnqueue(BuildGameFilterMenu);
             _profilesRevision = _profileStore.Revision;
             _profiles = (await _profileStore.LoadAsync()).ToList();
             ApplyUsageCounts();
@@ -137,6 +148,7 @@ public sealed partial class ToolsPage : PageBase
             var catalog = await _definitionStore.LoadAsync();
             _definitions = catalog.Definitions;
             ApplyDefinitions();
+            ApplyGameNames();
             if (catalog.Warnings.Count > 0)
                 ShowInfo(string.Join("\n", catalog.Warnings), InfoBarSeverity.Warning);
         }
@@ -201,6 +213,107 @@ public sealed partial class ToolsPage : PageBase
             tool.Definition = _definitions.FirstOrDefault(definition => definition.DefinitionId == tool.DefinitionId);
     }
 
+    private void ApplyGameNames()
+    {
+        foreach (var tool in _allTools)
+            tool.GameNamesText = DescribeToolGames(tool);
+    }
+
+    // The game list is discovered at load time, so this half of the filter menu is built here.
+    private void BuildGameFilterMenu()
+    {
+        var validIds = _games.Select(game => game.Id).ToHashSet(StringComparer.Ordinal);
+        _gameFilterIds.RemoveWhere(id => !validIds.Contains(id));
+
+        GameFilterMenu.Items.Clear();
+        GameFilterMenu.Items.Add(CreateGameFilterItem(AllGamesFilterTag, "All games only", _allGamesOnlyFilter));
+        if (_games.Count > 0)
+            GameFilterMenu.Items.Add(new MenuFlyoutSeparator());
+        foreach (var game in _games.OrderBy(game => game.Name, StringComparer.OrdinalIgnoreCase))
+            GameFilterMenu.Items.Add(CreateGameFilterItem(game.Id, game.Name, _gameFilterIds.Contains(game.Id)));
+    }
+
+    private ToggleMenuFlyoutItem CreateGameFilterItem(string tag, string text, bool isChecked)
+    {
+        var item = new ToggleMenuFlyoutItem { Text = text, Tag = tag, IsChecked = isChecked };
+        item.Click += GameFilter_Click;
+        return item;
+    }
+
+    private void GameFilter_Click(object sender, RoutedEventArgs args)
+    {
+        if (sender is not ToggleMenuFlyoutItem { Tag: string tag } item)
+            return;
+
+        if (tag == AllGamesFilterTag)
+        {
+            _allGamesOnlyFilter = item.IsChecked;
+            if (_allGamesOnlyFilter)
+                _gameFilterIds.Clear();
+        }
+        else if (item.IsChecked)
+        {
+            _gameFilterIds.Add(tag);
+            _allGamesOnlyFilter = false;
+        }
+        else
+        {
+            _gameFilterIds.Remove(tag);
+        }
+
+        BuildGameFilterMenu();
+        OnPropertyChanged(nameof(FilterButtonText));
+        RefreshTools();
+    }
+
+    private void RefreshFilterChips()
+    {
+        var desired = new List<ToolFilterChip>();
+        if (_allGamesOnlyFilter)
+            desired.Add(new ToolFilterChip("All games only", AllGamesFilterTag));
+        foreach (var gameId in _gameFilterIds)
+        {
+            var name = _games.FirstOrDefault(game => game.Id == gameId)?.Name ?? gameId;
+            desired.Add(new ToolFilterChip($"Game: {name}", gameId));
+        }
+
+        CollectionReconciler.Reconcile(_filterChips, desired, chip => chip.GameId);
+        OnPropertyChanged(nameof(HasActiveFilters));
+    }
+
+    private void RemoveFilterChip_Click(object sender, RoutedEventArgs args)
+    {
+        if ((sender as FrameworkElement)?.DataContext is not ToolFilterChip chip)
+            return;
+
+        if (chip.GameId == AllGamesFilterTag)
+            _allGamesOnlyFilter = false;
+        else
+            _gameFilterIds.Remove(chip.GameId);
+
+        BuildGameFilterMenu();
+        OnPropertyChanged(nameof(FilterButtonText));
+        RefreshTools();
+    }
+
+    private void ClearFilters_Click(object sender, RoutedEventArgs args)
+    {
+        _gameFilterIds.Clear();
+        _allGamesOnlyFilter = false;
+        BuildGameFilterMenu();
+        OnPropertyChanged(nameof(FilterButtonText));
+        RefreshTools();
+    }
+
+    private bool MatchesGameFilter(ToolEntry tool)
+    {
+        if (_allGamesOnlyFilter)
+            return tool.IsAllGames;
+        if (_gameFilterIds.Count == 0)
+            return true;
+        return tool.IsAllGames || _gameFilterIds.Any(id => tool.SupportsGame(_games.FirstOrDefault(game => game.Id == id)));
+    }
+
     private void Queue_Changed(object? sender, EventArgs args) => DispatcherQueue.TryEnqueue(UpdateQueueStatus);
 
     private void UpdateQueueStatus()
@@ -233,6 +346,47 @@ public sealed partial class ToolsPage : PageBase
         DeleteSelectedCommand.NotifyCanExecuteChanged();
         EditDefinitionCommand.NotifyCanExecuteChanged();
         ExportDefinitionCommand.NotifyCanExecuteChanged();
+        SetGameAssociationCommand.NotifyCanExecuteChanged();
+    }
+
+    private bool CanSetGameAssociation() => ToolList.SelectedItems.Count > 0;
+
+    [RelayCommand(CanExecute = nameof(CanSetGameAssociation))]
+    private async Task SetGameAssociationAsync()
+    {
+        var selected = ToolList.SelectedItems.Cast<ToolEntry>().ToList();
+        if (selected.Count == 0)
+            return;
+
+        var picker = new GameAssociationPicker { Header = "GAMES" };
+        // A mixed batch has no single existing state to show, so this starts from "All games" rather than guessing.
+        picker.Initialize(_games, Array.Empty<string>());
+
+        var dialog = new ContentDialog
+        {
+            Title = selected.Count == 1 ? $"Set game association for {selected[0].Name}" : $"Set game association for {selected.Count} tools",
+            Content = picker,
+            PrimaryButtonText = "Apply",
+            CloseButtonText = "Cancel",
+            XamlRoot = XamlRoot,
+            DefaultButton = ContentDialogButton.Primary
+        };
+        picker.SelectionChanged += (_, _) => dialog.IsPrimaryButtonEnabled = picker.IsSelectionValid;
+
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+            return;
+
+        var gameIds = picker.SelectedGameIds.ToList();
+        foreach (var tool in selected)
+        {
+            tool.GameIds = gameIds;
+            tool.GameNamesText = DescribeToolGames(tool);
+        }
+
+        RefreshTools();
+        UpdateSelectedToolDetails();
+        Enqueue("Set game association", () => _store.SaveAsync(_allTools.ToList()));
+        ShowInfo($"Updated game association for {selected.Count} tool(s).", InfoBarSeverity.Success);
     }
 
     private void ListHeader_QueryChanged(object? sender, EventArgs args) => RefreshTools();
@@ -270,11 +424,7 @@ public sealed partial class ToolsPage : PageBase
         DetailsInstallPath.Text = string.IsNullOrWhiteSpace(tool.InstallPathText) ? "Not set" : tool.InstallPathText;
         DetailsExecutablePath.Text = ResolveExecutableText(tool);
         DetailsLaunchArguments.Text = string.IsNullOrWhiteSpace(tool.LaunchArguments) ? "None" : tool.LaunchArguments;
-        DetailsSupportedGames.Text = tool.Definition is null
-            ? "Unknown"
-            : tool.Definition.SupportedGameDefinitions.Count == 0
-                ? "Any game"
-                : string.Join(", ", tool.Definition.SupportedGameDefinitions);
+        DetailsSupportedGames.Text = DescribeToolGames(tool);
         DetailsMergedViews.Text = tool.Definition is null
             ? "Unknown"
             : tool.Definition.MergedViews.Count == 0
@@ -290,6 +440,21 @@ public sealed partial class ToolsPage : PageBase
 
     private static string ResolveExecutableText(ToolEntry tool) =>
         tool.ExecutablePath.Length > 0 ? tool.ExecutablePath : "Not set";
+
+    // The local GameIds override (by GameEntry.Id) takes precedence over the shared definition's
+    // SupportedGameDefinitions (by GameDefinition.DefinitionId) - they are different id spaces.
+    private string DescribeToolGames(ToolEntry tool)
+    {
+        if (tool.GameIds.Count > 0)
+        {
+            var names = tool.GameIds.Select(id => _games.FirstOrDefault(game => game.Id == id)?.Name ?? "Unknown game");
+            return string.Join(", ", names);
+        }
+
+        if (tool.Definition is null)
+            return "All games";
+        return tool.Definition.SupportedGameDefinitions.Count == 0 ? "All games" : string.Join(", ", tool.Definition.SupportedGameDefinitions);
+    }
 
     private void ToolList_DoubleTapped(object sender, DoubleTappedRoutedEventArgs args)
     {
@@ -311,13 +476,15 @@ public sealed partial class ToolsPage : PageBase
         var query = ListHeader?.SearchText.Trim() ?? string.Empty;
 
         var filteredTools = _allTools.Where(tool =>
-            string.IsNullOrEmpty(query) ||
-            tool.Name.Contains(query, StringComparison.OrdinalIgnoreCase) ||
-            tool.InstallPath.Contains(query, StringComparison.OrdinalIgnoreCase) ||
-            tool.ExecutablePath.Contains(query, StringComparison.OrdinalIgnoreCase));
+            (string.IsNullOrEmpty(query) ||
+             tool.Name.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+             tool.InstallPath.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+             tool.ExecutablePath.Contains(query, StringComparison.OrdinalIgnoreCase)) &&
+            MatchesGameFilter(tool));
 
         var desiredTools = filteredTools.OrderBy(tool => tool.Name, StringComparer.OrdinalIgnoreCase).ToList();
         CollectionReconciler.Reconcile(_visibleTools, desiredTools, tool => tool.Id);
+        RefreshFilterChips();
         HasNoTools = !IsLoading && LoadErrorMessage is null && _allTools.Count == 0;
         HasNoSearchResults = !IsLoading && LoadErrorMessage is null && _allTools.Count > 0 && _visibleTools.Count == 0;
         ToolListStatus.Text = HasNoSearchResults ? "No tools match the current search." : string.Empty;
@@ -338,7 +505,7 @@ public sealed partial class ToolsPage : PageBase
             return;
 
         var existingNames = _allTools.Select(tool => tool.Name).ToList();
-        var dialog = new ToolEditDialog(null, existingNames, definition) { XamlRoot = XamlRoot };
+        var dialog = new ToolEditDialog(null, existingNames, definition, _games) { XamlRoot = XamlRoot };
         if (await dialog.ShowAsync() != ContentDialogResult.Primary)
             return;
 
@@ -350,8 +517,10 @@ public sealed partial class ToolsPage : PageBase
             LaunchArguments = dialog.LaunchArguments,
             DefinitionId = definition.DefinitionId,
             DefinitionVersion = definition.DefinitionVersion,
-            Definition = definition
+            Definition = definition,
+            GameIds = dialog.GameIds.ToList()
         };
+        tool.GameNamesText = DescribeToolGames(tool);
         _allTools.Add(tool);
         RefreshTools();
         Enqueue("Add tool", () => _store.SaveAsync(_allTools.ToList()));
@@ -366,13 +535,15 @@ public sealed partial class ToolsPage : PageBase
             return;
 
         var existingNames = _allTools.Where(item => item.Id != tool.Id).Select(item => item.Name).ToList();
-        var dialog = new ToolEditDialog(tool, existingNames, tool.Definition) { XamlRoot = XamlRoot };
+        var dialog = new ToolEditDialog(tool, existingNames, tool.Definition, _games) { XamlRoot = XamlRoot };
         if (await dialog.ShowAsync() != ContentDialogResult.Primary)
             return;
 
         tool.Name = dialog.ToolName;
         tool.InstallPath = dialog.InstallPath;
         tool.LaunchArguments = dialog.LaunchArguments;
+        tool.GameIds = dialog.GameIds.ToList();
+        tool.GameNamesText = DescribeToolGames(tool);
         RefreshTools();
         UpdateSelectedToolDetails();
         Enqueue("Save tool", () => _store.SaveAsync(_allTools.ToList()));

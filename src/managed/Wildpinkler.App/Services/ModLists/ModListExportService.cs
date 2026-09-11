@@ -50,6 +50,7 @@ public sealed class ModListExportService
 
         var modsById = mods.ToDictionary(mod => mod.Id, StringComparer.Ordinal);
         var installationsById = installations.ToDictionary(installation => installation.Id, StringComparer.Ordinal);
+        var entryIdByModId = new Dictionary<string, string>(StringComparer.Ordinal);
         var portableOrder = 0;
         foreach (var folder in profile.LoadOrder.Where(folder => folder.Kind is ProfileFolderKind.Mod or ProfileFolderKind.Unmanaged))
         {
@@ -68,8 +69,12 @@ public sealed class ModListExportService
             }
 
             installationsById.TryGetValue(folder.ModInstallationId ?? string.Empty, out var installation);
-            manifest.Content.Add(await CreateModEntryAsync(folder, mod, installation, portableOrder, cancellationToken));
+            var modEntry = await CreateModEntryAsync(folder, mod, installation, portableOrder, cancellationToken);
+            entryIdByModId[mod.Id] = modEntry.EntryId;
+            manifest.Content.Add(modEntry);
         }
+
+        manifest.Dependencies.AddRange(CreateDependencies(mods, entryIdByModId));
 
         foreach (var binding in profile.Tools.Where(binding => binding.IsEnabled))
         {
@@ -79,6 +84,38 @@ public sealed class ModListExportService
 
         ModListManifestValidator.EnsureValid(manifest);
         return new ModListExportResult(manifest, ModListGradeResolver.Evaluate(manifest));
+    }
+
+    /// <summary>Maps local dependency edges onto portable entry ids, dropping any target outside the list.</summary>
+    private static List<ModListDependency> CreateDependencies(
+        IReadOnlyList<ModEntry> mods, Dictionary<string, string> entryIdByModId)
+    {
+        var dependencies = new List<ModListDependency>();
+        var seen = new HashSet<(string, string, ModDependencyKind)>();
+
+        foreach (var mod in mods.Where(mod => entryIdByModId.ContainsKey(mod.Id)))
+        {
+            foreach (var dependency in mod.Dependencies)
+            {
+                if (dependency.Kind == ModDependencyKind.GameVersion || dependency.Target?.ModId is not { } targetModId)
+                    continue;
+                if (!entryIdByModId.TryGetValue(targetModId, out var targetEntryId) || targetModId == mod.Id)
+                    continue;
+
+                var sourceEntryId = entryIdByModId[mod.Id];
+                if (!seen.Add((sourceEntryId, targetEntryId, dependency.Kind)))
+                    continue;
+
+                dependencies.Add(new ModListDependency
+                {
+                    SourceEntryId = sourceEntryId,
+                    TargetEntryId = targetEntryId,
+                    Kind = dependency.Kind
+                });
+            }
+        }
+
+        return dependencies;
     }
 
     private static ModListGameRequirement CreateGameRequirement(GameEntry game, GameDefinition definition)

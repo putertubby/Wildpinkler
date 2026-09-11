@@ -34,12 +34,16 @@ public sealed partial class DownloadJob : ObservableObject
     private string? _error;
     private string? _remedy;
 
-    public DownloadJob(RemoteLink link, string siteId)
+    public DownloadJob(RemoteLink link, string siteId, IReadOnlyList<string>? confirmedGameIds = null)
     {
         Link = link;
         SiteId = siteId;
         Key = Guid.NewGuid().ToString("N");
+        ConfirmedGameIds = confirmedGameIds ?? Array.Empty<string>();
     }
+
+    /// <summary>Games the user confirmed in the download dialog; empty means "all games".</summary>
+    public IReadOnlyList<string> ConfirmedGameIds { get; }
 
     /// <summary>Stable identity so the bound list can be reconciled instead of rebuilt.</summary>
     public string Key { get; }
@@ -185,7 +189,7 @@ public sealed class DownloadQueueCoordinator
     public Task<RemoteDownloadPreview> PreviewAsync(RemoteLink link, CancellationToken cancellationToken = default) =>
         _acquisition.PreviewAsync(link, cancellationToken);
 
-    public DownloadJob? Enqueue(RemoteLink link)
+    public DownloadJob? Enqueue(RemoteLink link, IReadOnlyList<string>? confirmedGameIds = null)
     {
         if (!link.IsDownloadable)
         {
@@ -193,13 +197,13 @@ public sealed class DownloadQueueCoordinator
             return null;
         }
 
-        var job = new DownloadJob(link, link.SiteId);
+        var job = new DownloadJob(link, link.SiteId, confirmedGameIds);
         Post(() => Jobs.Add(job));
         _ = RunAsync(job);
         return job;
     }
 
-    public DownloadJob? Retry(DownloadJob job) => job.CanRetry ? Enqueue(job.Link) : null;
+    public DownloadJob? Retry(DownloadJob job) => job.CanRetry ? Enqueue(job.Link, job.ConfirmedGameIds) : null;
 
     public void ClearFinished()
     {
@@ -235,7 +239,7 @@ public sealed class DownloadQueueCoordinator
                     update.Entry.DownloadProgress = job.Progress;
                 }
             }));
-            var result = await _acquisition.AcquireAsync(job.Link, progress: progress, cancellationToken: job.Cancellation.Token);
+            var result = await _acquisition.AcquireAsync(job.Link, confirmedGameIds: job.ConfirmedGameIds, progress: progress, cancellationToken: job.Cancellation.Token);
 
             Set(job, () =>
             {

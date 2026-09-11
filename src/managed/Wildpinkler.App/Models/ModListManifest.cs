@@ -6,7 +6,7 @@ namespace Wildpinkler.App.Models;
 
 public sealed class ModListManifest
 {
-    public const int CurrentSchemaVersion = 1;
+    public const int CurrentSchemaVersion = 2;
 
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
     public string ListId { get; set; } = string.Empty;
@@ -18,6 +18,16 @@ public sealed class ModListManifest
     public ModListProfileTemplate Profile { get; set; } = new();
     public List<ModListContentEntry> Content { get; set; } = new();
     public List<ModListToolRequirement> Tools { get; set; } = new();
+
+    /// <summary>Dependency edges between content entries, so a shared list keeps its declared relationships.</summary>
+    public List<ModListDependency> Dependencies { get; set; } = new();
+}
+
+public sealed class ModListDependency
+{
+    public string SourceEntryId { get; set; } = string.Empty;
+    public string TargetEntryId { get; set; } = string.Empty;
+    public ModDependencyKind Kind { get; set; }
 }
 
 public sealed class ModListGameRequirement

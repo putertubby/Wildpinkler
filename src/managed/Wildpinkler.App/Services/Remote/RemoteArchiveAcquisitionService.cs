@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
@@ -81,6 +82,7 @@ public sealed class RemoteArchiveAcquisitionService : IDisposable
     public async Task<RemoteArchiveAcquisitionResult> AcquireAsync(
         RemoteLink link,
         string? expectedSha256 = null,
+        IReadOnlyList<string>? confirmedGameIds = null,
         IProgress<RemoteAcquisitionProgress>? progress = null,
         CancellationToken cancellationToken = default)
     {
@@ -95,7 +97,7 @@ public sealed class RemoteArchiveAcquisitionService : IDisposable
             var mod = await provider.GetModAsync(reference, credential, cancellationToken);
             var file = await provider.GetFileAsync(reference, credential, cancellationToken);
             var sources = await provider.GetDownloadSourcesAsync(resolved, account, credential, cancellationToken);
-            var entry = await BuildEntryAsync(provider, mod, file, reference);
+            var entry = await BuildEntryAsync(provider, mod, file, reference, confirmedGameIds);
             var destination = _store.GetArchivePath(entry.Id, file.FileName);
             EnsureDiskSpace(destination, file.SizeInBytes);
 
@@ -163,7 +165,8 @@ public sealed class RemoteArchiveAcquisitionService : IDisposable
     }
 
     private async Task<ModEntry> BuildEntryAsync(
-        IRemoteSiteProvider provider, RemoteModMetadata mod, RemoteFileMetadata file, RemoteRef reference)
+        IRemoteSiteProvider provider, RemoteModMetadata mod, RemoteFileMetadata file, RemoteRef reference,
+        IReadOnlyList<string>? confirmedGameIds)
     {
         var fileRef = reference with { FileKey = file.FileKey };
         var entries = await _store.LoadAsync();
@@ -177,7 +180,9 @@ public sealed class RemoteArchiveAcquisitionService : IDisposable
 
         entry.Remote = fileRef;
         entry.Name = mod.Name;
-        entry.Game = mod.Ref.GameKey;
+        // Only what the user confirmed in the download dialog is applied; an empty list means "all games", not "unknown".
+        if (confirmedGameIds is not null)
+            entry.GameIds = confirmedGameIds.ToList();
         entry.Version = file.Version ?? mod.Version ?? string.Empty;
         entry.Source = provider.DisplayName;
         entry.Status = "Downloading";

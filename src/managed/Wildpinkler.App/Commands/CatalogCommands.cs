@@ -12,7 +12,7 @@ namespace Wildpinkler.App.Commands;
 
 public sealed record GameSummaryDto(string Id, string Name, int ProfileCount, bool HasDefinition, bool HasDefinitionUpdate);
 public sealed record ProfileSummaryDto(string Id, string Name, string GameId, string? GameName, int LoadOrderCount, int EnabledToolCount, bool IsRunActive);
-public sealed record ModSummaryDto(string Id, string Name, string Game, string Version, string Source, string Status, string? RemoteSiteId, string? RemoteModKey, int ProfileCount, DependencyState DependencyState);
+public sealed record ModSummaryDto(string Id, string Name, IReadOnlyList<string> GameIds, string Version, string Source, string Status, string? RemoteSiteId, string? RemoteModKey, int ProfileCount, DependencyState DependencyState);
 
 public sealed record ListGamesCommand : IAppCommand<IReadOnlyList<GameSummaryDto>>;
 
@@ -58,7 +58,7 @@ public sealed class ListModsHandler : IAppCommandHandler<ListModsCommand, IReadO
 
     public async Task<IReadOnlyList<ModSummaryDto>> HandleAsync(ListModsCommand command, CancellationToken cancellationToken) =>
         (await _mods.LoadAsync()).Select(mod => new ModSummaryDto(
-            mod.Id, mod.Name, mod.Game, mod.Version, mod.Source, mod.Status,
+            mod.Id, mod.Name, mod.GameIds, mod.Version, mod.Source, mod.Status,
             mod.Remote?.SiteId, mod.Remote?.ModKey, mod.ProfileCount, mod.DependencyState)).ToList();
 }
 
@@ -76,7 +76,7 @@ public sealed class GetModHandler : IAppCommandHandler<GetModCommand, ModSummary
         var mod = mods.FirstOrDefault(candidate => string.Equals(candidate.Id, command.ModId, StringComparison.Ordinal))
             ?? throw new InvalidOperationException($"Mod '{command.ModId}' was not found.");
         return new ModSummaryDto(
-            mod.Id, mod.Name, mod.Game, mod.Version, mod.Source, mod.Status,
+            mod.Id, mod.Name, mod.GameIds, mod.Version, mod.Source, mod.Status,
             mod.Remote?.SiteId, mod.Remote?.ModKey, mod.ProfileCount, mod.DependencyState);
     }
 }

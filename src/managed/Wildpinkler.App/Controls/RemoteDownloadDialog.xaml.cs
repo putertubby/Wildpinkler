@@ -1,4 +1,7 @@
 using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Linq;
 using Microsoft.UI.Xaml.Controls;
 using Wildpinkler.App.Services;
 using Wildpinkler.Remote;
@@ -13,9 +16,34 @@ namespace Wildpinkler.App.Controls;
 /// </summary>
 public sealed partial class RemoteDownloadDialog : ContentDialog
 {
+    private sealed class GameOption : System.ComponentModel.INotifyPropertyChanged
+    {
+        private bool _isSelected;
+
+        public string Id { get; init; } = string.Empty;
+        public string Name { get; init; } = string.Empty;
+
+        public bool IsSelected
+        {
+            get => _isSelected;
+            set
+            {
+                if (_isSelected == value)
+                    return;
+                _isSelected = value;
+                PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(nameof(IsSelected)));
+            }
+        }
+
+        public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged;
+    }
+
+    private readonly ObservableCollection<GameOption> _gameOptions = new();
+
     public RemoteDownloadDialog(RemoteDownloadPreview preview, RemoteGameMapping? mapping)
     {
         InitializeComponent();
+        GameSelectionList.ItemsSource = _gameOptions;
 
         ModNameText.Text = preview.Mod.Name;
         ModByText.Text = string.IsNullOrWhiteSpace(preview.Mod.Author)
@@ -41,6 +69,10 @@ public sealed partial class RemoteDownloadDialog : ContentDialog
     }
 
     public bool SuppressFutureConfirmations => DoNotAskCheckBox.IsChecked == true;
+
+    /// <summary>The games the user confirmed to associate the downloaded mod with; empty means "all games".</summary>
+    public IReadOnlyList<string> ConfirmedGameIds =>
+        _gameOptions.Where(option => option.IsSelected).Select(option => option.Id).ToList();
 
     // Warning before the download rather than after it: an unmapped game cannot be installed into.
     private void ApplyGameMapping(RemoteDownloadPreview preview, RemoteGameMapping? mapping)
@@ -72,5 +104,11 @@ public sealed partial class RemoteDownloadDialog : ContentDialog
             1 => $"Ready to install into the \"{mapping.Profiles[0].Name}\" profile.",
             _ => $"{mapping.Profiles.Count} profiles use this game."
         };
+
+        // Pre-checked, not silently applied: the user still confirms (or narrows) before Download commits it.
+        foreach (var game in mapping.Games)
+            _gameOptions.Add(new GameOption { Id = game.Id, Name = game.Name, IsSelected = true });
+        GameSelectionPanel.Visibility = Microsoft.UI.Xaml.Visibility.Visible;
     }
 }
+

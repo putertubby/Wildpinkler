@@ -20,6 +20,17 @@
 
             <InfoBar x:Name="GameInfoBar" IsOpen="False" IsClosable="False" />
 
+            <StackPanel x:Name="GameSelectionPanel" Spacing="6" Visibility="Collapsed">
+                <TextBlock Style="{StaticResource SectionLabelStyle}" Text="ASSOCIATE WITH" />
+                <ItemsControl x:Name="GameSelectionList">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <CheckBox Content="{Binding Name}" IsChecked="{Binding IsSelected, Mode=TwoWay}" />
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+
             <Border BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,1,0,0" />
 
             <Grid RowSpacing="8" ColumnSpacing="12">

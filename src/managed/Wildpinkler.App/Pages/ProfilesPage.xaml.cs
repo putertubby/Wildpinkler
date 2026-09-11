@@ -269,8 +269,18 @@ public sealed partial class ProfilesPage : PageBase
 
         _allMods.Clear();
         _allMods.AddRange(await _modStore.LoadAsync());
+        foreach (var mod in _allMods)
+            mod.GameNamesText = DescribeGames(mod.GameIds);
 
         return gameCatalog.Warnings.Concat(toolCatalog.Warnings).ToList();
+    }
+
+    private string DescribeGames(IReadOnlyList<string> gameIds)
+    {
+        if (gameIds.Count == 0)
+            return "All games";
+        var names = gameIds.Select(id => _games.FirstOrDefault(game => game.Id == id)?.Name ?? "Unknown game");
+        return string.Join(", ", names);
     }
 
     protected override void OnNavigatedTo(Microsoft.UI.Xaml.Navigation.NavigationEventArgs e)

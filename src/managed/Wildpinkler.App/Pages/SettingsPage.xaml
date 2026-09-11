@@ -41,6 +41,11 @@
                             <RadioButton Content="Light" />
                             <RadioButton Content="Dark" />
                         </RadioButtons>
+                        <ToggleSwitch x:Name="ShowGraphEdgeLabelsToggle" Header="Show dependency labels on graph edges"
+                                      IsOn="True" Toggled="ShowGraphEdgeLabels_Toggled" />
+                        <ToggleSwitch x:Name="ShowAdvisoryWarningsToggle" Header="Report advisory dependency warnings"
+                                      OnContent="Include duplicate connections" OffContent="Only report blocking problems"
+                                      IsOn="True" Toggled="ShowGraphEdgeLabels_Toggled" />
                         <TextBlock Opacity="0.68" TextWrapping="Wrap"
                                    Text="Windows high contrast modes always take precedence over this choice." />
                     </StackPanel>

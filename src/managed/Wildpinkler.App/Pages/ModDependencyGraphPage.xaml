@@ -1,0 +1,202 @@
+<?xml version="1.0" encoding="utf-8"?>
+<pages:PageBase
+    x:Class="Wildpinkler.App.Pages.ModDependencyGraphPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:pages="using:Wildpinkler.App.Pages"
+    Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+
+    <Grid Padding="{StaticResource PageContentPadding}" RowSpacing="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <Grid Height="32" ColumnSpacing="12" VerticalAlignment="Center">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBlock Style="{StaticResource TitleTextBlockStyle}" Text="Mod dependency graph" />
+
+            <TextBox x:Name="GraphSearchBox" Grid.Column="1" Width="190" Height="32" MinHeight="32" VerticalAlignment="Center"
+                     PlaceholderText="Find a mod..."
+                     KeyDown="GraphSearchBox_KeyDown" TextChanged="GraphSearchBox_TextChanged"
+                     AutomationProperties.Name="Find a mod in the dependency graph" />
+            
+            <AppBarButton Grid.Column="2" Height="32" MinHeight="32" Icon="Help" Label="Legend">
+                <AppBarButton.Flyout>
+                    <Flyout Placement="BottomEdgeAlignedRight">
+                        <StackPanel Spacing="12" MaxWidth="400">
+                            <TextBlock TextWrapping="Wrap" Opacity="0.88"
+                                       Text="Drag a mod to move it. Drag from a connector handle to add a dependency—kind is chosen from the menu on drop. Right-click a connection to remove it." />
+                            
+                            <StackPanel Spacing="12">
+                                <TextBlock FontWeight="SemiBold" Text="Connections:" />
+                                <StackPanel Spacing="8">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <Rectangle Width="16" Height="3" Fill="{ThemeResource AccentFillColorDefaultBrush}" VerticalAlignment="Center" />
+                                        <TextBlock Text="Requires: target must load before owner" Style="{StaticResource CaptionTextBlockStyle}" />
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <Rectangle Width="16" Height="3" Fill="{ThemeResource SystemFillColorCautionBrush}" VerticalAlignment="Center" />
+                                        <TextBlock Text="Load order: controls relative positions in load list" Style="{StaticResource CaptionTextBlockStyle}" />
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <Polygon Points="0,0 5,5 0,10 -5,5" Fill="{ThemeResource SystemFillColorCriticalBrush}" VerticalAlignment="Center" Width="12" Height="12" />
+                                        <TextBlock Text="Conflicts: incompatible with target" Style="{StaticResource CaptionTextBlockStyle}" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </StackPanel>
+                            
+                            <StackPanel Spacing="12">
+                                <TextBlock FontWeight="SemiBold" Text="Keyboard Shortcuts:" />
+                                <StackPanel Spacing="6">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock Text="Ctrl+A" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource AccentFillColorDefaultBrush}" FontWeight="SemiBold" Width="60" />
+                                        <TextBlock Text="Select all mods" Style="{StaticResource CaptionTextBlockStyle}" />
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock Text="Escape" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource AccentFillColorDefaultBrush}" FontWeight="SemiBold" Width="60" />
+                                        <TextBlock Text="Clear selection" Style="{StaticResource CaptionTextBlockStyle}" />
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock Text="Delete" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource AccentFillColorDefaultBrush}" FontWeight="SemiBold" Width="60" />
+                                        <TextBlock Text="Delete selected dependencies" Style="{StaticResource CaptionTextBlockStyle}" />
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock Text="F5" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource AccentFillColorDefaultBrush}" FontWeight="SemiBold" Width="60" />
+                                        <TextBlock Text="Refresh graph from database" Style="{StaticResource CaptionTextBlockStyle}" />
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock Text="Shift+Click" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource AccentFillColorDefaultBrush}" FontWeight="SemiBold" Width="60" />
+                                        <TextBlock Text="Range select mods" Style="{StaticResource CaptionTextBlockStyle}" />
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock Text="Arrows" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource AccentFillColorDefaultBrush}" FontWeight="SemiBold" Width="60" />
+                                        <TextBlock Text="Move the focused mod (Shift for fine steps)" Style="{StaticResource CaptionTextBlockStyle}" />
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock Text="Ctrl+C/V" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource AccentFillColorDefaultBrush}" FontWeight="SemiBold" Width="60" />
+                                        <TextBlock Text="Copy dependencies, then paste onto selected mods" Style="{StaticResource CaptionTextBlockStyle}" />
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock Text="Ctrl+Z" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource AccentFillColorDefaultBrush}" FontWeight="SemiBold" Width="60" />
+                                        <TextBlock Text="Undo the last dependency change" Style="{StaticResource CaptionTextBlockStyle}" />
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock Text="Ctrl+Y" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource AccentFillColorDefaultBrush}" FontWeight="SemiBold" Width="60" />
+                                        <TextBlock Text="Redo the last dependency change" Style="{StaticResource CaptionTextBlockStyle}" />
+                                    </StackPanel>
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <TextBlock Text="F8" Style="{StaticResource CaptionTextBlockStyle}" Foreground="{ThemeResource AccentFillColorDefaultBrush}" FontWeight="SemiBold" Width="60" />
+                                        <TextBlock Text="Jump to the next dependency issue" Style="{StaticResource CaptionTextBlockStyle}" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </StackPanel>
+                        </StackPanel>
+                    </Flyout>
+                </AppBarButton.Flyout>
+            </AppBarButton>
+
+            <StackPanel Grid.Column="3" Height="32" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <Button Height="32" MinHeight="32" Padding="8,0" Click="FitGraph_Click" ToolTipService.ToolTip="Fit all mods in view"
+                        AutomationProperties.Name="Fit graph to view">
+                    <FontIcon Glyph="&#xE799;" />
+                </Button>
+                <Slider x:Name="ZoomSlider" Width="120" Minimum="25" Maximum="200" Value="100"
+                        StepFrequency="5" ValueChanged="ZoomSlider_ValueChanged"
+                        ToolTipService.ToolTip="Graph zoom percentage"
+                        AutomationProperties.Name="Graph zoom" />
+                <TextBlock x:Name="ZoomText" Width="42" VerticalAlignment="Center" Text="100%" />
+            </StackPanel>
+
+            <CommandBar Grid.Column="4" Height="32" MinHeight="32" DefaultLabelPosition="Collapsed" HorizontalAlignment="Right" Background="Transparent">
+                <AppBarButton Height="32" MinHeight="32" Icon="More" Label="More" AutomationProperties.Name="More graph actions">
+                    <AppBarButton.Flyout>
+                        <MenuFlyout x:Name="GraphActionsFlyout">
+                            <MenuFlyoutItem Icon="Bookmarks" Text="Presets..." Click="OpenPresetsMenu_Click" />
+                            <MenuFlyoutItem Icon="Refresh" Text="Arrange..." Click="OpenArrangeMenu_Click" />
+                            <MenuFlyoutSeparator />
+                            <MenuFlyoutItem Icon="Save" Text="Export dependencies" Click="ExportSubgraph_Click" />
+                            <MenuFlyoutItem Icon="OpenFile" Text="Import dependencies" Click="ImportSubgraph_Click" />
+                            <MenuFlyoutSeparator />
+                            <MenuFlyoutItem Icon="Add" Text="Add dependency to selected mods" Click="AddBatchDependency_Click" />
+                            <MenuFlyoutItem Icon="Copy" Text="Copy dependencies to selected mods" Click="CopySelectedDependencies_Click" />
+                            <MenuFlyoutItem Icon="Delete" Text="Remove conflicts from selected mods" Click="RemoveSelectedConflicts_Click" />
+                            <MenuFlyoutSeparator />
+                            <MenuFlyoutItem Icon="Forward" Text="Select dependencies" Click="SelectDependencies_Click" />
+                            <MenuFlyoutItem Icon="Back" Text="Select dependents" Click="SelectDependents_Click" />
+                        </MenuFlyout>
+                    </AppBarButton.Flyout>
+                </AppBarButton>
+                <AppBarButton Height="32" MinHeight="32" Icon="Cancel" Label="Close" Click="BackToMods_Click"
+                              AutomationProperties.Name="Back to mods" />
+            </CommandBar>
+        </Grid>
+
+        <InfoBar x:Name="PageInfoBar" Grid.Row="1" IsOpen="False" />
+
+        <Expander x:Name="ValidationPanel" Grid.Row="2" Visibility="Collapsed"
+                  HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+            <Expander.Header>
+                <TextBlock x:Name="ValidationSummaryText" FontWeight="SemiBold"
+                           AutomationProperties.Name="Dependency validation summary" />
+            </Expander.Header>
+            <ListView x:Name="ValidationIssueList" SelectionMode="None" IsItemClickEnabled="True"
+                      ItemClick="ValidationIssue_Click" MaxHeight="180"
+                      AutomationProperties.Name="Dependency problems. Activate an item to show that mod.">
+                <ListView.ItemTemplate>
+                    <DataTemplate x:DataType="pages:GraphIssueRow">
+                        <StackPanel Orientation="Horizontal" Spacing="8" Padding="0,6,0,6">
+                            <FontIcon Glyph="{x:Bind Glyph}" FontSize="14" VerticalAlignment="Top"
+                                      Foreground="{x:Bind SeverityBrush}" />
+                            <TextBlock Text="{x:Bind Message}" TextWrapping="Wrap" />
+                        </StackPanel>
+                    </DataTemplate>
+                </ListView.ItemTemplate>
+            </ListView>
+        </Expander>
+
+        <Border Grid.Row="3" Style="{StaticResource ContentCardStyle}">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+
+                <TextBlock x:Name="SelectionCountText" Grid.Row="0" Margin="12,8,12,4" Opacity="0.7" Style="{StaticResource CaptionTextBlockStyle}"
+                           Visibility="Collapsed" />
+
+                <ScrollViewer Grid.Row="1" x:Name="GraphScrollViewer"
+                              HorizontalScrollMode="Auto" HorizontalScrollBarVisibility="Auto"
+                              VerticalScrollMode="Auto" VerticalScrollBarVisibility="Auto"
+                              ZoomMode="Enabled" MinZoomFactor="0.25" MaxZoomFactor="2"
+                              ViewChanged="GraphScrollViewer_ViewChanged">
+                    <Canvas x:Name="GraphCanvas" Width="1" Height="1" Background="Transparent" 
+                            PointerPressed="Canvas_PointerPressed"
+                            PointerMoved="Canvas_PointerMoved"
+                            PointerReleased="Canvas_PointerReleased"
+                            KeyDown="Graph_KeyDown" />
+                </ScrollViewer>
+
+                <ProgressRing Grid.Row="1" HorizontalAlignment="Center" VerticalAlignment="Center" Width="32" Height="32"
+                              IsActive="{x:Bind IsLoading, Mode=OneWay}"
+                              Visibility="{x:Bind IsLoading, Mode=OneWay}" />
+
+                <StackPanel Grid.Row="1" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8" MaxWidth="320"
+                            Visibility="{x:Bind HasNoMods, Mode=OneWay}">
+                    <FontIcon HorizontalAlignment="Center" Glyph="&#xE9CE;" FontSize="40" Opacity="0.5" />
+                    <TextBlock HorizontalAlignment="Center" Style="{StaticResource SubtitleTextBlockStyle}" Text="No mods to graph yet" />
+                    <TextBlock HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" Opacity="0.68"
+                               Text="Add mods on the Mods page, then come back here to see and edit how they depend on each other." />
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+</pages:PageBase>

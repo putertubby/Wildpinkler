@@ -22,9 +22,10 @@ public sealed partial class ProfilesPage
         if (SelectedProfile is not { } profile || !_runAccess.CanModify(profile))
             return;
 
-        var gameMods = _allMods.Where(mod => mod.Game.Equals(profile.GameName, StringComparison.OrdinalIgnoreCase)).ToList();
+        // No longer hard-filtered by game: mods for other games (or unassociated) are still offered,
+        // sorted behind this profile's own mods, with an inline option to associate them on accept.
         var installedModIds = profile.LoadOrder.Where(folder => folder.ModId is not null).Select(folder => folder.ModId!);
-        var dialog = new ProfileModPickerDialog(gameMods, installedModIds) { XamlRoot = XamlRoot };
+        var dialog = new ProfileModPickerDialog(_allMods, installedModIds, profile.GameId, profile.GameName) { XamlRoot = XamlRoot };
         var result = await dialog.ShowAsync();
 
         if (!_runAccess.CanModify(profile))
@@ -36,10 +37,13 @@ public sealed partial class ProfilesPage
                 ShowInfo($"Skipped {dialog.SkippedUnsupportedFiles} unsupported file(s); adding {dialog.ImportedArchives.Count} archive(s)...");
 
             var added = await ModImportService.ProcessCandidateArchivesAsync(
-                dialog.ImportedArchives, new[] { profile.GameName }, XamlRoot, _modStore, Enqueue, DispatcherQueue, _allMods,
+                dialog.ImportedArchives, _games, XamlRoot, _modStore, Enqueue, DispatcherQueue, _allMods,
                 () => { }, ShowInfo, awaitArchiveCopy: true);
             foreach (var mod in added)
+            {
+                mod.GameNamesText = DescribeGames(mod.GameIds);
                 await InstallModAsync(profile, mod);
+            }
             return;
         }
 
@@ -51,6 +55,14 @@ public sealed partial class ProfilesPage
             .OfType<ModEntry>()
             .Where(mod => mod.HasArchive)
             .ToList();
+
+        var toAssociate = dialog.ModIdsToAssociate.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var mod in selected.Where(mod => toAssociate.Contains(mod.Id)))
+        {
+            mod.GameIds = mod.GameIds.Append(profile.GameId).ToList();
+            mod.GameNamesText = DescribeGames(mod.GameIds);
+            await _modStore.UpsertAsync(mod);
+        }
 
         foreach (var mod in selected)
             await InstallModAsync(profile, mod);

@@ -110,6 +110,7 @@ public sealed partial class ProfilesPage
                 return;
             }
 
+            DependencyIssuesHeading.Text = $"{issues.Count} dependency issue{(issues.Count == 1 ? string.Empty : "s")}";
             DependencyIssuesText.Text = string.Join("\n", issues.Select(issue => issue.Message).Distinct());
             FixOrderButton.IsEnabled = issues.Any(issue => issue.Kind == DependencyIssueKind.OrderViolation);
             DependencyIssuesPanel.Visibility = Visibility.Visible;
@@ -119,6 +120,12 @@ public sealed partial class ProfilesPage
             AppDiagnostics.Write("Refreshing dependency issues failed.", exception);
             DependencyIssuesPanel.Visibility = Visibility.Collapsed;
         }
+    }
+
+    private void ValidateDependencies_Click(object sender, RoutedEventArgs args)
+    {
+        if (SelectedProfile is { } profile)
+            UiTask.Run(() => RefreshDependencyIssuesAsync(profile), nameof(ValidateDependencies_Click), ShowLoadOrderError);
     }
 
     private void ShowLoadOrderError(Exception exception) =>

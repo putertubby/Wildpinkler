@@ -24,6 +24,7 @@ public sealed class ModListBuildCoordinator
     private readonly LaunchTargetResolver _targetResolver;
     private readonly LaunchService _launcher;
     private readonly DependencyGraphService _dependencies;
+    private readonly ModListDependencyMapper _dependencyMapper;
 
     public ModListBuildCoordinator(
         ModListBuildStore builds,
@@ -37,7 +38,8 @@ public sealed class ModListBuildCoordinator
         ToolStore toolStore,
         LaunchTargetResolver targetResolver,
         LaunchService launcher,
-        DependencyGraphService dependencies)
+        DependencyGraphService dependencies,
+        ModListDependencyMapper dependencyMapper)
     {
         _builds = builds;
         _preflight = preflight;
@@ -51,6 +53,7 @@ public sealed class ModListBuildCoordinator
         _targetResolver = targetResolver;
         _launcher = launcher;
         _dependencies = dependencies;
+        _dependencyMapper = dependencyMapper;
     }
 
     public event EventHandler<ModListBuild>? BuildChanged;
@@ -151,7 +154,7 @@ public sealed class ModListBuildCoordinator
             Id = Guid.NewGuid().ToString("N"),
             Name = requirement.Name,
             Version = requirement.Version ?? string.Empty,
-            Game = manifest.Game.DefinitionId,
+            GameIds = new List<string> { build.GameId },
             FileName = requirement.Archive.FileName,
             Md5 = requirement.Archive.Md5,
             FileSize = requirement.Archive.SizeInBytes,
@@ -345,7 +348,8 @@ public sealed class ModListBuildCoordinator
             task.Progress = update.TotalBytes is > 0 ? (double)update.BytesDownloaded / update.TotalBytes.Value : 0;
             task.StatusText = update.Phase.ToString();
         });
-        var result = await _acquisition.AcquireAsync(link, mod.Archive.Sha256, progress, cancellationToken);
+        var result = await _acquisition.AcquireAsync(
+            link, mod.Archive.Sha256, confirmedGameIds: new[] { build.GameId }, progress: progress, cancellationToken: cancellationToken);
         SetArchiveArtifact(build, mod.EntryId, result.Entry);
         Complete(task, "Archive downloaded and verified.");
     }
@@ -369,6 +373,7 @@ public sealed class ModListBuildCoordinator
         if (incomplete.Count > 0)
             throw new InvalidOperationException("Required build tasks are not complete.");
         var mods = await _mods.LoadAsync();
+        await ApplyManifestDependenciesAsync(build, manifest, mods);
         var issues = _dependencies.Evaluate(build.StagedProfile, mods, game);
         if (issues.Any(issue => issue.Kind is DependencyIssueKind.MissingRequirement or DependencyIssueKind.DisabledRequirement or DependencyIssueKind.Cycle or DependencyIssueKind.GameVersionMismatch))
             throw new InvalidOperationException(string.Join(" ", issues.Select(issue => issue.Message)));
@@ -383,6 +388,24 @@ public sealed class ModListBuildCoordinator
         }
         Complete(build.Tasks.Single(task => task.Kind == ModListBuildTaskKind.Validate),
             issues.Count == 0 ? "Profile requirements are satisfied." : $"Validated with {issues.Count} advisory issue(s).");
+    }
+
+    /// <summary>
+    /// Rebuilds the list's declared dependency edges on the installed mods. Runs before validation so a
+    /// list that declares an unsatisfiable graph is reported rather than committed; re-running is a no-op.
+    /// </summary>
+    private async Task ApplyManifestDependenciesAsync(ModListBuild build, ModListManifest manifest, IReadOnlyList<ModEntry> mods)
+    {
+        if (manifest.Dependencies.Count == 0)
+            return;
+
+        var modIdByEntryId = build.Artifacts
+            .Where(artifact => artifact.ModId is not null)
+            .ToDictionary(artifact => artifact.EntryId, artifact => artifact.ModId!, StringComparer.Ordinal);
+
+        var result = _dependencyMapper.Apply(manifest, modIdByEntryId, mods);
+        foreach (var mod in mods.Where(mod => result.ChangedModIds.Contains(mod.Id, StringComparer.Ordinal)))
+            await _mods.UpsertAsync(mod);
     }
 
     private async Task CommitAsync(ModListBuild build, CancellationToken cancellationToken)

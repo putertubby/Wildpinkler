@@ -39,6 +39,8 @@
                 <AppBarButton x:Name="EditToolButton" Command="{x:Bind EditToolCommand}" Icon="Edit" Label="Edit"
                               ToolTipService.ToolTip="Edit the selected tool" />
                 <CommandBar.SecondaryCommands>
+                    <AppBarButton x:Name="SetGameAssociationButton" Command="{x:Bind SetGameAssociationCommand}" Label="Set game association..."
+                                  ToolTipService.ToolTip="Associate the selected tool(s) with one or more games, or all games" />
                     <AppBarButton x:Name="EditDefinitionButton" Command="{x:Bind EditDefinitionCommand}" Icon="Setting" Label="Edit definition"
                                   ToolTipService.ToolTip="Edit the selected tool's definition" />
                     <AppBarButton x:Name="ImportDefinitionButton" Command="{x:Bind ImportDefinitionCommand}" Icon="Import" Label="Import definition"
@@ -76,8 +78,48 @@
                                                    PlaceholderText="Search tools by name, install path, or executable"
                                                    ResultCountText="{x:Bind ResultCountText, Mode=OneWay}"
                                                    SelectedCountText="{x:Bind SelectedCountText, Mode=OneWay}"
+                                                   HasChips="{x:Bind HasActiveFilters, Mode=OneWay}"
                                                    Visibility="{x:Bind HasCollectionHeader, Mode=OneWay}"
-                                                   QueryChanged="ListHeader_QueryChanged" />
+                                                   QueryChanged="ListHeader_QueryChanged">
+                        <controls:CollectionListHeader.FiltersContent>
+                            <DropDownButton x:Name="FilterButton" Content="{x:Bind FilterButtonText, Mode=OneWay}"
+                                            AutomationProperties.Name="Filter tools">
+                                <DropDownButton.Flyout>
+                                    <MenuFlyout Placement="BottomEdgeAlignedRight">
+                                        <MenuFlyoutSubItem x:Name="GameFilterMenu" Text="Game" />
+                                    </MenuFlyout>
+                                </DropDownButton.Flyout>
+                            </DropDownButton>
+                        </controls:CollectionListHeader.FiltersContent>
+
+                        <controls:CollectionListHeader.ChipsContent>
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <ItemsControl x:Name="FilterChipList" VerticalAlignment="Center">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <controls:WrapPanel ItemSpacing="8" LineSpacing="8" />
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="pages:ToolFilterChip">
+                                            <Border Style="{StaticResource FilterChipStyle}">
+                                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                                    <TextBlock VerticalAlignment="Center" Text="{x:Bind Label}" />
+                                                    <Button Style="{StaticResource ChipRemoveButtonStyle}"
+                                                            Click="RemoveFilterChip_Click"
+                                                            AutomationProperties.Name="{x:Bind RemoveDescription}"
+                                                            ToolTipService.ToolTip="{x:Bind RemoveDescription}">
+                                                        <FontIcon Glyph="&#xE711;" FontSize="10" />
+                                                    </Button>
+                                                </StackPanel>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                                <Button Content="Clear all" Click="ClearFilters_Click" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </controls:CollectionListHeader.ChipsContent>
+                    </controls:CollectionListHeader>
 
                     <Grid Grid.Row="1">
                         <ListView x:Name="ToolList" SelectionMode="Extended" SelectionChanged="ToolList_SelectionChanged"
@@ -111,8 +153,11 @@
                                                     <ColumnDefinition Width="*" />
                                                     <ColumnDefinition Width="Auto" />
                                                 </Grid.ColumnDefinitions>
-                                                <TextBlock Style="{StaticResource ModRowTextStyle}" Opacity="0.62"
-                                                           Text="{x:Bind InstallPathText, Mode=OneWay}" />
+                                                <TextBlock Style="{StaticResource ModRowTextStyle}" Opacity="0.62" TextTrimming="CharacterEllipsis">
+                                                    <Run Text="{x:Bind InstallPathText, Mode=OneWay}" />
+                                                    <Run Text=" &#183; " />
+                                                    <Run Text="{x:Bind GameNamesText, Mode=OneWay}" />
+                                                </TextBlock>
                                                 <TextBlock Grid.Column="1" Opacity="0.56" Text="{x:Bind UsageCountText, Mode=OneWay}" />
                                             </Grid>
                                         </StackPanel>

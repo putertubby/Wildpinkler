@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Wildpinkler.Remote;
 using Wildpinkler.App.Services;
@@ -10,7 +11,7 @@ public sealed partial class ModEntry : ObservableObject
 {
     private string _id = string.Empty;
     private string _name = string.Empty;
-    private string _game = string.Empty;
+    private List<string> _gameIds = new();
     private string _version = string.Empty;
     private string _source = "Local file";
     private string _status = "Available";
@@ -41,10 +42,30 @@ public sealed partial class ModEntry : ObservableObject
     private List<ModDependency> _dependencies = new();
     private string? _providedGameVersion;
     private DependencyState _dependencyState;
+    private string? _catalogIssueSummary;
+    private string _gameNamesText = "All games";
 
     public string Id { get => _id; set => SetProperty(ref _id, value); }
     public string Name { get => _name; set => SetProperty(ref _name, value); }
-    public string Game { get => _game; set => SetProperty(ref _game, value); }
+
+    /// <summary>Ids of <c>GameEntry</c> this mod is associated with; empty means "all games".</summary>
+    public List<string> GameIds
+    {
+        get => _gameIds;
+        set
+        {
+            if (!SetProperty(ref _gameIds, value ?? new List<string>()))
+                return;
+            OnPropertyChanged(nameof(IsAllGames));
+        }
+    }
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool IsAllGames => _gameIds.Count == 0;
+
+    public bool AppliesToGame(string? gameId) =>
+        _gameIds.Count == 0 || (gameId is not null && _gameIds.Contains(gameId, StringComparer.Ordinal));
+
     public string Version { get => _version; set => SetProperty(ref _version, value); }
     public string Source { get => _source; set => SetProperty(ref _source, value); }
     public string Status { get => _status; set => SetProperty(ref _status, value); }
@@ -124,7 +145,12 @@ public sealed partial class ModEntry : ObservableObject
     public List<ModDependency> Dependencies
     {
         get => _dependencies;
-        set => SetProperty(ref _dependencies, value ?? new List<ModDependency>());
+        set
+        {
+            if (!SetProperty(ref _dependencies, value ?? new List<ModDependency>()))
+                return;
+            OnPropertyChanged(nameof(DependencySummaryText));
+        }
     }
 
     /// <summary>Auto-detected (and user-editable) executable version, set only for a mod designated as a game launcher.</summary>
@@ -145,7 +171,21 @@ public sealed partial class ModEntry : ObservableObject
     }
 
     [System.Text.Json.Serialization.JsonIgnore]
-    public bool HasDependencyIssue => DependencyState != DependencyState.Ok;
+    public bool HasDependencyIssue => DependencyState != DependencyState.Ok || CatalogIssueSummary is { Length: > 0 };
+
+    /// <summary>Problems found from the mod database alone, so they surface without an active profile.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string? CatalogIssueSummary
+    {
+        get => _catalogIssueSummary;
+        set
+        {
+            if (!SetProperty(ref _catalogIssueSummary, value))
+                return;
+            OnPropertyChanged(nameof(HasDependencyIssue));
+            OnPropertyChanged(nameof(DependencyIssueSummary));
+        }
+    }
 
     [System.Text.Json.Serialization.JsonIgnore]
     public string DependencyIssueSummary => DependencyState switch
@@ -156,6 +196,37 @@ public sealed partial class ModEntry : ObservableObject
         DependencyState.Cycle => "This mod is part of a dependency cycle that cannot be satisfied.",
         DependencyState.GameVersionMismatch => "This mod requires a different game version than is active.",
         DependencyState.Conflict => "This mod conflicts with another enabled mod.",
-        _ => string.Empty
+        _ => _catalogIssueSummary ?? string.Empty
+    };
+
+    /// <summary>Not persisted: resolved from the game catalog after load, purely for display.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string GameNamesText { get => _gameNamesText; set => SetProperty(ref _gameNamesText, value); }
+
+    /// <summary>Compact "Requires 2 · Conflicts 1" style summary of this mod's own dependency edges.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string DependencySummaryText
+    {
+        get
+        {
+            if (_dependencies.Count == 0)
+                return string.Empty;
+
+            var parts = _dependencies
+                .GroupBy(dependency => dependency.Kind)
+                .OrderBy(group => group.Key)
+                .Select(group => $"{DescribeKind(group.Key)} {group.Count()}");
+            return string.Join(" \u00b7 ", parts);
+        }
+    }
+
+    private static string DescribeKind(ModDependencyKind kind) => kind switch
+    {
+        ModDependencyKind.Requires => "Requires",
+        ModDependencyKind.LoadAfter => "Loads after",
+        ModDependencyKind.LoadBefore => "Loads before",
+        ModDependencyKind.Conflicts => "Conflicts",
+        ModDependencyKind.GameVersion => "Game version",
+        _ => "Unknown"
     };
 }

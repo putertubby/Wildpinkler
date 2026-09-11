@@ -30,7 +30,7 @@
                           ItemContainerStyle="{StaticResource ListRowContainerStyle}" Padding="0,4,0,4"
                           ScrollViewer.HorizontalScrollMode="Disabled" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                     <ListView.ItemTemplate>
-                        <DataTemplate x:DataType="models:ModEntry">
+                        <DataTemplate>
                             <Grid Padding="12,8" ColumnSpacing="10">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="32" />
@@ -39,13 +39,16 @@
                                 <Border Style="{StaticResource RowAvatarStyle}">
                                     <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="SemiBold"
                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                               Text="{x:Bind Name, Converter={StaticResource InitialLetterConverter}}" />
+                                               Text="{Binding Mod.Name, Converter={StaticResource InitialLetterConverter}}" />
                                 </Border>
                                 <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
-                                    <TextBlock FontWeight="SemiBold" TextTrimming="CharacterEllipsis" Text="{x:Bind Name}" />
-                                    <TextBlock Opacity="0.62" TextTrimming="CharacterEllipsis" Text="{x:Bind Version}" />
+                                    <TextBlock FontWeight="SemiBold" TextTrimming="CharacterEllipsis" Text="{Binding Mod.Name}" />
+                                    <TextBlock Opacity="0.62" TextTrimming="CharacterEllipsis" Text="{Binding Mod.Version}" />
+                                    <TextBlock Opacity="0.62" TextTrimming="CharacterEllipsis" Text="{Binding Mod.GameNamesText}" />
+                                    <CheckBox Content="{Binding AssociateLabel}" IsChecked="{Binding AssociateWithGame, Mode=TwoWay}"
+                                              Visibility="{Binding AlreadyForThisGame, Converter={StaticResource InverseBoolToVisibilityConverter}}" />
                                     <TextBlock Foreground="{ThemeResource SystemFillColorCriticalBrush}" TextWrapping="Wrap"
-                                               Visibility="{x:Bind HasArchive, Converter={StaticResource InverseBoolToVisibilityConverter}}"
+                                               Visibility="{Binding Mod.HasArchive, Converter={StaticResource InverseBoolToVisibilityConverter}}"
                                                Text="No archive - add it on the Mods page first." />
                                 </StackPanel>
                             </Grid>

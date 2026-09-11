@@ -43,10 +43,10 @@ public abstract class DefinitionStore<TDefinition> where TDefinition : class, ID
     private readonly string _builtInDirectory;
     private readonly string _userDirectory;
 
-    protected DefinitionStore()
+    protected DefinitionStore(string? userDirectoryOverride = null)
     {
         _builtInDirectory = Path.Combine(AppContext.BaseDirectory, "Assets", BuiltInDirectoryName);
-        _userDirectory = Path.Combine(
+        _userDirectory = userDirectoryOverride ?? Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Wildpinkler", UserDirectoryName);
     }
 

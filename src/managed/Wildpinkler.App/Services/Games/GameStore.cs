@@ -13,14 +13,16 @@ public sealed class GameStore : IDisposable
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
     private const int CurrentSchemaVersion = 3; // 3 removes per-entry executable paths; schema-1/2 files still load.
-    private readonly string _rootPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Wildpinkler");
+    private readonly string _rootPath;
     private readonly string _databasePath;
     private readonly string _backupPath;
     private readonly string _temporaryPath;
     private readonly SemaphoreSlim _databaseLock = new(1, 1);
 
-    public GameStore()
+    public GameStore(string? rootPath = null)
     {
+        _rootPath = rootPath ?? Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Wildpinkler");
         _databasePath = Path.Combine(_rootPath, "games.json");
         _backupPath = Path.Combine(_rootPath, "games.json.bak");
         _temporaryPath = Path.Combine(_rootPath, "games.json.tmp");

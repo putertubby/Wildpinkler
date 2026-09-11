@@ -343,11 +343,21 @@
                                         <TextBlock x:Name="LoadOrderErrorText" Foreground="{ThemeResource SystemFillColorCriticalBrush}"
                                                    TextWrapping="Wrap" Visibility="Collapsed" />
                                         <StackPanel x:Name="DependencyIssuesPanel" Spacing="4" Visibility="Collapsed">
-                                            <TextBlock x:Name="DependencyIssuesText" TextWrapping="Wrap"
-                                                       Foreground="{ThemeResource SystemFillColorCautionBrush}" />
-                                            <Button x:Name="FixOrderButton" Content="Fix order" Click="FixOrder_Click"
-                                                    IsEnabled="{x:Bind IsSelectedProfileModifiable, Mode=OneWay}"
-                                                    ToolTipService.ToolTip="Reorders the affected mods to satisfy their declared load-order requirements" />
+                                            <Grid ColumnSpacing="8">
+                                                <TextBlock x:Name="DependencyIssuesHeading" FontWeight="SemiBold"
+                                                           Foreground="{ThemeResource SystemFillColorCautionBrush}" />
+                                                <Button Grid.Column="1" Content="Validate now" Click="ValidateDependencies_Click"
+                                                        HorizontalAlignment="Left" />
+                                            </Grid>
+                                            <ScrollViewer MaxHeight="150" VerticalScrollBarVisibility="Auto">
+                                                <TextBlock x:Name="DependencyIssuesText" TextWrapping="Wrap"
+                                                           Foreground="{ThemeResource SystemFillColorCautionBrush}" />
+                                            </ScrollViewer>
+                                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                                <Button x:Name="FixOrderButton" Content="Fix order" Click="FixOrder_Click"
+                                                        IsEnabled="{x:Bind IsSelectedProfileModifiable, Mode=OneWay}"
+                                                        ToolTipService.ToolTip="Reorders the affected mods to satisfy their declared load-order requirements" />
+                                            </StackPanel>
                                         </StackPanel>
                                     </StackPanel>
                                     </controls:MergedViewSection.Body>

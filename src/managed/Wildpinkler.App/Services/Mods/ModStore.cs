@@ -16,8 +16,8 @@ public sealed class ModStore : IDisposable
 {
     // Case-insensitive on read because this file is hand-edited between schema changes.
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true, PropertyNameCaseInsensitive = true };
-    // Schema 5 adds the archive SHA-256 used by reproducible mod-list manifests.
-    private const int CurrentSchemaVersion = 5;
+    // Schema 6 replaces the single Nexus-slug Game string with GameIds (local GameEntry ids; empty = all games).
+    private const int CurrentSchemaVersion = 6;
     private readonly string _rootPath;
     private readonly string _databasePath;
     private readonly string _backupPath;

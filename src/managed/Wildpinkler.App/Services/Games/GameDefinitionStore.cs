@@ -4,6 +4,10 @@ namespace Wildpinkler.App.Services;
 
 public sealed class GameDefinitionStore : DefinitionStore<GameDefinition>
 {
+    public GameDefinitionStore(string? userDirectoryOverride = null) : base(userDirectoryOverride)
+    {
+    }
+
     protected override string ShortExtension => ".wpgame";
 
     protected override string BuiltInDirectoryName => "GameDefinitions";

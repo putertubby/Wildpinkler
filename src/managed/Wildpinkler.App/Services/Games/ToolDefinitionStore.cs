@@ -4,6 +4,10 @@ namespace Wildpinkler.App.Services;
 
 public sealed class ToolDefinitionStore : DefinitionStore<ToolDefinition>
 {
+    public ToolDefinitionStore(string? userDirectoryOverride = null) : base(userDirectoryOverride)
+    {
+    }
+
     protected override string ShortExtension => ".wptool";
 
     protected override string BuiltInDirectoryName => "ToolDefinitions";

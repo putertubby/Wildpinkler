@@ -15,8 +15,9 @@ public static partial class ModListManifestValidator
     public static IReadOnlyList<string> Validate(ModListManifest manifest)
     {
         var errors = new List<string>();
-        if (manifest.SchemaVersion != ModListManifest.CurrentSchemaVersion)
-            errors.Add($"Schema version {manifest.SchemaVersion} is not supported; expected {ModListManifest.CurrentSchemaVersion}.");
+        // Older lists stay readable; only a version this build cannot understand is rejected.
+        if (manifest.SchemaVersion < 1 || manifest.SchemaVersion > ModListManifest.CurrentSchemaVersion)
+            errors.Add($"Schema version {manifest.SchemaVersion} is not supported; expected {ModListManifest.CurrentSchemaVersion} or lower.");
         if (!DefinitionValidation.IsDefinitionId(manifest.ListId))
             errors.Add("List id must be a safe portable identifier.");
         if (manifest.Revision < 1)
@@ -67,7 +68,30 @@ public static partial class ModListManifestValidator
         foreach (var tool in manifest.Tools)
             ValidateTool(tool, toolIds, errors);
 
+        ValidateDependencies(manifest, entryIds, errors);
+
         return errors;
+    }
+
+    private static void ValidateDependencies(ModListManifest manifest, HashSet<string> entryIds, List<string> errors)
+    {
+        if (manifest.Dependencies.Count > MaxContentEntries)
+            errors.Add($"A mod list can declare at most {MaxContentEntries} dependencies.");
+
+        var seen = new HashSet<(string, string, ModDependencyKind)>();
+        foreach (var dependency in manifest.Dependencies)
+        {
+            if (!entryIds.Contains(dependency.SourceEntryId) || !entryIds.Contains(dependency.TargetEntryId))
+            {
+                errors.Add($"Dependency '{dependency.SourceEntryId}' -> '{dependency.TargetEntryId}' references an unknown content entry.");
+                continue;
+            }
+
+            if (string.Equals(dependency.SourceEntryId, dependency.TargetEntryId, StringComparison.OrdinalIgnoreCase))
+                errors.Add($"Content entry '{dependency.SourceEntryId}' cannot depend on itself.");
+            else if (!seen.Add((dependency.SourceEntryId, dependency.TargetEntryId, dependency.Kind)))
+                errors.Add($"Dependency '{dependency.SourceEntryId}' -> '{dependency.TargetEntryId}' is duplicated.");
+        }
     }
 
     public static void EnsureValid(ModListManifest manifest)

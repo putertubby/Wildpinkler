@@ -157,6 +157,16 @@ public sealed class AppSettingsStoreTests : IDisposable
         Assert.False(new AppSettingsStore(rootFile).Save(new AppSettings()));
     }
 
+    [Fact]
+    public void SaveAndLoad_PreservesGraphEdgeLabelPreference()
+    {
+        var store = new AppSettingsStore(_root);
+        var settings = new AppSettings { ShowGraphEdgeLabels = false };
+
+        Assert.True(store.Save(settings));
+        Assert.False(store.Load().ShowGraphEdgeLabels);
+    }
+
     public void Dispose()
     {
         Environment.SetEnvironmentVariable("LOCALAPPDATA", _previousLocalAppData);

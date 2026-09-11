@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="Wildpinkler.App.Controls.GameAssociationPicker"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <StackPanel Spacing="8">
+        <TextBlock x:Name="HeaderBlock" Style="{StaticResource SectionLabelStyle}" Text="GAMES" />
+        <RadioButtons x:Name="ModeButtons" SelectionChanged="ModeButtons_SelectionChanged">
+            <RadioButton x:Name="AllGamesOption" Content="All games" />
+            <RadioButton x:Name="SpecificGamesOption" Content="Specific games" />
+        </RadioButtons>
+        <ItemsControl x:Name="GamesList" Margin="24,0,0,0">
+            <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                    <CheckBox Content="{Binding Name}" IsChecked="{Binding IsSelected, Mode=TwoWay}" Checked="GameCheckBox_Changed" Unchecked="GameCheckBox_Changed" />
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+        <TextBlock x:Name="NoGamesText" Margin="24,0,0,0" Opacity="0.68" TextWrapping="Wrap"
+                   Text="No games are defined yet. Add one on the Games page to associate with specific games." Visibility="Collapsed" />
+        <TextBlock x:Name="EmptySelectionErrorText" Margin="24,0,0,0" Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                   Text="Choose at least one game, or switch back to All games." Visibility="Collapsed" />
+    </StackPanel>
+</UserControl>

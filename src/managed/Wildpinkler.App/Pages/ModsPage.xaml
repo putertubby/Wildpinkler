@@ -44,7 +44,11 @@
                         <KeyboardAccelerator Key="Delete" />
                     </AppBarButton.KeyboardAccelerators>
                 </AppBarButton>
+                <AppBarButton x:Name="GoToDependencyGraphButton" Click="GoToDependencyGraph_Click" Icon="Link" Label="Dependency graph"
+                              ToolTipService.ToolTip="See and edit how every mod depends on the others" />
                 <CommandBar.SecondaryCommands>
+                    <AppBarButton x:Name="SetGameAssociationButton" Command="{x:Bind SetGameAssociationCommand}" Label="Set game association..."
+                                  ToolTipService.ToolTip="Associate the selected mod(s) with one or more games, or all games" />
                     <AppBarButton x:Name="SelectUnusedButton" Command="{x:Bind SelectUnusedCommand}" Icon="Filter" Label="Select unused"
                                   ToolTipService.ToolTip="Select every mod that is not used by a profile" />
                     <AppBarButton x:Name="CheckUpdatesButton" Command="{x:Bind CheckUpdatesCommand}" Icon="Sync" Label="Check updates"
@@ -169,9 +173,11 @@
                                         </Grid.ColumnDefinitions>
                                         <Grid.ContextFlyout>
                                             <MenuFlyout>
+                                                <MenuFlyoutItem Click="ModRowEdit_Click" Text="Edit mod..." />
                                                 <MenuFlyoutItem Click="ModRowOpenPage_Click" Text="Open mod page" IsEnabled="{x:Bind HasRemotePage, Mode=OneWay}" />
                                                 <MenuFlyoutItem Click="ModRowReveal_Click" Text="Reveal archive in Explorer" IsEnabled="{x:Bind HasArchive, Mode=OneWay}" />
                                                 <MenuFlyoutItem Click="ModRowEditDependencies_Click" Text="Edit dependencies..." />
+                                                <MenuFlyoutItem Click="ModRowShowInGraph_Click" Text="Show in dependency graph" />
                                                 <MenuFlyoutSeparator />
                                                 <MenuFlyoutItem Click="ModRowDelete_Click" Text="Delete" />
                                             </MenuFlyout>
@@ -200,8 +206,11 @@
                                                     <ColumnDefinition Width="*" />
                                                     <ColumnDefinition Width="Auto" />
                                                 </Grid.ColumnDefinitions>
-                                                <TextBlock Style="{StaticResource ModRowTextStyle}" Opacity="0.62"
-                                                           Text="{x:Bind Game, Mode=OneWay}" />
+                                                <TextBlock Grid.Column="0" Style="{StaticResource ModRowTextStyle}" Opacity="0.62" TextTrimming="CharacterEllipsis">
+                                                    <Run Text="{x:Bind GameNamesText, Mode=OneWay}" />
+                                                    <Run Text=" &#183; " />
+                                                    <Run Text="{x:Bind DependencySummaryText, Mode=OneWay}" />
+                                                </TextBlock>
                                                 <TextBlock Grid.Column="1" Opacity="0.56" Text="{x:Bind Status, Mode=OneWay}" />
                                             </Grid>
                                         </StackPanel>
@@ -273,6 +282,8 @@
                             <TextBlock x:Name="DetailsName" Style="{StaticResource SubtitleTextBlockStyle}" TextWrapping="Wrap" />
                             <TextBlock x:Name="DetailsIdentity" Opacity="0.62" TextWrapping="Wrap" />
                         </StackPanel>
+                        <Button Margin="12,0,0,0" VerticalAlignment="Top" Command="{x:Bind EditSelectedModCommand}" Content="Edit..."
+                                AutomationProperties.Name="Edit mod" />
                     </StackPanel>
                     <Border BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,1,0,0" />
                     <Grid RowSpacing="8" ColumnSpacing="12">
@@ -281,6 +292,7 @@
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
                         <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
@@ -296,10 +308,12 @@
                         <TextBlock x:Name="DetailsArchive" Grid.Row="2" Grid.Column="1" TextWrapping="Wrap" />
                         <TextBlock Grid.Row="3" Style="{StaticResource SectionLabelStyle}" Text="FOMOD" />
                         <TextBlock x:Name="DetailsFomod" Grid.Row="3" Grid.Column="1" />
-                        <TextBlock Grid.Row="4" Style="{StaticResource SectionLabelStyle}" Text="ADDED" />
-                        <TextBlock x:Name="DetailsAdded" Grid.Row="4" Grid.Column="1" />
-                        <TextBlock Grid.Row="5" Style="{StaticResource SectionLabelStyle}" Text="PROFILES" />
-                        <TextBlock x:Name="DetailsProfiles" Grid.Row="5" Grid.Column="1" TextWrapping="Wrap" />
+                        <TextBlock Grid.Row="4" Style="{StaticResource SectionLabelStyle}" Text="DEPENDENCIES" />
+                        <TextBlock x:Name="DetailsDependencies" Grid.Row="4" Grid.Column="1" TextWrapping="Wrap" />
+                        <TextBlock Grid.Row="5" Style="{StaticResource SectionLabelStyle}" Text="ADDED" />
+                        <TextBlock x:Name="DetailsAdded" Grid.Row="5" Grid.Column="1" />
+                        <TextBlock Grid.Row="6" Style="{StaticResource SectionLabelStyle}" Text="PROFILES" />
+                        <TextBlock x:Name="DetailsProfiles" Grid.Row="6" Grid.Column="1" TextWrapping="Wrap" />
                     </Grid>
                 </StackPanel>
             </Border>

@@ -1,6 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Text.Json.Serialization;
 using CommunityToolkit.Mvvm.ComponentModel;
 
@@ -17,6 +19,8 @@ public sealed partial class ToolEntry : ObservableObject
     private string? _definitionId;
     private int _definitionVersion;
     private ToolDefinition? _definition;
+    private List<string> _gameIds = new();
+    private string _gameNamesText = "All games";
 
     public string Id { get => _id; set => SetProperty(ref _id, value); }
     public string Name { get => _name; set => SetProperty(ref _name, value); }
@@ -78,6 +82,37 @@ public sealed partial class ToolEntry : ObservableObject
 
     [JsonIgnore]
     public bool DefinitionMissing => !string.IsNullOrEmpty(DefinitionId) && Definition is null;
+
+    /// <summary>
+    /// Local override of the definition's supported games; empty means "inherit the definition"
+    /// (itself empty means "all games" for a custom tool with no definition).
+    /// </summary>
+    public List<string> GameIds
+    {
+        get => _gameIds;
+        set => SetProperty(ref _gameIds, value ?? new List<string>());
+    }
+
+    [JsonIgnore]
+    public bool IsAllGames => _gameIds.Count == 0 && (Definition is null || Definition.SupportedGameDefinitions.Count == 0);
+
+    /// <summary>Not persisted: resolved from the game catalog after load, purely for display.</summary>
+    [JsonIgnore]
+    public string GameNamesText { get => _gameNamesText; set => SetProperty(ref _gameNamesText, value); }
+
+    /// <summary>
+    /// Checks the local <see cref="GameIds"/> override (by <c>GameEntry.Id</c>) first; falls back to
+    /// the definition's <c>SupportedGameDefinitions</c> (by <c>GameDefinition.DefinitionId</c>) when
+    /// the override is empty, since the two lists are keyed by different id spaces.
+    /// </summary>
+    public bool SupportsGame(GameEntry? game)
+    {
+        if (game is null)
+            return true;
+        if (_gameIds.Count > 0)
+            return _gameIds.Contains(game.Id, StringComparer.Ordinal);
+        return Definition?.SupportsGame(game.DefinitionId) ?? true;
+    }
 
     // Not persisted: populated from ProfileStore after load, purely for display.
     [JsonIgnore]

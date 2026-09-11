@@ -11,7 +11,7 @@ using Wildpinkler.App.Models;
 
 namespace Wildpinkler.App.Services;
 
-// Shared archive-import pipeline (inspect -> AddModReviewDialog -> ModEntry -> background save) and
+// Shared archive-import pipeline (inspect -> ModEditDialog -> ModEntry -> background save) and
 // drag-and-drop resolution, used by both ModsPage and ProfilesPage's inline "Available mods" list so
 // the two entry points can never drift apart.
 public static class ModImportService
@@ -74,7 +74,7 @@ public static class ModImportService
     // as auto-installing a dropped mod right after adding it.
     public static async Task<List<ModEntry>> ProcessCandidateArchivesAsync(
         IReadOnlyList<StorageFile> files,
-        IReadOnlyList<string> games,
+        IReadOnlyList<Models.GameEntry> games,
         XamlRoot xamlRoot,
         ModStore store,
         Action<string, Func<Task>> enqueue,
@@ -92,7 +92,7 @@ public static class ModImportService
             showInfo($"Inspecting {file.Name}...", InfoBarSeverity.Informational);
             var metadata = await AppServices.FomodMetadataReader.ReadAsync(file.Path);
 
-            var dialog = new AddModReviewDialog(file.Path, metadata, games, index + 1, files.Count)
+            var dialog = new ModEditDialog(file.Path, metadata, games, index + 1, files.Count)
             {
                 XamlRoot = xamlRoot
             };
@@ -108,7 +108,7 @@ public static class ModImportService
             {
                 Id = Guid.NewGuid().ToString("N"),
                 Name = dialog.ModName,
-                Game = dialog.Game,
+                GameIds = dialog.GameIds.ToList(),
                 Version = dialog.Version,
                 Author = dialog.Author,
                 Website = dialog.Website,

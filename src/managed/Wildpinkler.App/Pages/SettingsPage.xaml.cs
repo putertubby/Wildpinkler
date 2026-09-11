@@ -144,6 +144,8 @@ public sealed partial class SettingsPage : PageBase
         // Item order matches the AppThemePreference members.
         _isApplyingSavedTheme = true;
         ThemeSelector.SelectedIndex = (int)AppServices.ThemeService.Preference;
+        ShowGraphEdgeLabelsToggle.IsOn = AppServices.AppSettings.ShowGraphEdgeLabels;
+        ShowAdvisoryWarningsToggle.IsOn = AppServices.AppSettings.ShowAdvisoryDependencyWarnings;
         _isApplyingSavedTheme = false;
 
         RefreshHandlerState();
@@ -263,6 +265,13 @@ public sealed partial class SettingsPage : PageBase
     {
         if (AppServices.ThemeService.SetPreference((AppThemePreference)ThemeSelector.SelectedIndex))
         {
+            AppServices.AppSettings.ShowGraphEdgeLabels = ShowGraphEdgeLabelsToggle.IsOn;
+            AppServices.AppSettings.ShowAdvisoryDependencyWarnings = ShowAdvisoryWarningsToggle.IsOn;
+            if (!AppServices.AppSettingsStore.Save(AppServices.AppSettings))
+            {
+                ShowInfo("The appearance settings could not be written to disk.", InfoBarSeverity.Error);
+                return;
+            }
             IsAppearanceDirty = false;
             return;
         }
@@ -277,6 +286,8 @@ public sealed partial class SettingsPage : PageBase
     {
         _isApplyingSavedTheme = true;
         ThemeSelector.SelectedIndex = (int)AppServices.ThemeService.Preference;
+        ShowGraphEdgeLabelsToggle.IsOn = AppServices.AppSettings.ShowGraphEdgeLabels;
+        ShowAdvisoryWarningsToggle.IsOn = AppServices.AppSettings.ShowAdvisoryDependencyWarnings;
         _isApplyingSavedTheme = false;
         IsAppearanceDirty = false;
     }
@@ -336,6 +347,12 @@ public sealed partial class SettingsPage : PageBase
             return;
 
         IsAppearanceDirty = true;
+    }
+
+    private void ShowGraphEdgeLabels_Toggled(object sender, RoutedEventArgs args)
+    {
+        if (!_isApplyingSavedTheme)
+            IsAppearanceDirty = true;
     }
 
     private async Task LoadSitesAsync()

@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
@@ -171,12 +172,29 @@ public partial class App : Application
 
             if (!AppServices.AppSettings.ConfirmRemoteDownloads)
             {
-                AppServices.DownloadQueueCoordinator.Enqueue(link);
+                _ = EnqueueWithDefaultMappingAsync(link);
                 return;
             }
 
             _ = ConfirmAndEnqueueAsync(link);
         });
+    }
+
+    // Confirmation is opted out of entirely here, so this applies the same default the dialog would
+    // have pre-checked (every currently-installed game the site's own key maps to) rather than guessing.
+    private async Task EnqueueWithDefaultMappingAsync(RemoteLink link)
+    {
+        try
+        {
+            var mapping = await AppServices.RemoteGameMapper.ResolveAsync(link.ToRef());
+            var gameIds = mapping?.Games.Select(game => game.Id).ToList();
+            AppServices.DownloadQueueCoordinator.Enqueue(link, gameIds);
+        }
+        catch (Exception exception)
+        {
+            AppDiagnostics.Write("Game-mapping lookup failed for an unconfirmed NXM download; enqueuing unassociated.", exception);
+            AppServices.DownloadQueueCoordinator.Enqueue(link);
+        }
     }
 
     private async Task ConfirmAndEnqueueAsync(RemoteLink link)
@@ -204,7 +222,7 @@ public partial class App : Application
                 AppServices.AppSettingsStore.Save(AppServices.AppSettings);
             }
 
-            AppServices.DownloadQueueCoordinator.Enqueue(preview.Link);
+            AppServices.DownloadQueueCoordinator.Enqueue(preview.Link, dialog.ConfirmedGameIds);
         }
         catch (RemoteSiteException exception)
         {

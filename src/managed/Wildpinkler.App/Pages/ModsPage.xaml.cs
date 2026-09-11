@@ -28,8 +28,10 @@ public sealed partial class ModsPage : PageBase
     private readonly ObservableCollection<ModEntry> _allMods = new();
     private readonly ObservableCollection<ModEntry> _visibleMods = new();
     private readonly ObservableCollection<ModFilterChip> _filterChips = new();
-    private List<string> _gameNames = new();
-    private string? _gameFilter;
+    private List<GameEntry> _games = new();
+    private readonly HashSet<string> _gameFilterIds = new(StringComparer.Ordinal);
+    private bool _allGamesOnlyFilter;
+    private const string AllGamesFilterTag = "__all_games_only__";
     private ModStatusFilter _statusFilter = ModStatusFilter.All;
     private ModSortField _sortField = ModSortField.Name;
     private double _listDetailsWidth;
@@ -141,8 +143,8 @@ public sealed partial class ModsPage : PageBase
         base.OnNavigatedTo(e);
         try
         {
-            var games = await AppServices.GameStore.LoadAsync();
-            _gameNames = games.Select(game => game.Name).Where(name => !string.IsNullOrWhiteSpace(name)).Distinct().ToList();
+            _games = (await AppServices.GameStore.LoadAsync()).ToList();
+            ApplyGameNames();
             BuildGameFilterMenu();
         }
         catch (Exception exception)
@@ -156,12 +158,12 @@ public sealed partial class ModsPage : PageBase
         try
         {
             _allMods.Clear();
-            var games = await AppServices.GameStore.LoadAsync();
-            _gameNames = games.Select(game => game.Name).Where(name => !string.IsNullOrWhiteSpace(name)).Distinct().ToList();
+            _games = (await AppServices.GameStore.LoadAsync()).ToList();
             DispatcherQueue.TryEnqueue(BuildGameFilterMenu);
 
             foreach (var mod in await _store.LoadAsync())
                 _allMods.Add(mod);
+            ApplyGameNames();
         }
         catch (Exception exception)
         {
@@ -194,6 +196,15 @@ public sealed partial class ModsPage : PageBase
     private void GoToDownloads_Click(object sender, RoutedEventArgs args) =>
         MainWindow.Instance?.NavigateToSection(NavigationCatalog.DownloadsTag);
 
+    private void GoToDependencyGraph_Click(object sender, RoutedEventArgs args) =>
+        MainWindow.Instance?.NavigateToModDependencyGraph();
+
+    private void ModRowShowInGraph_Click(object sender, RoutedEventArgs args)
+    {
+        if ((sender as FrameworkElement)?.DataContext is ModEntry mod)
+            MainWindow.Instance?.NavigateToModDependencyGraph(mod.Id);
+    }
+
     private bool CanIdentifySelected() => ModList?.SelectedItems.Count == 1 && ((ModEntry)ModList.SelectedItems[0]).HasArchive;
 
     [RelayCommand(CanExecute = nameof(CanIdentifySelected))]
@@ -212,13 +223,18 @@ public sealed partial class ModsPage : PageBase
                 return;
             }
 
+            var mapping = await AppServices.RemoteGameMapper.ResolveAsync(identification.Mod.Ref);
+            var gameNote = mapping is { Games.Count: > 0 }
+                ? $" It will be associated with {string.Join(", ", mapping.Games.Select(game => game.Name))}."
+                : string.Empty;
+
             var dialog = new ContentDialog
             {
                 XamlRoot = XamlRoot,
                 Title = "Use these details?",
                 Content = $"{identification.SiteName} identified this archive as \"{identification.Mod.Name}\"" +
                           $"{(string.IsNullOrWhiteSpace(identification.Mod.Author) ? string.Empty : $" by {identification.Mod.Author}")}. " +
-                          "Its name, game, version and other details will be replaced.",
+                          $"Its name, game, version and other details will be replaced.{gameNote}",
                 PrimaryButtonText = "Use details",
                 CloseButtonText = "Keep as is",
                 DefaultButton = ContentDialogButton.Primary
@@ -227,7 +243,8 @@ public sealed partial class ModsPage : PageBase
             if (await dialog.ShowAsync() != ContentDialogResult.Primary)
                 return;
 
-            RemoteMetadataService.Apply(mod, identification);
+            RemoteMetadataService.Apply(mod, identification, mapping?.Games.Select(game => game.Id).ToList());
+            mod.GameNamesText = DescribeGames(mod.GameIds);
             await _store.UpsertAsync(mod);
             RefreshMods();
             ShowInfo($"{mod.Name} updated from {identification.SiteName}.", InfoBarSeverity.Success);
@@ -250,6 +267,7 @@ public sealed partial class ModsPage : PageBase
         CheckUpdatesCommand.NotifyCanExecuteChanged();
         IdentifySelectedCommand.NotifyCanExecuteChanged();
         DownloadUpdatesCommand.NotifyCanExecuteChanged();
+        SetGameAssociationCommand.NotifyCanExecuteChanged();
     }
 
     private void ShowInfo(string message, InfoBarSeverity severity = InfoBarSeverity.Informational)
@@ -280,6 +298,7 @@ public sealed partial class ModsPage : PageBase
                 var index = _allMods.IndexOf(existing);
                 _allMods[index] = entry;
             }
+            entry.GameNamesText = DescribeGames(entry.GameIds);
             RefreshMods();
         });
     }
@@ -305,31 +324,46 @@ public sealed partial class ModsPage : PageBase
     // The game list is discovered at load time, so this half of the filter menu is built here.
     private void BuildGameFilterMenu()
     {
-        if (_gameFilter is not null && !_gameNames.Contains(_gameFilter, StringComparer.OrdinalIgnoreCase))
-            _gameFilter = null;
+        var validIds = _games.Select(game => game.Id).ToHashSet(StringComparer.Ordinal);
+        _gameFilterIds.RemoveWhere(id => !validIds.Contains(id));
 
         GameFilterMenu.Items.Clear();
-        GameFilterMenu.Items.Add(CreateGameFilterItem(null, "All games"));
-        foreach (var game in _gameNames)
-            GameFilterMenu.Items.Add(CreateGameFilterItem(game, game));
+        GameFilterMenu.Items.Add(CreateGameFilterItem(AllGamesFilterTag, "All games only", _allGamesOnlyFilter));
+        if (_games.Count > 0)
+            GameFilterMenu.Items.Add(new MenuFlyoutSeparator());
+        foreach (var game in _games.OrderBy(game => game.Name, StringComparer.OrdinalIgnoreCase))
+            GameFilterMenu.Items.Add(CreateGameFilterItem(game.Id, game.Name, _gameFilterIds.Contains(game.Id)));
     }
 
-    private RadioMenuFlyoutItem CreateGameFilterItem(string? game, string text)
+    private ToggleMenuFlyoutItem CreateGameFilterItem(string tag, string text, bool isChecked)
     {
-        var item = new RadioMenuFlyoutItem
-        {
-            GroupName = "ModGameFilter",
-            Text = text,
-            Tag = game,
-            IsChecked = string.Equals(game, _gameFilter, StringComparison.OrdinalIgnoreCase)
-        };
+        var item = new ToggleMenuFlyoutItem { Text = text, Tag = tag, IsChecked = isChecked };
         item.Click += GameFilter_Click;
         return item;
     }
 
     private void GameFilter_Click(object sender, RoutedEventArgs args)
     {
-        _gameFilter = (sender as RadioMenuFlyoutItem)?.Tag as string;
+        if (sender is not ToggleMenuFlyoutItem { Tag: string tag } item)
+            return;
+
+        if (tag == AllGamesFilterTag)
+        {
+            _allGamesOnlyFilter = item.IsChecked;
+            if (_allGamesOnlyFilter)
+                _gameFilterIds.Clear();
+        }
+        else if (item.IsChecked)
+        {
+            _gameFilterIds.Add(tag);
+            _allGamesOnlyFilter = false;
+        }
+        else
+        {
+            _gameFilterIds.Remove(tag);
+        }
+
+        BuildGameFilterMenu();
         RefreshMods();
     }
 
@@ -355,9 +389,13 @@ public sealed partial class ModsPage : PageBase
 
         switch (chip.Kind)
         {
-            case ModFilterKind.Game:
-                _gameFilter = null;
-                SyncCheckedItem(GameFilterMenu.Items, null);
+            case ModFilterKind.Game when chip.GameId == AllGamesFilterTag:
+                _allGamesOnlyFilter = false;
+                BuildGameFilterMenu();
+                break;
+            case ModFilterKind.Game when chip.GameId is not null:
+                _gameFilterIds.Remove(chip.GameId);
+                BuildGameFilterMenu();
                 break;
             case ModFilterKind.Status:
                 _statusFilter = ModStatusFilter.All;
@@ -370,9 +408,10 @@ public sealed partial class ModsPage : PageBase
 
     private void ClearFilters_Click(object sender, RoutedEventArgs args)
     {
-        _gameFilter = null;
+        _gameFilterIds.Clear();
+        _allGamesOnlyFilter = false;
         _statusFilter = ModStatusFilter.All;
-        SyncCheckedItem(GameFilterMenu.Items, null);
+        BuildGameFilterMenu();
         SyncCheckedItem(StatusFilterMenu.Items, nameof(ModStatusFilter.All));
         RefreshMods();
     }
@@ -387,12 +426,17 @@ public sealed partial class ModsPage : PageBase
     private void RefreshFilterChips()
     {
         var desired = new List<ModFilterChip>();
-        if (_gameFilter is not null)
-            desired.Add(new ModFilterChip(ModFilterKind.Game, $"Game: {_gameFilter}"));
+        if (_allGamesOnlyFilter)
+            desired.Add(new ModFilterChip(ModFilterKind.Game, "All games only", AllGamesFilterTag));
+        foreach (var gameId in _gameFilterIds)
+        {
+            var name = _games.FirstOrDefault(game => game.Id == gameId)?.Name ?? gameId;
+            desired.Add(new ModFilterChip(ModFilterKind.Game, $"Game: {name}", gameId));
+        }
         if (_statusFilter != ModStatusFilter.All)
             desired.Add(new ModFilterChip(ModFilterKind.Status, $"Status: {DescribeStatus(_statusFilter)}"));
 
-        CollectionReconciler.Reconcile(_filterChips, desired, chip => chip.Label);
+        CollectionReconciler.Reconcile(_filterChips, desired, chip => $"{chip.Kind}:{chip.GameId ?? chip.Label}");
         OnPropertyChanged(nameof(HasActiveFilters));
         OnPropertyChanged(nameof(FilterButtonText));
     }
@@ -428,10 +472,11 @@ public sealed partial class ModsPage : PageBase
 
         DetailsCard.Visibility = Visibility.Visible;
         DetailsName.Text = mod.Name;
-        DetailsIdentity.Text = $"{mod.Game} | Version {mod.Version}\nID: {mod.Id}";
+        DetailsIdentity.Text = $"{mod.GameNamesText} | Version {mod.Version}\nID: {mod.Id}";
         DetailsStatus.Text = mod.Status;
         DetailsSource.Text = mod.Source;
         DetailsArchive.Text = string.IsNullOrWhiteSpace(mod.ArchivePath) ? "Not downloaded" : mod.ArchivePath;
+        DetailsDependencies.Text = string.IsNullOrEmpty(mod.DependencySummaryText) ? "None" : mod.DependencySummaryText;
         DetailsFomod.Text = mod.FomodState switch
         {
             FomodState.Yes => "Detected",
@@ -479,7 +524,79 @@ public sealed partial class ModsPage : PageBase
 
         mod.Dependencies = dialog.Dependencies.ToList();
         await _store.UpsertAsync(mod);
+        RefreshMods();
+        UpdateSelectedModDetails();
         ShowInfo($"Updated dependencies for {mod.Name}.", InfoBarSeverity.Success);
+    }
+
+    private void ModRowEdit_Click(object sender, RoutedEventArgs args)
+    {
+        if ((sender as FrameworkElement)?.DataContext is not ModEntry mod)
+            return;
+
+        UiTask.Run(() => EditModAsync(mod), nameof(ModRowEdit_Click),
+            exception => ShowInfo($"The mod could not be saved. {exception.Message}", InfoBarSeverity.Error));
+    }
+
+    [RelayCommand]
+    private Task EditSelectedModAsync() =>
+        ModList.SelectedItem is ModEntry mod ? EditModAsync(mod) : Task.CompletedTask;
+
+    private async Task EditModAsync(ModEntry mod)
+    {
+        var dialog = new ModEditDialog(mod, _games) { XamlRoot = XamlRoot };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+            return;
+
+        mod.Name = dialog.ModName;
+        mod.Version = dialog.Version;
+        mod.Author = dialog.Author;
+        mod.Website = dialog.Website;
+        mod.Description = dialog.Description;
+        mod.GameIds = dialog.GameIds.ToList();
+        mod.GameNamesText = DescribeGames(mod.GameIds);
+        await _store.UpsertAsync(mod);
+        RefreshMods();
+        ShowInfo($"Updated {mod.Name}.", InfoBarSeverity.Success);
+    }
+
+    private bool CanSetGameAssociation() => ModList.SelectedItems.Count > 0;
+
+    [RelayCommand(CanExecute = nameof(CanSetGameAssociation))]
+    private async Task SetGameAssociationAsync()
+    {
+        var selected = ModList.SelectedItems.Cast<ModEntry>().ToList();
+        if (selected.Count == 0)
+            return;
+
+        var picker = new GameAssociationPicker { Header = "GAMES" };
+        // A mixed batch has no single existing state to show, so this starts from "All games" rather than guessing.
+        picker.Initialize(_games, Array.Empty<string>());
+
+        var dialog = new ContentDialog
+        {
+            Title = selected.Count == 1 ? $"Set game association for {selected[0].Name}" : $"Set game association for {selected.Count} mods",
+            Content = picker,
+            PrimaryButtonText = "Apply",
+            CloseButtonText = "Cancel",
+            XamlRoot = XamlRoot,
+            DefaultButton = ContentDialogButton.Primary
+        };
+        picker.SelectionChanged += (_, _) => dialog.IsPrimaryButtonEnabled = picker.IsSelectionValid;
+
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+            return;
+
+        var gameIds = picker.SelectedGameIds.ToList();
+        foreach (var mod in selected)
+        {
+            mod.GameIds = gameIds;
+            mod.GameNamesText = DescribeGames(gameIds);
+        }
+
+        RefreshMods();
+        Enqueue("Set game association", async () => await _store.SaveAsync(_allMods.ToList()));
+        ShowInfo($"Updated game association for {selected.Count} mod(s).", InfoBarSeverity.Success);
     }
 
     private void ModRowDelete_Click(object sender, RoutedEventArgs args)
@@ -494,15 +611,20 @@ public sealed partial class ModsPage : PageBase
 
     private void RefreshMods()
     {
+        // Deleting a mod can orphan another mod's dependency, so every refresh re-validates the whole catalog.
+        DependencyCatalogValidator.ApplySummaries(
+            _allMods,
+            AppServices.DependencyCatalogValidator.Validate(_allMods, AppServices.AppSettings.ShowAdvisoryDependencyWarnings));
+
         var query = ListHeader?.SearchText.Trim() ?? string.Empty;
 
         var filteredMods = _allMods.Where(mod =>
             (string.IsNullOrEmpty(query) ||
              mod.Name.Contains(query, StringComparison.OrdinalIgnoreCase) ||
-             mod.Game.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+             mod.GameNamesText.Contains(query, StringComparison.OrdinalIgnoreCase) ||
              mod.Version.Contains(query, StringComparison.OrdinalIgnoreCase) ||
              mod.FileName.Contains(query, StringComparison.OrdinalIgnoreCase)) &&
-            (_gameFilter is null || mod.Game == _gameFilter) &&
+            MatchesGameFilter(mod) &&
             _statusFilter switch
             {
                 ModStatusFilter.UpdateAvailable => mod.HasUpdate,
@@ -533,6 +655,29 @@ public sealed partial class ModsPage : PageBase
                 ? _allMods.Count == 1 ? "1 mod" : $"{_allMods.Count} mods"
                 : $"{_visibleMods.Count} of {_allMods.Count} mods";
         UpdateCommandStates();
+    }
+
+    private bool MatchesGameFilter(ModEntry mod)
+    {
+        if (_allGamesOnlyFilter)
+            return mod.IsAllGames;
+        if (_gameFilterIds.Count == 0)
+            return true;
+        return mod.IsAllGames || mod.GameIds.Any(id => _gameFilterIds.Contains(id));
+    }
+
+    private void ApplyGameNames()
+    {
+        foreach (var mod in _allMods)
+            mod.GameNamesText = DescribeGames(mod.GameIds);
+    }
+
+    private string DescribeGames(IReadOnlyList<string> gameIds)
+    {
+        if (gameIds.Count == 0)
+            return "All games";
+        var names = gameIds.Select(id => _games.FirstOrDefault(game => game.Id == id)?.Name ?? "Unknown game");
+        return string.Join(", ", names);
     }
 
     [RelayCommand]
@@ -567,9 +712,9 @@ public sealed partial class ModsPage : PageBase
     // Shared by the file picker and drag-and-drop: per-archive inspect -> review dialog -> queue.
     private async Task ImportArchivesAsync(IReadOnlyList<Windows.Storage.StorageFile> files)
     {
-        var games = _gameNames.Where(game => game != "All games").ToList();
         await ModImportService.ProcessCandidateArchivesAsync(
-            files, games, XamlRoot, _store, Enqueue, DispatcherQueue, _allMods, RefreshMods, ShowInfo);
+            files, _games, XamlRoot, _store, Enqueue, DispatcherQueue, _allMods, RefreshMods, ShowInfo);
+        ApplyGameNames();
     }
 
     private void ModListDropTarget_DragEnter(object sender, DragEventArgs e)
@@ -650,7 +795,7 @@ public sealed partial class ModsPage : PageBase
         var dialog = new ContentDialog
         {
             Title = "Delete selected mods?",
-            Content = $"{selected.Count} mod version(s) will be removed by the background queue.",
+            Content = BuildDeleteWarning(selected),
             PrimaryButtonText = "Queue deletion",
             CloseButtonText = "Cancel",
             XamlRoot = XamlRoot,
@@ -669,6 +814,27 @@ public sealed partial class ModsPage : PageBase
                 await _store.DeleteArchiveAsync(mod);
             await _store.SaveAsync(_allMods.ToList());
         });
+    }
+
+    private string BuildDeleteWarning(IReadOnlyList<ModEntry> selected)
+    {
+        var summary = $"{selected.Count} mod version(s) will be removed by the background queue.";
+        var dependents = DependentsOf(selected);
+        return dependents.Count == 0
+            ? summary
+            : $"{summary}\n\nThese mods depend on what you are deleting and will be left with unresolved requirements:\n{string.Join("\n", dependents)}";
+    }
+
+    /// <summary>Names of retained mods whose dependencies point at any mod being deleted.</summary>
+    private List<string> DependentsOf(IReadOnlyList<ModEntry> selected)
+    {
+        var doomed = selected.Select(mod => mod.Id).ToHashSet(StringComparer.Ordinal);
+        return _allMods
+            .Where(mod => !doomed.Contains(mod.Id))
+            .Where(mod => mod.Dependencies.Any(dependency => dependency.Target?.ModId is { } targetId && doomed.Contains(targetId)))
+            .Select(mod => mod.Name)
+            .OrderBy(name => name, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
     }
 
     private bool CanDownloadUpdates() => _allMods.Any(mod => mod.HasUpdate && mod.Remote is not null);

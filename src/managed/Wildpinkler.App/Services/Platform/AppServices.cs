@@ -43,6 +43,12 @@ public static class AppServices
     public static ModInstallService ModInstallService => AppHost.Get<ModInstallService>();
     public static DependencyExtractionService DependencyExtractionService => AppHost.Get<DependencyExtractionService>();
     public static DependencyGraphService DependencyGraphService => AppHost.Get<DependencyGraphService>();
+    public static DependencySubgraphService DependencySubgraphService => AppHost.Get<DependencySubgraphService>();
+    public static BatchDependencyService BatchDependencyService => AppHost.Get<BatchDependencyService>();
+    public static DependencyCatalogValidator DependencyCatalogValidator => AppHost.Get<DependencyCatalogValidator>();
+    public static GraphLayoutStore GraphLayoutStore => AppHost.Get<GraphLayoutStore>();
+    public static DependencyPresetStore DependencyPresetStore => AppHost.Get<DependencyPresetStore>();
+    public static ModListDependencyMapper ModListDependencyMapper => AppHost.Get<ModListDependencyMapper>();
     public static BackgroundOperationQueue BackgroundOperationQueue => AppHost.Get<BackgroundOperationQueue>();
     public static ArchiveDownloadService ArchiveDownloadService => AppHost.Get<ArchiveDownloadService>();
     public static RemoteArchiveAcquisitionService RemoteArchiveAcquisitionService => AppHost.Get<RemoteArchiveAcquisitionService>();

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -26,6 +27,25 @@ public class ModStoreSchemaTests : IDisposable
         if (Directory.Exists(_root))
             Directory.Delete(_root, true);
         GC.SuppressFinalize(this);
+    }
+
+    [Fact]
+    public async Task RoundTrip_PreservesGameIds()
+    {
+        var store = CreateStore();
+        var entry = new ModEntry { Id = "abc", Name = "Specific game mod", GameIds = new List<string> { "game-1", "game-2" } };
+        var allGames = new ModEntry { Id = "def", Name = "All games mod" };
+
+        await store.SaveAsync(new[] { entry, allGames });
+        var loaded = await store.LoadAsync();
+
+        var specific = loaded.Single(mod => mod.Id == "abc");
+        Assert.Equal(new[] { "game-1", "game-2" }, specific.GameIds);
+        Assert.False(specific.IsAllGames);
+
+        var all = loaded.Single(mod => mod.Id == "def");
+        Assert.True(all.IsAllGames);
+        Assert.Empty(all.GameIds);
     }
 
     [Fact]

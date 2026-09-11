@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
@@ -56,11 +57,12 @@ public sealed class RemoteMetadataService
     }
 
     /// <summary>Applies an identification to the entry. Never called without the user accepting it.</summary>
-    public static void Apply(ModEntry entry, RemoteIdentification identification)
+    public static void Apply(ModEntry entry, RemoteIdentification identification, IReadOnlyList<string>? confirmedGameIds = null)
     {
         entry.Remote = identification.Mod.Ref with { FileKey = identification.File.FileKey };
         entry.Name = identification.Mod.Name;
-        entry.Game = identification.Mod.Ref.GameKey;
+        if (confirmedGameIds is not null)
+            entry.GameIds = confirmedGameIds.ToList();
         entry.Source = identification.SiteName;
         entry.Author = identification.Mod.Author;
         entry.Description = identification.Mod.Summary ?? identification.Mod.DescriptionHtml;

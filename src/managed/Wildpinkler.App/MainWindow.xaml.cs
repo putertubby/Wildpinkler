@@ -145,6 +145,10 @@ public sealed partial class MainWindow : Window
         ContentFrame.Navigate(typeof(SettingsPage));
     }
 
+    // A drill-in from Mods, not a nav-pane destination: leave the current selection alone and rely on
+    // the title bar's Back button (Frame.CanGoBack) to return, same as any other in-page detail.
+    public void NavigateToModDependencyGraph(string? focusModId = null) => ContentFrame.Navigate(typeof(ModDependencyGraphPage), focusModId);
+
     public void NavigateToSection(string tag)
     {
         if (!_pagesByTag.TryGetValue(tag, out var pageType))
