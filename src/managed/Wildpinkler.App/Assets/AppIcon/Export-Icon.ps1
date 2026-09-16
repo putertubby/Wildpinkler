@@ -21,7 +21,7 @@ $magick = Get-Command magick -ErrorAction SilentlyContinue
 if (-not $magick) {
     Write-Error @"
 ImageMagick is not installed or not in PATH.
-Install via: winget install ImageMagick
+Install via: winget install ImageMagick.ImageMagick
 Or download: https://imagemagick.org/script/download.php#windows
 "@
     exit 1
@@ -50,7 +50,7 @@ foreach ($size in $Sizes) {
             $outputFile
         
         $fileInfo = Get-Item $outputFile
-        Write-Host "✓ ($($fileInfo.Length) bytes)"
+        Write-Host "($($fileInfo.Length) bytes)"
     }
     catch {
         Write-Error "Failed to generate ${size}x${size}: $_"
@@ -59,6 +59,6 @@ foreach ($size in $Sizes) {
 }
 
 Write-Host ""
-Write-Host "✓ Export complete! Generated:"
+Write-Host "Export complete! Generated:"
 Get-ChildItem $OutputDir -Filter "Wildpinkler-Icon-*.png" | 
     ForEach-Object { Write-Host "  - $($_.Name) ($($_.Length) bytes)" }
