@@ -2,5 +2,13 @@
     "chat.tools.terminal.autoApprove": {
         ".\\build.ps1": true,
         "dotnet test": true
-    }
+    },
+    "terminal.integrated.profiles.windows": {
+        "PowerShell": {
+            "source": "PowerShell",
+            "icon": "terminal-powershell"
+        }
+    },
+    "terminal.integrated.shellIntegration.enabled": true,
+    "terminal.integrated.defaultProfile.windows": "PowerShell"
 }

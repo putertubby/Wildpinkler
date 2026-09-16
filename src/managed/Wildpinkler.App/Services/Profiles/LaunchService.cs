@@ -1,14 +1,17 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Wildpinkler.App.Models;
 
 namespace Wildpinkler.App.Services;
 
 /// <summary>Exports a launch target's uufs64 configuration and starts it through the loader.</summary>
-public sealed class LaunchService
+public sealed partial class LaunchService
 {
     public const string LoaderFileName = "uufs64ldr.exe";
 
@@ -17,19 +20,22 @@ public sealed class LaunchService
     private readonly ActiveRunRegistry _runs;
     private readonly IProcessLauncher _processLauncher;
     private readonly string? _loaderPath;
+    private readonly ILogger<LaunchService> _logger;
 
     public LaunchService(
         ProfileConfigExporter exporter,
         ProfileFolderService provisioner,
         ActiveRunRegistry runs,
         IProcessLauncher processLauncher,
-        string? loaderPath = null)
+        string? loaderPath = null,
+        ILogger<LaunchService>? logger = null)
     {
         _exporter = exporter;
         _provisioner = provisioner;
         _runs = runs;
         _processLauncher = processLauncher;
         _loaderPath = loaderPath;
+        _logger = logger ?? NullLogger<LaunchService>.Instance;
     }
 
     /// <summary>Raised after the loader exits and any captured tool output is finalized.</summary>
@@ -64,6 +70,10 @@ public sealed class LaunchService
         if (!_runs.TryReserve(profile, target, out var run))
             throw new InvalidOperationException($"'{profile.Name}' already has a target running.");
 
+        // Correlates every log line of this launch (invocation, command line, completion) in the log sink.
+        var runId = Guid.NewGuid().ToString("N")[..8];
+        using var scope = _logger.BeginScope(new Dictionary<string, object> { ["RunId"] = runId });
+
         ProfileFolderService.PendingToolRun? pendingRun = null;
         try
         {
@@ -77,6 +87,8 @@ public sealed class LaunchService
                 throw new FileNotFoundException($"{LoaderFileName} was not found next to Wildpinkler.", LoaderPath);
 
             var startInfo = CreateStartInfo(target, configPath);
+            LogInvocation(profile.Name, profile.Id, target.DisplayName, target.Id, target.Kind.ToString(), LoaderPath);
+            LogCommandLine(BuildCommandLine(startInfo));
             var process = _processLauncher.Start(startInfo);
             _runs.MarkRunning(run);
             return new StartedLaunch(configPath, ObserveCompletionAsync(process, run, profile, target, binding, pendingRun));
@@ -94,11 +106,12 @@ public sealed class LaunchService
     {
         var startInfo = new ProcessStartInfo(LoaderPath)
         {
-            UseShellExecute = false,
-            WorkingDirectory = ResolveWorkingDirectory(target)
+            UseShellExecute = false
         };
         startInfo.ArgumentList.Add("--target");
-        startInfo.ArgumentList.Add(target.ExecutablePath);
+        startInfo.ArgumentList.Add(target.VirtualExecutablePath);
+        startInfo.ArgumentList.Add("--curdir");
+        startInfo.ArgumentList.Add(Path.GetDirectoryName(Path.GetFullPath(target.VirtualExecutablePath))!);
         if (!string.IsNullOrWhiteSpace(target.Arguments))
         {
             startInfo.ArgumentList.Add("--args");
@@ -113,24 +126,22 @@ public sealed class LaunchService
         return startInfo;
     }
 
-    /// <summary>
-    /// A working directory decides how the target resolves its own relative paths, so a value that is
-    /// relative, unrooted or missing is discarded in favour of the executable's own folder.
-    /// </summary>
-    private static string ResolveWorkingDirectory(LaunchTarget target)
+    /// <summary>Builds the full command line (loader path plus all arguments, each quoted only when needed) exactly as the loader will receive it.</summary>
+    private static string BuildCommandLine(ProcessStartInfo startInfo)
     {
-        var configured = target.WorkingDirectory;
-        if (!string.IsNullOrWhiteSpace(configured) &&
-            Path.IsPathFullyQualified(configured) &&
-            configured.IndexOfAny(Path.GetInvalidPathChars()) < 0)
-        {
-            var full = Path.GetFullPath(configured);
-            if (Directory.Exists(full))
-                return full;
-        }
+        var parts = new List<string> { QuoteIfNeeded(startInfo.FileName) };
+        parts.AddRange(startInfo.ArgumentList.Select(QuoteIfNeeded));
+        return string.Join(" ", parts);
+    }
 
-        var executableFolder = Path.GetDirectoryName(Path.GetFullPath(target.ExecutablePath));
-        return string.IsNullOrEmpty(executableFolder) ? AppContext.BaseDirectory : executableFolder;
+    /// <summary>Applies Windows command-line quoting to a single argument, matching what <see cref="ProcessStartInfo.ArgumentList"/> hands to the process.</summary>
+    private static string QuoteIfNeeded(string argument)
+    {
+        if (argument.Length == 0 || argument.Contains(' ', StringComparison.Ordinal) || argument.Contains('"', StringComparison.Ordinal))
+        {
+            return "\"" + argument.Replace("\"", "\\\"", StringComparison.Ordinal) + "\"";
+        }
+        return argument;
     }
 
     private async Task<LaunchCompletion> ObserveCompletionAsync(
@@ -142,11 +153,13 @@ public sealed class LaunchService
         ProfileFolderService.PendingToolRun? pendingRun)
     {
         var succeeded = false;
+        int? exitCode = null;
         try
         {
             using (process)
             {
-                succeeded = await process.WaitForExitAsync() == 0;
+                exitCode = await process.WaitForExitAsync();
+                succeeded = exitCode == 0;
             }
 
             if (succeeded && binding is not null && pendingRun is not null)
@@ -154,6 +167,7 @@ public sealed class LaunchService
         }
         catch
         {
+            exitCode = null;
             succeeded = false;
         }
         finally
@@ -161,10 +175,51 @@ public sealed class LaunchService
             _runs.Release(run);
         }
 
+        LogCompletion(
+            profile.Name,
+            profile.Id,
+            target.DisplayName,
+            target.Id,
+            target.Kind.ToString(),
+            exitCode);
+
         var completion = new LaunchCompletion(profile, target, succeeded, pendingRun);
         LaunchCompleted?.Invoke(completion);
         return completion;
     }
+
+    /// <summary>
+    /// Every relevant detail of the loader invocation as discrete structured fields, plus the full
+    /// command line (each argument quoted exactly as the loader receives it).
+    /// </summary>
+    [LoggerMessage(
+        Level = LogLevel.Information,
+        Message = "Starting '{ProfileName}' ({ProfileId}) -> '{TargetName}' ({TargetId}, {Kind}) via loader {LoaderPath}")]
+    private partial void LogInvocation(
+        string profileName,
+        string profileId,
+        string targetName,
+        string targetId,
+        string kind,
+        string loaderPath);
+
+    /// <summary>The full command line handed to the loader, with each argument quoted as the process will receive it.</summary>
+    [LoggerMessage(
+        Level = LogLevel.Information,
+        Message = "Loader command line: {CommandLine}")]
+    private partial void LogCommandLine(string commandLine);
+
+    /// <summary>The outcome of the loader run. A null <paramref name="exitCode"/> means the process could not be observed to exit normally.</summary>
+    [LoggerMessage(
+        Level = LogLevel.Information,
+        Message = "Loader for '{ProfileName}' ({ProfileId}) target '{TargetName}' ({TargetId}, {Kind}) exited with code {ExitCode}")]
+    private partial void LogCompletion(
+        string profileName,
+        string profileId,
+        string targetName,
+        string targetId,
+        string kind,
+        int? exitCode);
 
     private sealed record StartedLaunch(string ConfigPath, Task<LaunchCompletion> Completion);
 }
