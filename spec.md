@@ -155,7 +155,7 @@ A *game definition* is the portable, machine-independent part of a game: it neve
 - Definitions are stored one per file as `<definitionId>.wpgame.json`, loaded from two layers:
   - built-in, shipped with the application in `Assets\GameDefinitions` (read-only, never overwritten by an import)
   - user, in `%LOCALAPPDATA%\Wildpinkler\game-definitions` (overrides a built-in with the same id)
-- A definition has: schema version, definition id (filename-safe slug), name, definition version, author, description, steam id, executable path relative to the install folder, detection markers, virtual file system variables (name to relative path, the source of the `TOOL:DATA` style references used by profiles), merged views, and suggested launch arguments.
+- A definition has: schema version, definition id (filename-safe slug), name, definition version, author, description, steam id, executable path relative to the install folder, detection markers, virtual file system variables (name to relative path, the source of the `TOOL:DATA` style references used by profiles), merged views, suggested launch arguments, and an optional plugin list descriptor (see [Plugin list management](#plugin-list-management)).
 - A *merged view* is a named union-filesystem mount, independent of the variables above: an ordered list of one or more branch paths (highest priority first, overlaying the branches after it) plus an `IsWritable` flag marking whether the view gets a writable upperdir. A branch path is always absolute and may start with a `{VARIABLE}` placeholder instead of a literal drive letter; placeholders are not resolved at definition-edit time (the full variable set includes app-predefined variables plus ones a user can later add or override at the profile or tools level), so a branch is only checked for being non-empty and within the text length cap.
 - Definitions are imported and exported from the Games panel. A definition file is untrusted input and is validated on read: the id must match `^[a-z0-9][a-z0-9._-]{0,63}$`, every relative-path field must be relative and resolve inside the install folder (no rooted, UNC, `..` or drive-qualified paths), variable names must match `^[A-Za-z][A-Za-z0-9_]{0,31}$`, merged-view names must be such an identifier or a `${identifier}` reference, and names must be unique within their own collection. A merged view must declare at least one branch, and file size, variable, marker and merged-view/branch counts are capped. Suggested launch arguments are presented to the user for confirmation and never applied silently.
 - A definition can be edited from the Games panel: name, description, author, steam id, executable, detection markers, variables and merged views. The same validation rules apply on save, duplicate variable and merged-view names are rejected, and the definition version is increased so the change can be detected. Editing a built-in definition writes a personal copy to the user layer; the built-in file is never modified.
@@ -208,7 +208,7 @@ A tool is a launchable program tied to one or more games and enabled per profile
 #### Tool definitions
 
 - Definitions are stored one per file as `<toolId>.wptool.json`, loaded from the same two layers as game definitions: built-in in `Assets\ToolDefinitions` and user in `%LOCALAPPDATA%\Wildpinkler\tool-definitions`. Built-ins for LOOT, FNIS and BodySlide ship with the application.
-- A definition has: schema version, definition id, name, definition version, author, description, supported game definition ids (empty means any game), executable path relative to the tool's install folder, an optional working directory, suggested launch arguments, detection markers, variables and merged views.
+- A definition has: schema version, definition id, name, definition version, author, description, supported game definition ids (empty means any game), executable path relative to the tool's install folder, an optional working directory, suggested launch arguments, detection markers, variables, merged views, and an optional flag marking the tool as a plugin-list sorter (see [Plugin list management](#plugin-list-management)).
 - Tools declare their own merged views explicitly. All paths in tool definitions must use variables like `${GameInstallPath}` or `${ToolInstallPath}` to resolve to absolute folders, identical to the rules for game definitions.
 - Validation shares the game definition rules for the id, name, version, text lengths, variable names and merged views. Tool-specific rules: every supported game id must be a valid definition id and at most 64 may be declared; the executable is required and must be a safe relative path; detection markers must be safe relative paths.
 - Definitions are imported, exported and edited from the Tools panel with the same rules as game definitions: a personal copy is written to the user layer when a built-in is edited, the definition version is increased on save, and a single invalid file is skipped with a warning.
@@ -316,6 +316,45 @@ constraints against the active profile. These findings are advisory: launch pres
 issues for acknowledgment rather than silently changing the load order or fetching a dependency.
 The Nexus v1 API exposes no requirements endpoint, so Wildpinkler does not infer a complete remote
 dependency graph from Nexus metadata.
+
+### Plugin list management
+
+For Creation Engine games (Skyrim SE and the like) the game only loads the plugins listed in a
+`plugins.txt` file. Wildpinkler maintains that file so its content always reflects the profile's
+effective load order. The whole feature is gated on a game definition's optional *plugin list
+descriptor*; games without one are completely unaffected.
+
+- The descriptor (schema 3 of the game definition) names the plugin file extensions
+  (`.esm`, `.esp`, `.esl`), the data folder they live in relative to the install folder (`Data`),
+  the list file name (`plugins.txt`), and the merged view whose writable branch 0 the list is
+  written to (the `LocalAppData` view, matching the variable name of the game's local app data
+  folder). A tool definition's optional `sortsPluginList` flag marks tools that can reorder the
+  plugin list (LOOT is the built-in example).
+- The list is written to the **writable branch 0 (the top branch) of the profile's own custom
+  `LocalAppData` folder** — never into the game directory and never shared between profiles or
+  other mod managers — so each profile keeps its own order with no collisions.
+- When a game target is launched, the list is regenerated together with the `profile.json` export,
+  so both always reflect the same effective branches and load order:
+  - Every enabled branch's `<data folder>` is scanned in load-order priority; a plugin file name
+    claimed by a higher-priority branch shadows the same name in lower branches.
+  - Masters read from each plugin's header are honored: a master always precedes its dependents.
+    The master/dependent graph is resolved by topological sort; a cycle is logged as a warning and
+    the remaining plugins keep their default order rather than failing the launch.
+  - Within that constraint, the default order is branch priority first, then extension rank
+    (`.esm` before `.esl` before `.esp`), then file name.
+  - The file is written atomically (temporary file plus rename, previous content kept as a `.bak`
+    sidecar).
+- Until a sorting tool has run at least once, the order is the default one above. Launching a game
+  whose list is not yet sorted shows a warning dialog offering to cancel; launching anyway proceeds
+  with the default order.
+- After a tool whose definition sets `sortsPluginList` completes successfully, the profile's
+  *plugin list sorted* flag is set and persisted; the warning is not shown again for that profile.
+- The flag is reset to false whenever the effective plugin set can change: moving or toggling load
+  order folders, enabling or disabling tools, and committing a mod list build. The next launch then
+  regenerates the list and warns again until another sorting run completes.
+- During mod installation the mod's folder is scanned for plugin files and the result is stored in
+  the mod's installation manifest, so the effective plugin set is always known without re-scanning
+  the disk.
 
 ### Native mod lists
 

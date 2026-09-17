@@ -13,7 +13,10 @@ namespace Wildpinkler.App.Services;
 public sealed class ModInstallationStore : IDisposable
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
-    private const int CurrentSchemaVersion = 2;
+    // Schema 3 records the plugin files (.esm/.esp/.esl) each installation ships. Older schema 2
+    // entries load with an empty plugin list; there is no migration pass.
+    private const int CurrentSchemaVersion = 3;
+    private const int OldestSupportedSchemaVersion = 2;
     private readonly string _rootPath;
     private readonly string _databasePath;
     private readonly string _backupPath;
@@ -84,8 +87,10 @@ public sealed class ModInstallationStore : IDisposable
         await using var stream = File.OpenRead(path);
         var document = await JsonSerializer.DeserializeAsync<DatabaseDocument>(stream, JsonOptions)
             ?? throw new JsonException("The mod installations file is empty or malformed.");
-        if (document.SchemaVersion != CurrentSchemaVersion)
-            throw new JsonException($"The mod installations file is schema {document.SchemaVersion}, but this build requires schema {CurrentSchemaVersion}.");
+        // Older schemas are additive-read: missing fields fall back to their defaults (e.g. an
+        // empty plugin list). Newer schemas than this build understand must be converted first.
+        if (document.SchemaVersion < OldestSupportedSchemaVersion || document.SchemaVersion > CurrentSchemaVersion)
+            throw new JsonException($"The mod installations file is schema {document.SchemaVersion}, but this build supports schemas {OldestSupportedSchemaVersion} to {CurrentSchemaVersion}.");
         return document.Installations;
     }
 

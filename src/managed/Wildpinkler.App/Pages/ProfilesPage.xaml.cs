@@ -32,6 +32,7 @@ public sealed partial class ProfilesPage : PageBase
     private readonly ProfileDeletionService _deletionService = AppServices.ProfileDeletionService;
     private readonly LaunchTargetResolver _launchTargetResolver = AppServices.LaunchTargetResolver;
     private readonly LaunchService _launchService = AppServices.LaunchService;
+    private readonly PluginsTxtService _pluginsTxt = AppHost.Get<PluginsTxtService>();
     private readonly ActiveRunRegistry _activeRuns = AppServices.ActiveRunRegistry;
     private readonly ProfileRunAccessPolicy _runAccess = AppServices.ProfileRunAccessPolicy;
     private readonly BackgroundOperationQueue _queue = AppServices.BackgroundOperationQueue;
@@ -771,9 +772,13 @@ public sealed partial class ProfilesPage : PageBase
         if (await HasUnacknowledgedDependencyIssuesAsync(profile))
             return;
 
+        var game = GameFor(profile);
+        if (target.IsGame && game is not null && await HasUnsortedPluginListAsync(profile, game))
+            return;
+
         try
         {
-            await _launchService.LaunchAsync(profile, target);
+            await _launchService.LaunchAsync(profile, target, game);
             ShowInfo($"Launched {target.DisplayName} using profile '{profile.Name}'.", InfoBarSeverity.Success);
             Save("Save tool output version");
             RefreshWorkspace();
@@ -810,6 +815,28 @@ public sealed partial class ProfilesPage : PageBase
             PrimaryButtonText = "Launch anyway",
             CloseButtonText = "Cancel",
             DefaultButton = ContentDialogButton.Close
+        };
+
+        return await dialog.ShowAsync() != ContentDialogResult.Primary;
+    }
+
+    // Wildpinkler writes a default plugin load order; the game plays that order until a sorting tool
+    // (such as LOOT) has run at least once. Warn once per profile until the sorted flag is set.
+    private async Task<bool> HasUnsortedPluginListAsync(Profile profile, GameEntry game)
+    {
+        if (!_pluginsTxt.NeedsPluginListWarning(profile, game))
+            return false;
+
+        var dialog = new ContentDialog
+        {
+            XamlRoot = XamlRoot,
+            Title = "Default plugin load order",
+            Content = "The plugin load order has not been sorted yet. Wildpinkler writes a default order, " +
+                      "which the game will use at launch until you run a plugin-sorting tool (such as LOOT) " +
+                      "at least once.\n\nYou can still launch now; sorting the list later updates it.",
+            PrimaryButtonText = "Launch anyway",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Primary
         };
 
         return await dialog.ShowAsync() != ContentDialogResult.Primary;

@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "definitionId": "loot",
   "name": "LOOT",
   "definitionVersion": 2,
@@ -7,6 +7,7 @@
   "description": "Load Order Optimisation Tool. Reads the profile's plugin list and writes its own settings outside the game folder.",
   "supportedGameDefinitions": [],
   "producesOutput": false,
+  "sortsPluginList": true,
   "executableRelativePath": "LOOT.exe",
   "workingDirectory": "",
   "defaultLaunchArguments": "",

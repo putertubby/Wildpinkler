@@ -19,6 +19,9 @@ public sealed partial class LaunchService
     private readonly ProfileFolderService _provisioner;
     private readonly ActiveRunRegistry _runs;
     private readonly IProcessLauncher _processLauncher;
+    private readonly PluginsTxtService? _pluginsTxt;
+    private readonly ToolStore? _toolStore;
+    private readonly ProfileStore? _profileStore;
     private readonly string? _loaderPath;
     private readonly ILogger<LaunchService> _logger;
 
@@ -28,12 +31,18 @@ public sealed partial class LaunchService
         ActiveRunRegistry runs,
         IProcessLauncher processLauncher,
         string? loaderPath = null,
-        ILogger<LaunchService>? logger = null)
+        ILogger<LaunchService>? logger = null,
+        PluginsTxtService? pluginsTxt = null,
+        ToolStore? toolStore = null,
+        ProfileStore? profileStore = null)
     {
         _exporter = exporter;
         _provisioner = provisioner;
         _runs = runs;
         _processLauncher = processLauncher;
+        _pluginsTxt = pluginsTxt;
+        _toolStore = toolStore;
+        _profileStore = profileStore;
         _loaderPath = loaderPath;
         _logger = logger ?? NullLogger<LaunchService>.Instance;
     }
@@ -43,20 +52,20 @@ public sealed partial class LaunchService
 
     public string LoaderPath => _loaderPath ?? Path.Combine(AppContext.BaseDirectory, LoaderFileName);
 
-    public async Task<string> LaunchAsync(Profile profile, LaunchTarget target)
+    public async Task<string> LaunchAsync(Profile profile, LaunchTarget target, GameEntry? game = null)
     {
-        var launched = await StartAsync(profile, target);
+        var launched = await StartAsync(profile, target, game);
         _ = launched.Completion;
         return launched.ConfigPath;
     }
 
-    public async Task<LaunchCompletion> LaunchAndWaitAsync(Profile profile, LaunchTarget target)
+    public async Task<LaunchCompletion> LaunchAndWaitAsync(Profile profile, LaunchTarget target, GameEntry? game = null)
     {
-        var launched = await StartAsync(profile, target);
+        var launched = await StartAsync(profile, target, game);
         return await launched.Completion;
     }
 
-    private async Task<StartedLaunch> StartAsync(Profile profile, LaunchTarget target)
+    private async Task<StartedLaunch> StartAsync(Profile profile, LaunchTarget target, GameEntry? game)
     {
         if (string.IsNullOrWhiteSpace(target.ExecutablePath))
             throw new InvalidOperationException($"'{target.DisplayName}' has no executable configured.");
@@ -81,6 +90,11 @@ public sealed partial class LaunchService
             if (binding is not null)
                 pendingRun = _provisioner.BeginToolRun(profile, binding, target.Id);
 
+            // Game targets: regenerate the plugin list together with the profile export so both
+            // always reflect the same effective load order and branches.
+            if (target.IsGame && game is not null && _pluginsTxt is not null)
+                await _pluginsTxt.EnsureUpToDateAsync(profile, target, game);
+
             var configPath = await _exporter.ExportAsync(profile, target);
 
             if (!File.Exists(LoaderPath))
@@ -91,7 +105,7 @@ public sealed partial class LaunchService
             LogCommandLine(BuildCommandLine(startInfo));
             var process = _processLauncher.Start(startInfo);
             _runs.MarkRunning(run);
-            return new StartedLaunch(configPath, ObserveCompletionAsync(process, run, profile, target, binding, pendingRun));
+            return new StartedLaunch(configPath, ObserveCompletionAsync(process, run, profile, target, binding, pendingRun, game));
         }
         catch
         {
@@ -150,7 +164,8 @@ public sealed partial class LaunchService
         Profile profile,
         LaunchTarget target,
         ProfileTool? binding,
-        ProfileFolderService.PendingToolRun? pendingRun)
+        ProfileFolderService.PendingToolRun? pendingRun,
+        GameEntry? game)
     {
         var succeeded = false;
         int? exitCode = null;
@@ -163,7 +178,18 @@ public sealed partial class LaunchService
             }
 
             if (succeeded && binding is not null && pendingRun is not null)
+            {
                 _provisioner.CompleteToolRun(profile, binding, target.Id, pendingRun);
+                try
+                {
+                    await MarkPluginListSortedAsync(profile, binding, game);
+                }
+                catch (Exception ex)
+                {
+                    // Persisting the sorted flag must never turn a successful launch into a failure.
+                    LogPluginListSortPersistFailed(profile.Id, ex);
+                }
+            }
         }
         catch
         {
@@ -189,6 +215,29 @@ public sealed partial class LaunchService
     }
 
     /// <summary>
+    /// A successful run of a tool whose definition declares <see cref="ToolDefinition.SortsPluginList"/>
+    /// supersedes the default load order, so the profile's sorted flag is set and persisted. The store
+    /// is the source of truth: the in-memory profile may not be the instance the store holds, so the
+    /// flag is applied to a fresh load-modify-save round trip.
+    /// </summary>
+    private async Task MarkPluginListSortedAsync(Profile profile, ProfileTool binding, GameEntry? game)
+    {
+        if (game?.Definition?.PluginList is null || _toolStore is null || _profileStore is null)
+            return;
+
+        var tools = await _toolStore.LoadAsync();
+        if (tools.FirstOrDefault(tool => tool.Id == binding.ToolEntryId)?.Definition?.SortsPluginList != true)
+            return;
+
+        var profiles = (await _profileStore.LoadAsync()).ToList();
+        if (profiles.FirstOrDefault(item => item.Id == profile.Id) is not { } stored)
+            return;
+
+        stored.PluginListSorted = true;
+        await _profileStore.SaveAsync(profiles);
+    }
+
+    /// <summary>
     /// Every relevant detail of the loader invocation as discrete structured fields, plus the full
     /// command line (each argument quoted exactly as the loader receives it).
     /// </summary>
@@ -208,6 +257,13 @@ public sealed partial class LaunchService
         Level = LogLevel.Information,
         Message = "Loader command line: {CommandLine}")]
     private partial void LogCommandLine(string commandLine);
+
+    /// <summary>Raised when persisting the sorted-plugin-list flag fails after a successful tool run.</summary>
+    [LoggerMessage(
+        Level = LogLevel.Debug,
+        EventId = 5,
+        Message = "Failed to mark the plugin list as sorted for profile '{ProfileId}'.")]
+    private partial void LogPluginListSortPersistFailed(string profileId, Exception exception);
 
     /// <summary>The outcome of the loader run. A null <paramref name="exitCode"/> means the process could not be observed to exit normally.</summary>
     [LoggerMessage(

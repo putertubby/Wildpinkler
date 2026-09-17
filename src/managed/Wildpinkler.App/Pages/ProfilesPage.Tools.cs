@@ -95,6 +95,9 @@ public sealed partial class ProfilesPage
         }
 
         profile.NotifySummaryChanged();
+        // Enabling or disabling a tool (e.g. a plugin sorter) changes what runs against the game,
+        // so a previously sorted plugin list no longer reflects the current setup.
+        profile.PluginListSorted = false;
         RefreshProfiles();
         RefreshWorkspace();
         Save("Save profile tools");

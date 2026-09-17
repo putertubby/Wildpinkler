@@ -12,7 +12,7 @@ namespace Wildpinkler.App.Models;
 /// </summary>
 public sealed class ToolDefinition : IDefinition
 {
-    public const int CurrentSchemaVersion = 1;
+    public const int CurrentSchemaVersion = 2;
 
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
     public string DefinitionId { get; set; } = string.Empty;
@@ -26,6 +26,13 @@ public sealed class ToolDefinition : IDefinition
 
     /// <summary>False for a tool that only changes settings: it gets no per-profile output folder and adds nothing to the profile merged view.</summary>
     public bool ProducesOutput { get; set; } = true;
+
+    /// <summary>
+    /// True when a completed run of this tool establishes an optimized plugin load order
+    /// (e.g. LOOT writing the game's plugins.txt); Wildpinkler then considers the profile's
+    /// default load order no longer stale.
+    /// </summary>
+    public bool SortsPluginList { get; set; }
 
     /// <summary>Path to the executable, relative to the tool's install folder.</summary>
     public string ExecutableRelativePath { get; set; } = string.Empty;
@@ -73,6 +80,7 @@ public sealed class ToolDefinition : IDefinition
         Description = Description,
         SupportedGameDefinitions = new List<string>(SupportedGameDefinitions),
         ProducesOutput = ProducesOutput,
+        SortsPluginList = SortsPluginList,
         ExecutableRelativePath = ExecutableRelativePath,
         WorkingDirectory = WorkingDirectory,
         DefaultLaunchArguments = DefaultLaunchArguments,
@@ -89,6 +97,7 @@ public sealed class ToolDefinition : IDefinition
         Author == other.Author &&
         Description == other.Description &&
         ProducesOutput == other.ProducesOutput &&
+        SortsPluginList == other.SortsPluginList &&
         ExecutableRelativePath == other.ExecutableRelativePath &&
         WorkingDirectory == other.WorkingDirectory &&
         DefaultLaunchArguments == other.DefaultLaunchArguments &&

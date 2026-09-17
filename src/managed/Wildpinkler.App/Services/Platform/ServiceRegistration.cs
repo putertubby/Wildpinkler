@@ -78,6 +78,7 @@ public static class ServiceRegistration
         services.AddSingleton<LaunchTargetResolver>();
         services.AddSingleton<ConfigurationOriginResolver>();
         services.AddSingleton<MergedViewPreviewService>();
+        services.AddSingleton<PluginsTxtService>();
         services.AddSingleton<LaunchService>();
         return services;
     }

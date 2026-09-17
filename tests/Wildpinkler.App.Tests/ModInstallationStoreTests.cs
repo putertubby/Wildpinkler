@@ -78,6 +78,59 @@ public sealed class ModInstallationStoreTests : IDisposable
         await Assert.ThrowsAsync<JsonException>(() => new ModInstallationStore(_root).LoadAsync());
     }
 
+    [Fact]
+    public async Task RoundTrip_PreservesPluginEntries()
+    {
+        var store = new ModInstallationStore(_root);
+        var installation = new ModInstallation
+        {
+            Id = "install",
+            ModId = "mod",
+            SourceArchiveSha256 = new string('A', 64),
+            Recipe = new ManualInstallationRecipe { SourceRoot = "root" },
+            FolderPath = Path.Combine(_root, "install"),
+            Plugins =
+            {
+                new PluginFileEntry { FileName = "Mod.esp", RelativePath = "Data/Mod.esp" },
+                new PluginFileEntry { FileName = "Lite.esl", RelativePath = "Data/Plugins/Lite.esl" }
+            }
+        };
+
+        await store.SaveAsync(new[] { installation });
+        var loaded = Assert.Single(await store.LoadAsync());
+
+        Assert.Equal(2, loaded.Plugins.Count);
+        Assert.Equal("Data/Mod.esp", loaded.Plugins[0].RelativePath);
+        Assert.Equal("Mod.esp", loaded.Plugins[0].FileName);
+        Assert.Equal("Data/Plugins/Lite.esl", loaded.Plugins[1].RelativePath);
+        Assert.Equal("Lite.esl", loaded.Plugins[1].FileName);
+    }
+
+    [Fact]
+    public async Task SchemaTwo_LoadsWithEmptyPluginList()
+    {
+        File.WriteAllText(Path.Combine(_root, "mod-installations.json"), """
+            {
+              "SchemaVersion": 2,
+              "Installations": [
+                {
+                  "Id": "install",
+                  "ModId": "mod",
+                  "SourceArchiveSha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  "Recipe": { "kind": "manual", "SourceRoot": "root", "Destination": "" },
+                  "FolderPath": "C:\\installs\\install",
+                  "CreatedAt": "2026-01-01T00:00:00Z"
+                }
+              ]
+            }
+            """);
+
+        var loaded = Assert.Single(await new ModInstallationStore(_root).LoadAsync());
+
+        Assert.Equal("install", loaded.Id);
+        Assert.Empty(loaded.Plugins);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_root))

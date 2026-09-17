@@ -203,6 +203,7 @@ public sealed class ModInstallService
             Directory.CreateDirectory(stagingPath);
             extract(stagingPath);
             Directory.Move(stagingPath, installation.FolderPath);
+            ScanPluginFiles(installation);
             await _store.AddAsync(installation);
             return installation;
         }
@@ -211,6 +212,41 @@ public sealed class ModInstallService
             DeleteDirectoryIfPresent(stagingPath);
             DeleteDirectoryIfPresent(installation.FolderPath);
             throw;
+        }
+    }
+
+    /// <summary>
+    /// Records the plugin files (.esm/.esp/.esl) shipped by the mod into
+    /// <see cref="ModInstallation.Plugins"/>. Best-effort: a scan failure leaves the list empty
+    /// rather than failing an otherwise successful installation.
+    /// </summary>
+    private static void ScanPluginFiles(ModInstallation installation)
+    {
+        var folderPath = installation.FolderPath;
+        if (!Directory.Exists(folderPath))
+            return;
+
+        var plugins = installation.Plugins ??= new List<PluginFileEntry>();
+        plugins.Clear();
+        try
+        {
+            foreach (var filePath in Directory.EnumerateFiles(folderPath, "*", SearchOption.AllDirectories)
+                .Where(PluginMasterInspector.IsPluginFile))
+            {
+                var relativePath = Path.GetRelativePath(folderPath, filePath).Replace('\\', '/');
+                plugins.Add(new PluginFileEntry
+                {
+                    FileName = Path.GetFileName(filePath),
+                    RelativePath = relativePath
+                });
+            }
+
+            plugins.Sort((a, b) => string.Compare(a.RelativePath, b.RelativePath, StringComparison.OrdinalIgnoreCase));
+        }
+        catch
+        {
+            // A read failure (permissions, long paths, etc.) must not abort the installation.
+            plugins.Clear();
         }
     }
 

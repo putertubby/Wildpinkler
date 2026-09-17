@@ -57,6 +57,9 @@ public sealed partial class ProfilesPage
             return;
 
         profile.NotifySummaryChanged();
+        // Any change to the load order invalidates a previously sorted plugin list; the user must
+        // re-run a sorting tool before the new order is considered authoritative.
+        profile.PluginListSorted = false;
         UpdateProfileViewBranchCount(profile);
 
         // A pure reorder (drag, Alt+Up/Down, the "more" menu) changes branch order only - it never
@@ -89,6 +92,8 @@ public sealed partial class ProfilesPage
             return;
 
         folder.IsEnabled = toggle.IsOn;
+        // Enabling/disabling a folder changes which plugins load, so a sorted order no longer applies.
+        profile.PluginListSorted = false;
 
         RefreshWorkspace();
         Save("Save load order");

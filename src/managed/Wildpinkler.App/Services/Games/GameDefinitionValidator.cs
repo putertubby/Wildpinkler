@@ -55,6 +55,43 @@ public static class GameDefinitionValidator
             }
         }
 
+        if (definition.PluginList is { } pluginList)
+        {
+            if (pluginList.PluginExtensions.Count is < 1 or > 16)
+            {
+                error = "The plugin list must declare between 1 and 16 plugin extensions.";
+                return false;
+            }
+
+            foreach (var extension in pluginList.PluginExtensions)
+            {
+                if (extension.Length < 2 || extension[0] != '.' || !extension[1..].All(char.IsLetterOrDigit))
+                {
+                    error = $"'{extension}' is not a valid plugin extension.";
+                    return false;
+                }
+            }
+
+            if (!DefinitionValidation.IsSafeRelativePath(pluginList.PluginDataFolder))
+            {
+                error = "The plugin data folder is not a safe relative path.";
+                return false;
+            }
+
+            if (!DefinitionValidation.IsSafeRelativePath(pluginList.ListFileName))
+            {
+                error = "The plugin list file name is not a safe relative path.";
+                return false;
+            }
+
+            if (!DefinitionValidation.IsVariableName(pluginList.ListViewVariable)
+                || !scope.Definitions.ContainsKey(pluginList.ListViewVariable))
+            {
+                error = $"The plugin list view variable '{pluginList.ListViewVariable}' is unknown.";
+                return false;
+            }
+        }
+
         error = string.Empty;
         return true;
     }

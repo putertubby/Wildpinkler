@@ -1,6 +1,8 @@
 using System;
 using System.IO;
 using System.IO.Compression;
+using System.Threading.Tasks;
+using Wildpinkler.App.Models;
 using Wildpinkler.App.Services;
 using Xunit;
 
@@ -61,6 +63,47 @@ public sealed class ModInstallServiceTests
         var second = ModInstallService.BuildManualSelectionSignature("root", "destination:0:");
 
         Assert.NotEqual(first, second);
+    }
+
+    [Fact]
+    public async Task FindOrCreateManualInstallation_ScansPluginFilesIntoInstallation()
+    {
+        using var fixture = new ArchiveFixture(
+            ("root/Data/ModA.esp", "a"),
+            ("root/Data/Plugins/ModB.esl", "b"),
+            ("root/README.txt", "readme"));
+        var installsRoot = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(installsRoot);
+            var store = new ModInstallationStore(installsRoot);
+            var service = new ModInstallService(store, new ArchiveInspector(), new FomodInstallerParser(), installsRoot: installsRoot);
+            var mod = new ModEntry
+            {
+                Id = "mod",
+                Name = "Test Mod",
+                ArchivePath = fixture.ArchivePath,
+                Sha256 = new string('D', 64)
+            };
+
+            var installation = await service.FindOrCreateManualInstallationAsync(mod, "root", string.Empty);
+
+            Assert.Equal(2, installation.Plugins.Count);
+            Assert.Equal("ModA.esp", installation.Plugins[0].FileName);
+            Assert.Equal("Data/ModA.esp", installation.Plugins[0].RelativePath);
+            Assert.Equal("ModB.esl", installation.Plugins[1].FileName);
+            Assert.Equal("Data/Plugins/ModB.esl", installation.Plugins[1].RelativePath);
+            Assert.True(File.Exists(Path.Combine(installation.FolderPath, "Data", "ModA.esp")));
+            Assert.DoesNotContain(installation.Plugins, entry => entry.FileName == "README.txt");
+
+            var saved = Assert.Single(await store.LoadAsync());
+            Assert.Equal(installation.Id, saved.Id);
+            Assert.Equal(2, saved.Plugins.Count);
+        }
+        finally
+        {
+            Directory.Delete(installsRoot, recursive: true);
+        }
     }
 
     private sealed class ArchiveFixture : IDisposable

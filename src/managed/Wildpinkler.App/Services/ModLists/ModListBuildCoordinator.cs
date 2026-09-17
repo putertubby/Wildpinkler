@@ -217,7 +217,7 @@ public sealed class ModListBuildCoordinator
         var target = _targetResolver.Resolve(build.StagedProfile, game, tools).Single(candidate => candidate.Id == tool.Id);
         task.State = ModListBuildTaskState.Running;
         await SaveAsync(build, cancellationToken);
-        var completion = await _launcher.LaunchAndWaitAsync(build.StagedProfile, target);
+        var completion = await _launcher.LaunchAndWaitAsync(build.StagedProfile, target, game);
         if (!completion.Succeeded)
         {
             Fail(build, task, "The tool exited unsuccessfully.");
@@ -302,7 +302,7 @@ public sealed class ModListBuildCoordinator
                     EnsureProfileAssembled(build, manifest, tools);
                     var automaticTool = tools.Single(candidate => string.Equals(candidate.DefinitionId, requirement.DefinitionId, StringComparison.OrdinalIgnoreCase));
                     var automaticTarget = _targetResolver.Resolve(build.StagedProfile, game, tools).Single(candidate => candidate.Id == automaticTool.Id);
-                    var automaticCompletion = await _launcher.LaunchAndWaitAsync(build.StagedProfile, automaticTarget);
+                    var automaticCompletion = await _launcher.LaunchAndWaitAsync(build.StagedProfile, automaticTarget, game);
                     if (!automaticCompletion.Succeeded)
                         throw new InvalidOperationException("The tool exited unsuccessfully.");
                     Complete(task, "Tool completed successfully.");
@@ -467,6 +467,11 @@ public sealed class ModListBuildCoordinator
             if (tool.Definition?.ProducesOutput == true)
                 _provisioner.EnableTool(profile, binding, tool);
         }
+
+        // Assembling folders or tools changes the effective load order, so the profile's plugin
+        // list can no longer be considered sorted. Idempotent: re-running on an already-assembled
+        // profile only re-asserts the same value.
+        profile.PluginListSorted = false;
     }
 
     private static ModListModEntry GetMod(ModListManifest manifest, string entryId) =>

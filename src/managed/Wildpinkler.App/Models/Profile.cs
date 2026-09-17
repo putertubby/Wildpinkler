@@ -45,6 +45,13 @@ public sealed partial class Profile : ObservableObject
     /// <summary>Profile-level merged views: added or overridden by name after the game's and tools'.</summary>
     public List<MergedView> MergedViews { get; set; } = new();
 
+    /// <summary>
+    /// True when a plugin-sorting tool (e.g. LOOT) has established an optimized plugin load order
+    /// for this profile; false (the default, including profiles saved before this field existed)
+    /// means the effective order is Wildpinkler's default and a warning is offered before launch.
+    /// </summary>
+    public bool PluginListSorted { get; set; }
+
     // Not persisted: resolved from the games list after load, purely for display.
     [JsonIgnore]
     public string GameName

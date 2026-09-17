@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace Wildpinkler.App.Models;
 
@@ -17,4 +18,10 @@ public sealed class ModInstallation
     public string SelectionSummary { get; set; } = string.Empty;
     public string FolderPath { get; set; } = string.Empty;
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
+
+    /// <summary>
+    /// Plugin files (.esm/.esp/.esl) shipped by this mod, captured at install time. Older
+    /// database entries (schema 2 and earlier) lack this data and load with an empty list.
+    /// </summary>
+    public List<PluginFileEntry> Plugins { get; set; } = new();
 }
