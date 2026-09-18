@@ -33,6 +33,13 @@ public sealed partial class GameDefinitionEditDialog : ContentDialog
         VariablesInput.SetVariables(definition.Variables);
         MergedViewsInput.SetViews(definition.MergedViews);
 
+        // The plugin list is optional; only show the section for games that use one.
+        if (definition.PluginList is not null)
+        {
+            PluginListSection.Visibility = Visibility.Visible;
+            PluginListPathBox.Text = definition.PluginList.ListPath;
+        }
+
         Validate();
     }
 
@@ -48,6 +55,11 @@ public sealed partial class GameDefinitionEditDialog : ContentDialog
         result.DetectionMarkers = DetectionMarkersInput.Tags.ToList();
         result.Variables = VariablesInput.Variables.ToDictionary(item => item.Key, item => item.Value, StringComparer.Ordinal);
         result.MergedViews = MergedViewsInput.Views.ToList();
+        if (PluginListSection.Visibility == Visibility.Visible)
+        {
+            result.PluginList = result.PluginList!.Clone();
+            result.PluginList.ListPath = PluginListPathBox.Text.Trim();
+        }
         return result;
     }
 

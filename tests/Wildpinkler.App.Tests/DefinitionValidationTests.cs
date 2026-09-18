@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using Wildpinkler.App.Models;
 using Wildpinkler.App.Services;
 using Xunit;
 
@@ -105,4 +107,38 @@ public sealed class DefinitionValidationTests
         Assert.False(DefinitionValidation.IsBranchPath(null));
         Assert.False(DefinitionValidation.IsBranchPath("   "));
     }
+
+    [Theory]
+    [InlineData("LocalAppData")]
+    [InlineData("Documents")]
+    [InlineData("InstallPath")]
+    [InlineData("ProfilePath")]
+    public void TryValidateCommon_RejectsACaseExactGlobalName(string reservedName)
+    {
+        var definition = CreateDefinitionWithVariable(reservedName, "${LocalAppData}\\Game");
+
+        Assert.False(DefinitionValidation.TryValidateCommon(definition, GameDefinition.CurrentSchemaVersion, out var error));
+        Assert.Contains("reserved global variable name", error, StringComparison.Ordinal);
+    }
+
+    [Theory]
+    [InlineData("localappdata")]
+    [InlineData("LocalappData")]
+    [InlineData("MyLocalAppData")]
+    [InlineData("Installpath")]
+    public void TryValidateCommon_AcceptsCaseVariantsOfGlobalNames(string name)
+    {
+        var definition = CreateDefinitionWithVariable(name, "${LocalAppData}\\Game");
+
+        Assert.True(DefinitionValidation.TryValidateCommon(definition, GameDefinition.CurrentSchemaVersion, out _));
+    }
+
+    private static GameDefinition CreateDefinitionWithVariable(string name, string value) => new()
+    {
+        SchemaVersion = GameDefinition.CurrentSchemaVersion,
+        DefinitionId = "test-game",
+        Name = "Test Game",
+        Variables = new Dictionary<string, string> { [name] = value },
+        MergedViews = new List<MergedView>()
+    };
 }

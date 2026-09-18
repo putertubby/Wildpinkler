@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 3,
+  "schemaVersion": 5,
   "definitionId": "skyrim-se",
   "name": "The Elder Scrolls V: Skyrim Special Edition",
   "definitionVersion": 2,
@@ -21,8 +21,7 @@
   "pluginList": {
     "pluginExtensions": [".esm", ".esp", ".esl"],
     "pluginDataFolder": "Data",
-    "listFileName": "plugins.txt",
-    "listViewVariable": "localappdata"
+    "listPath": "${localappdata}\\Plugins.txt"
   },
   "mergedViews": [
     {

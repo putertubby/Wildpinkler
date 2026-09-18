@@ -5,6 +5,7 @@ using System.Linq;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Wildpinkler.App.Services;
 
 namespace Wildpinkler.App.Controls;
 
@@ -54,15 +55,26 @@ public sealed partial class VariablesEditor : UserControl
 
     /// <summary>
     /// Duplicates collapse silently into the resulting dictionary, so they must be caught before the
-    /// draft definition is handed to a validator.
+    /// draft definition is handed to a validator. Names are case-sensitive, so <c>localappdata</c>
+    /// and <c>LocalAppData</c> are distinct - only a case-exact match with a global variable name is
+    /// rejected here.
     /// </summary>
     public string? FindError()
     {
         var duplicate = _rows
             .Select(row => row.Name.Trim())
-            .GroupBy(name => name, StringComparer.OrdinalIgnoreCase)
+            .GroupBy(name => name, StringComparer.Ordinal)
             .FirstOrDefault(group => group.Count() > 1);
-        return duplicate is null ? null : $"'{duplicate.Key}' is declared more than once.";
+        if (duplicate is not null)
+            return $"'{duplicate.Key}' is declared more than once.";
+
+        var reserved = _rows
+            .Select(row => row.Name.Trim())
+            .Distinct(StringComparer.Ordinal)
+            .FirstOrDefault(name => SystemVariables.IsNameReserved(name));
+        return reserved is null
+            ? null
+            : $"'{reserved}' is a reserved global variable name and cannot be redefined by a local variable. Variable names are case-sensitive; choose a different name.";
     }
 
     private void AddVariable_Click(object sender, RoutedEventArgs args)

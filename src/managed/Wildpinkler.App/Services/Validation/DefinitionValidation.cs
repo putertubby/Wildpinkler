@@ -84,6 +84,12 @@ public static class DefinitionValidation
                 error = $"'{variable.Key}' is not a valid variable name (letters, 0-9 and '_', starting with a letter).";
                 return false;
             }
+
+            if (SystemVariables.IsNameReserved(variable.Key))
+            {
+                error = $"'{variable.Key}' is a reserved global variable name and cannot be redefined by a local variable. Variable names are case-sensitive; choose a different name.";
+                return false;
+            }
         }
 
         return TryValidateMergedViews(definition.MergedViews, localScope, out error);

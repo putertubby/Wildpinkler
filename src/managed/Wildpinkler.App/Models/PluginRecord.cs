@@ -26,4 +26,11 @@ public sealed class PluginRecord
 
     /// <summary>Master file names (basenames) this plugin declares, as read from its TES4 header.</summary>
     public List<string> Masters { get; init; } = new();
+
+    /// <summary>
+    /// True when a VFS-visible copy of the plugin exists in an enabled mod folder; false when the
+    /// plugin is only present in a disabled mod folder (written to the list without an asterisk so
+    /// toggling the mod does not make the load order stale).
+    /// </summary>
+    public bool Enabled { get; init; }
 }

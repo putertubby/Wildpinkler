@@ -66,6 +66,49 @@ public sealed class VariableScopeTests
     }
 
     [Fact]
+    public void Set_SettingACaseExactReadOnlyName_IsIgnoredAsABackstop()
+    {
+        var scope = new VariableScope();
+        scope.SetReadOnly("SystemRoot", @"C:\Windows");
+
+        // Validation should reject such a name up front; this is only the backstop.
+        scope.Set("SystemRoot", @"C:\Elsewhere");
+
+        Assert.Equal(@"C:\Windows", scope.Expand("${SystemRoot}"));
+    }
+
+    [Fact]
+    public void LocalVariable_ACaseVariantOfASystemName_IsDistinctFromTheSystemVariable()
+    {
+        var scope = new VariableScope();
+        scope.SetReadOnly("LocalAppData", @"C:\Users\test\AppData\Local");
+        scope.Set("localappdata", @"C:\Users\test\AppData\Local\Skyrim Special Edition");
+
+        Assert.Equal(@"C:\Users\test\AppData\Local\Skyrim Special Edition", scope.Expand("${localappdata}"));
+        Assert.Equal(@"C:\Users\test\AppData\Local", scope.Expand("${LocalAppData}"));
+
+        var resolved = scope.ResolveAll();
+        Assert.True(resolved.ContainsKey("localappdata"));
+        Assert.True(resolved.ContainsKey("LocalAppData"));
+        Assert.Equal(@"C:\Users\test\AppData\Local\Skyrim Special Edition", resolved["localappdata"]);
+        Assert.Equal(@"C:\Users\test\AppData\Local", resolved["LocalAppData"]);
+    }
+
+    [Theory]
+    [InlineData("LocalAppData", true)]
+    [InlineData("InstallPath", true)]
+    [InlineData("ProfilePath", true)]
+    [InlineData("Documents", true)]
+    [InlineData("LocalAppDataLow", true)]
+    [InlineData("localappdata", false)]
+    [InlineData("Installpath", false)]
+    [InlineData("MyLocalAppData", false)]
+    public void SystemVariables_IsNameReserved_MatchesCaseExactly(string name, bool expected)
+    {
+        Assert.Equal(expected, SystemVariables.IsNameReserved(name));
+    }
+
+    [Fact]
     public void SetAll_AppliesEveryPairAndLastWriteWins()
     {
         var scope = new VariableScope();
@@ -122,5 +165,46 @@ public sealed class VariableScopeTests
 
         Assert.Contains("System32", symbolized, StringComparison.Ordinal);
         Assert.DoesNotContain(@"C:\Windows\System32", symbolized, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Symbolize_RequiresADirectorySeparatorBoundary()
+    {
+        var resolved = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["AppDataLocal"] = @"C:\Users\test\AppData\Local"
+        };
+
+        var symbolized = VariableScope.Symbolize(@"C:\Users\test\AppData\LocalLow\game", resolved, new[] { "AppDataLocal" });
+
+        // `…\AppData\Local` is a textual prefix of `…\AppData\LocalLow` but not a full path segment,
+        // so no placeholder may be introduced.
+        Assert.Equal(@"C:\Users\test\AppData\LocalLow\game", symbolized);
+    }
+
+    [Fact]
+    public void Symbolize_ExactMatch_YieldsTheBarePlaceholder()
+    {
+        var resolved = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["AppDataLocal"] = @"C:\Users\test\AppData\Local"
+        };
+
+        var symbolized = VariableScope.Symbolize(@"C:\Users\test\AppData\Local", resolved, new[] { "AppDataLocal" });
+
+        Assert.Equal("${AppDataLocal}", symbolized);
+    }
+
+    [Fact]
+    public void Symbolize_KeepsTheSuffixAfterThePlaceholder()
+    {
+        var resolved = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["AppDataLocal"] = @"C:\Users\test\AppData\Local"
+        };
+
+        var symbolized = VariableScope.Symbolize(@"C:\Users\test\AppData\Local\Skyrim Special Edition", resolved, new[] { "AppDataLocal" });
+
+        Assert.Equal("${AppDataLocal}\\Skyrim Special Edition", symbolized);
     }
 }

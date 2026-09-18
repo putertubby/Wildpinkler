@@ -90,6 +90,85 @@ public sealed class ProfileConfigExporterTests
         FolderPath = Path.Combine(Path.GetTempPath(), "wp-export-tests-" + Guid.NewGuid())
     };
 
+    [Fact]
+    public async Task ExportAsync_SkyrimStyleBranch_KeepsSuffixAfterSystemVariablePlaceholder()
+    {
+        var profile = CreateProfile();
+        var target = CreateSkyrimTarget();
+
+        try
+        {
+            var path = await new ProfileConfigExporter().ExportAsync(profile, target);
+            using var document = JsonDocument.Parse(await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken));
+
+            var mountpoint = document.RootElement.GetProperty("mountpoints")[0];
+            Assert.Equal("${LocalAppData}\\Skyrim Special Edition", mountpoint.GetProperty("root").GetString());
+            Assert.Equal("${ProfilePath}\\custom\\skyrim-se\\LocalAppData", mountpoint.GetProperty("branches")[0].GetString());
+            Assert.Equal("${LocalAppData}\\Skyrim Special Edition", mountpoint.GetProperty("branches")[1].GetString());
+
+            // LocalAppData is a uufs64 built-in and must not be re-declared in the variables block.
+            var variables = document.RootElement.GetProperty("variables");
+            Assert.False(variables.TryGetProperty("LocalAppData", out _));
+        }
+        finally
+        {
+            Directory.Delete(profile.FolderPath, recursive: true);
+        }
+    }
+
+    private static LaunchTarget CreateSkyrimTarget()
+    {
+        // Drive the real resolver path instead of hand-building resolved views: the built-in
+        // Skyrim definition declares a *local* variable (`localappdata`) whose value references
+        // the *system* `LocalAppData` folder. Names are case-sensitive, so the two stay distinct
+        // and the local value keeps its game suffix through expansion.
+        var variables = new Dictionary<string, string>
+        {
+            ["documents"] = "${Documents}\\My Games\\Skyrim Special Edition",
+            ["localappdata"] = "${LocalAppData}\\Skyrim Special Edition"
+        };
+
+        const string installPath = @"C:\games\skyrim";
+        const string profileFolder = @"C:\profiles\prof";
+        const string branchBase = @"C:\profiles\prof\custom\skyrim-se";
+
+        var rawViews = new List<MergedView>
+        {
+            new()
+            {
+                Name = "LocalAppData",
+                MountPath = "${localappdata}",
+                Branches = new List<string> { "LocalAppData", "${localappdata}" },
+                IsWritable = true
+            }
+        };
+
+        var views = LaunchTargetResolver.ResolveEntityViews(rawViews, variables, installPath, branchBase);
+
+        // Mirror BuildProfileScope: the definition scope plus the profile-computed read-only built-ins.
+        var scope = new VariableScope();
+        SystemVariables.AddTo(scope);
+        scope.SetAll(variables);
+        scope.SetReadOnly("InstallPath", installPath);
+        scope.SetReadOnly("ProfilePath", profileFolder);
+
+        return new LaunchTarget(
+            "game",
+            "Test game",
+            LaunchTargetKind.Game,
+            installPath + @"\SkyrimSE.exe",
+            string.Empty,
+            installPath,
+            installPath + @"\SkyrimSE.exe",
+            installPath,
+            views,
+            scope.ResolveAll(),
+            new List<string>(scope.ReadOnlyNames),
+            "profile.json",
+            false,
+            string.Empty);
+    }
+
     private static LaunchTarget CreateTarget(string steamGameId)
     {
         var variables = new Dictionary<string, string>

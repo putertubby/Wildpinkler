@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using Wildpinkler.App.Models;
 
@@ -78,16 +80,21 @@ public static class GameDefinitionValidator
                 return false;
             }
 
-            if (!DefinitionValidation.IsSafeRelativePath(pluginList.ListFileName))
+            if (pluginList.ListPath.Length == 0)
             {
-                error = "The plugin list file name is not a safe relative path.";
+                error = "The plugin list path is empty.";
                 return false;
             }
 
-            if (!DefinitionValidation.IsVariableName(pluginList.ListViewVariable)
-                || !scope.Definitions.ContainsKey(pluginList.ListViewVariable))
+            if (!scope.TryExpand(pluginList.ListPath, out var expandedListPath, out _))
             {
-                error = $"The plugin list view variable '{pluginList.ListViewVariable}' is unknown.";
+                error = "The plugin list path contains an unknown variable.";
+                return false;
+            }
+
+            if (!Path.IsPathRooted(expandedListPath))
+            {
+                error = "The plugin list path must be a full path to the plugin list file.";
                 return false;
             }
         }

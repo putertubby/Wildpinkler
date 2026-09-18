@@ -201,6 +201,8 @@ public static partial class ModListManifestValidator
         {
             if (!DefinitionValidation.IsVariableName(variable.Key))
                 errors.Add($"{owner} variable '{variable.Key}' has an invalid name.");
+            if (SystemVariables.IsNameReserved(variable.Key))
+                errors.Add($"{owner} variable '{variable.Key}' is a reserved global variable name and cannot be redefined by a local variable. Variable names are case-sensitive; choose a different name.");
             if (!IsPortableValue(variable.Value))
                 errors.Add($"{owner} variable '{variable.Key}' contains a machine-local absolute path.");
         }

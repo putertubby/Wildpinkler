@@ -11,7 +11,7 @@ namespace Wildpinkler.App.Models;
 /// </summary>
 public sealed class GameDefinition : IDefinition
 {
-    public const int CurrentSchemaVersion = 3;
+    public const int CurrentSchemaVersion = 5;
 
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
     public string DefinitionId { get; set; } = string.Empty;
@@ -102,36 +102,34 @@ public sealed class GameDefinition : IDefinition
 /// <summary>
 /// Describes how a Creation Engine game's runtime selects its active plugins: the file extensions
 /// that count as plugins, the folder (relative to the game install root) that holds them, and the
-/// location of the plugin list file inside a merged view the game reads at startup.
+/// full real path of the plugin list file the game reads at startup.
 /// </summary>
 public sealed class GamePluginList
 {
     /// <summary>Case-insensitive extensions (with leading dot) that mark a file as a plugin.</summary>
     public List<string> PluginExtensions { get; set; } = new() { ".esm", ".esp", ".esl" };
 
-    /// <summary>Folder, relative to the game install root, where plugin files live.</summary>
+    /// <summary>Folder, relative to each mod's install folder, where plugin files live.</summary>
     public string PluginDataFolder { get; set; } = "Data";
 
-    /// <summary>File name of the plugin list inside the view identified by <see cref="ListViewVariable"/>.</summary>
-    public string ListFileName { get; set; } = "plugins.txt";
-
     /// <summary>
-    /// Name of the game definition variable pointing at the view (folder) that holds
-    /// <see cref="ListFileName"/>. Wildpinkler writes the list to branch 0 of that view.
+    /// Full real path of the plugin list file the game reads at startup (e.g. ${localappdata}\\plugins.txt).
+    /// May reference the definition's own variables and the read-only system variables
+    /// (e.g. ${LocalAppData}, ${Documents}). At launch Wildpinkler finds the merged view whose
+    /// mount path is a prefix of the expanded path and writes the list to that view's branch 0.
+    /// Only installed mod folders are scanned, so official/vanilla plugins never appear in the list.
     /// </summary>
-    public string ListViewVariable { get; set; } = string.Empty;
+    public string ListPath { get; set; } = string.Empty;
 
     public GamePluginList Clone() => new()
     {
         PluginExtensions = new List<string>(PluginExtensions),
         PluginDataFolder = PluginDataFolder,
-        ListFileName = ListFileName,
-        ListViewVariable = ListViewVariable
+        ListPath = ListPath
     };
 
     public bool ContentEquals(GamePluginList other) =>
         PluginExtensions.SequenceEqual(other.PluginExtensions, StringComparer.OrdinalIgnoreCase) &&
         PluginDataFolder == other.PluginDataFolder &&
-        ListFileName == other.ListFileName &&
-        ListViewVariable == other.ListViewVariable;
+        ListPath == other.ListPath;
 }

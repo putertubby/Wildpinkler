@@ -70,6 +70,16 @@
                 <controls:MergedViewsEditor x:Name="MergedViewsInput" MountPathPlaceholderText="Data" Changed="Editor_Changed" />
             </StackPanel>
 
+            <Border BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,1,0,0" />
+
+            <StackPanel x:Name="PluginListSection" Spacing="12" Visibility="Collapsed">
+                <TextBlock Style="{StaticResource SectionLabelStyle}" Text="PLUGIN LIST" />
+                <TextBlock Opacity="0.72" TextWrapping="Wrap"
+                           Text="Full path to the file the game reads its load order from, for example ${localappdata}\plugins.txt. The path may use the variables defined above or the read-only system folders. It is written to the profile-owned branch of the first merged view whose mount path matches it; only installed mods are scanned." />
+                <TextBox x:Name="PluginListPathBox" Header="Plugin list file (full path)"
+                         PlaceholderText="${localappdata}\plugins.txt" TextChanged="Field_Changed" />
+            </StackPanel>
+
             <TextBlock x:Name="ErrorText" Foreground="{ThemeResource SystemFillColorCriticalBrush}"
                        TextWrapping="Wrap" Visibility="Collapsed" />
         </StackPanel>

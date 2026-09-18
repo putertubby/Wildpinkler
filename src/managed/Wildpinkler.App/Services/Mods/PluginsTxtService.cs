@@ -11,11 +11,13 @@ namespace Wildpinkler.App.Services;
 
 /// <summary>
 /// Builds and publishes the Creation Engine plugin list (plugins.txt) for a profile, reflecting
-/// the profile's effective merged load order: which plugins are visible (after higher-priority
-/// branches shadow lower ones), and in which order they load (masters before dependents, with a
-/// deterministic base order as the tie-breaker). The list is written to branch 0 of the profile's
-/// own view identified by the game definition's <see cref="GamePluginList.ListViewVariable"/>, so
-/// it never collides with other profiles or with an external mod manager.
+/// the profile's effective merged load order: which mod plugins are installed and in which order
+/// they load (masters before dependents, with a deterministic base order as the tie-breaker).
+/// Plugins from enabled mods are marked with a leading asterisk; plugins that only exist in
+/// disabled mod folders are written without it, so toggling a mod never makes the load order
+/// stale. The list is written to the profile-owned branch 0 of the merged view whose mount path
+/// is a prefix of the definition's <see cref="GamePluginList.ListPath"/>, so it never collides
+/// with other profiles or with an external mod manager.
 /// </summary>
 public sealed partial class PluginsTxtService
 {
@@ -25,32 +27,27 @@ public sealed partial class PluginsTxtService
         _logger = logger ?? NullLogger<PluginsTxtService>.Instance;
 
     /// <summary>
-    /// Scans the profile's effective load order for plugin files. Every file in
-    /// <c>&lt;branch&gt;\&lt;PluginDataFolder&gt;</c> whose extension is a known plugin extension is
-    /// considered; when the same file name appears in several branches, the highest-priority
-    /// (lowest-index) branch wins and the copies below it are treated as shadowed.
+    /// Scans the profile's effective load order for plugin files. Only installed mod folders are
+    /// scanned - the game install and overlay folders are never touched, so official/vanilla
+    /// plugins can never appear in the list. Every mod folder (enabled or disabled) contributes
+    /// its data files: when the same file name appears in several mod folders, the first one in
+    /// the load order wins and the copies below it are treated as shadowed. A winning copy that
+    /// sits in an enabled folder is flagged <see cref="PluginRecord.Enabled"/> (written with an
+    /// asterisk); one in a disabled folder is written without it.
     /// </summary>
-    public IReadOnlyList<PluginRecord> ScanEffectivePlugins(
-        LaunchTarget target,
-        Profile profile,
-        GamePluginList cfg,
-        string installPath)
+    public IReadOnlyList<PluginRecord> ScanEffectivePlugins(Profile profile, GamePluginList cfg)
     {
-        var loadOrderView = FindLoadOrderView(target, installPath);
-        if (loadOrderView is null)
-            return Array.Empty<PluginRecord>();
-
-        var modIdByBranch = profile.LoadOrder
-            .Where(folder => folder.Path.Length > 0)
-            .ToDictionary(folder => NormalizePath(folder.Path), folder => folder.ModId, StringComparer.OrdinalIgnoreCase);
+        var modFolders = profile.LoadOrder
+            .Where(folder => folder.Kind == ProfileFolderKind.Mod && folder.Path.Length > 0)
+            .OrderBy(folder => folder.IsEnabled ? 0 : 1)
+            .ToList();
 
         var records = new Dictionary<string, PluginRecord>(StringComparer.OrdinalIgnoreCase);
 
-        for (var branchIndex = 0; branchIndex < loadOrderView.Branches.Count; branchIndex++)
+        for (var branchIndex = 0; branchIndex < modFolders.Count; branchIndex++)
         {
-            var branch = loadOrderView.Branches[branchIndex];
-            var dataFolder = Path.Combine(branch, cfg.PluginDataFolder);
-            var modId = modIdByBranch.TryGetValue(NormalizePath(branch), out var id) ? id : null;
+            var folder = modFolders[branchIndex];
+            var dataFolder = Path.Combine(folder.Path, cfg.PluginDataFolder);
 
             foreach (var file in EnumerateFilesSafe(dataFolder))
             {
@@ -59,15 +56,16 @@ public sealed partial class PluginsTxtService
 
                 var name = Path.GetFileName(file);
                 if (records.ContainsKey(name))
-                    continue; // already claimed by a higher-priority branch
+                    continue; // already claimed by a higher-priority mod folder
 
                 records[name] = new PluginRecord
                 {
                     FileName = name,
                     RelativePath = MakeRelative(dataFolder, file),
-                    WinningBranch = branch,
+                    WinningBranch = folder.Path,
                     BranchIndex = branchIndex,
-                    SourceFolderId = modId,
+                    SourceFolderId = folder.ModId,
+                    Enabled = folder.IsEnabled,
                     Masters = new List<string>(PluginMasterInspector.ReadMasters(file))
                 };
             }
@@ -83,7 +81,7 @@ public sealed partial class PluginsTxtService
     /// declare it. A master/dependent cycle cannot stop the launch - the remaining plugins are
     /// appended in base order and a warning is logged.
     /// </summary>
-    public IReadOnlyList<string> ResolveOrder(IReadOnlyList<PluginRecord> plugins, GamePluginList cfg)
+    public IReadOnlyList<PluginRecord> ResolveOrder(IReadOnlyList<PluginRecord> plugins, GamePluginList cfg)
     {
         var baseOrder = plugins
             .OrderBy(record => record.BranchIndex)
@@ -91,7 +89,7 @@ public sealed partial class PluginsTxtService
             .ThenBy(record => record.FileName, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        // Basename -> its position in the base order; the deterministic priority when several are ready.
+        // Base name -> its position in the base order; the deterministic priority when several are ready.
         var baseIndex = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
         for (var i = 0; i < baseOrder.Count; i++)
             baseIndex[baseOrder[i].FileName] = i;
@@ -123,12 +121,14 @@ public sealed partial class PluginsTxtService
             .Select(pair => pair.Key)
             .ToList();
 
-        var result = new List<string>(baseOrder.Count);
+        var result = new List<PluginRecord>(baseOrder.Count);
+        var orderedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         while (ready.Count > 0)
         {
             var current = ready[0];
             ready.RemoveAt(0);
-            result.Add(current);
+            result.Add(baseOrder[baseIndex[current]]);
+            orderedNames.Add(current);
 
             foreach (var dependent in dependents[current])
             {
@@ -146,8 +146,11 @@ public sealed partial class PluginsTxtService
             LogCycleDetected(baseOrder.Count - result.Count);
             foreach (var record in baseOrder)
             {
-                if (!result.Contains(record.FileName, StringComparer.OrdinalIgnoreCase))
-                    result.Add(record.FileName);
+                if (!orderedNames.Contains(record.FileName))
+                {
+                    result.Add(record);
+                    orderedNames.Add(record.FileName);
+                }
             }
         }
 
@@ -155,30 +158,37 @@ public sealed partial class PluginsTxtService
     }
 
     /// <summary>
-    /// Writes the ordered plugin file names (one per line, LF) to branch 0 of the view the game
-    /// definition designates for its plugin list, replacing any existing file atomically (the old
-    /// one becomes a .bak). Returns the destination path, or null when no suitable view is found.
+    /// Writes the ordered plugins (one per line, LF; plugins from enabled mods prefixed with an
+    /// asterisk) to the profile-owned destination resolved from the game definition's list path,
+    /// replacing any existing file atomically (the old one becomes a .bak). Returns the
+    /// destination path, or null when no view's mount path matches the list path.
     /// </summary>
     public Task<string?> WriteAsync(
         LaunchTarget target,
-        Profile profile,
+        GameEntry game,
         GamePluginList cfg,
-        IReadOnlyList<string> names)
+        IReadOnlyList<PluginRecord> plugins)
     {
-        var listView = FindListView(target, cfg.ListViewVariable, profile);
-        if (listView is null || listView.Branches.Count == 0)
+        var scope = new VariableScope();
+        SystemVariables.AddTo(scope);
+        scope.SetAll(game.Definition!.Variables);
+
+        var (destination, error) = ResolveListDestination(target, scope, cfg.ListPath);
+        if (destination is null)
         {
-            LogNoWritableView(cfg.ListFileName);
+            LogNoDestination(error!);
             return Task.FromResult<string?>(null);
         }
 
-        var destination = Path.Combine(listView.Branches[0], cfg.ListFileName);
         var directory = Path.GetDirectoryName(destination)!;
         Directory.CreateDirectory(directory);
 
-        // One file name per line, LF-terminated (the format Bethesda's runtime expects).
-        var content = names.Count == 0 ? string.Empty : string.Join("\n", names) + "\n";
-        var temporary = Path.Combine(directory, $".{cfg.ListFileName}.{Guid.NewGuid():N}.tmp");
+        // One line per plugin, LF-terminated (the format Bethesda's runtime expects). A leading
+        // asterisk marks plugins that belong to an enabled mod.
+        var content = plugins.Count == 0
+            ? string.Empty
+            : string.Join("\n", plugins.Select(plugin => (plugin.Enabled ? "*" : string.Empty) + plugin.FileName)) + "\n";
+        var temporary = Path.Combine(directory, $".{Path.GetFileName(destination)}.{Guid.NewGuid():N}.tmp");
         File.WriteAllText(temporary, content, new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
 
         try
@@ -203,44 +213,48 @@ public sealed partial class PluginsTxtService
         if (cfg is null || target.Kind != LaunchTargetKind.Game)
             return Task.CompletedTask;
 
-        var records = ScanEffectivePlugins(target, profile, cfg, game.InstallPath);
-        var order = ResolveOrder(records, cfg);
-        return WriteAsync(target, profile, cfg, order);
+        var records = ScanEffectivePlugins(profile, cfg);
+        var ordered = ResolveOrder(records, cfg);
+        return WriteAsync(target, game, cfg, ordered);
     }
 
     /// <summary>Whether a launch should prompt the user that the load order is still the default.</summary>
     public bool NeedsPluginListWarning(Profile profile, GameEntry game) =>
         game.Definition?.PluginList is not null && !profile.PluginListSorted;
 
-    // The load-order view is the merged view mounted at the game's own install path; the resolver
-    // guarantees it is present (and repinned) in every game target.
-    private static MergedView? FindLoadOrderView(LaunchTarget target, string installPath)
+    /// <summary>
+    /// Expands the game definition's plugin list path against the definition's variables (plus
+    /// the read-only system variables) and finds the merged view whose mount path is a prefix of
+    /// the expanded path - segment-aware, deepest mount first (the resolver's ordering). The part
+    /// of the path remaining after the mount is used as a relative path starting at that view's
+    /// branch 0, which is the profile-owned copy Wildpinkler is allowed to write. Returns the
+    /// destination path, or an error message when the path cannot be resolved to a view.
+    /// </summary>
+    public (string? destination, string? error) ResolveListDestination(
+        LaunchTarget target,
+        VariableScope definitionScope,
+        string listPath)
     {
-        if (string.IsNullOrEmpty(installPath))
-            return null;
+        if (!definitionScope.TryExpand(listPath, out var expanded, out _))
+            return (null, "The plugin list path contains an unknown variable.");
 
-        var key = LaunchTargetResolver.NormalizeMountPath(installPath);
-        return target.MergedViews.FirstOrDefault(view =>
-            string.Equals(LaunchTargetResolver.NormalizeMountPath(view.MountPath), key, StringComparison.OrdinalIgnoreCase));
-    }
+        if (!Path.IsPathRooted(expanded))
+            return (null, "The plugin list path must be a full path to the plugin list file.");
 
-    // The plugin-list view is the one named after the game's ListViewVariable (e.g. "LocalAppData"
-    // for variable "localappdata"). Fall back to the profile's own writable view so a renamed view
-    // still resolves to the branch Wildpinkler owns.
-    private static MergedView? FindListView(LaunchTarget target, string listViewVariable, Profile profile)
-    {
-        if (listViewVariable.Length > 0)
+        var key = Path.GetFullPath(expanded);
+        foreach (var view in target.MergedViews)
         {
-            var named = target.MergedViews.FirstOrDefault(view =>
-                string.Equals(view.Name, listViewVariable, StringComparison.OrdinalIgnoreCase) && view.IsWritable);
-            if (named is not null)
-                return named;
+            var mount = LaunchTargetResolver.NormalizeMountPath(view.MountPath);
+            if (!StartsWithPath(key, mount))
+                continue;
+
+            var remainder = key.Length == mount.Length
+                ? string.Empty
+                : key[(mount.Length + 1)..].TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            return (Path.Combine(view.Branches[0], remainder), null);
         }
 
-        var profileRoot = NormalizePath(profile.FolderPath);
-        return target.MergedViews.FirstOrDefault(view =>
-            view.IsWritable && view.Branches.Count > 0 &&
-            StartsWithPath(NormalizePath(view.Branches[0]), profileRoot));
+        return (null, "No view's mount path matches the plugin list path.");
     }
 
     private static string NormalizePath(string path) =>
@@ -310,6 +324,6 @@ public sealed partial class PluginsTxtService
     [LoggerMessage(
         Level = LogLevel.Warning,
         EventId = 2,
-        Message = "No writable view found for plugin list '{ListFile}'.")]
-    private partial void LogNoWritableView(string listFile);
+        Message = "Could not resolve a destination for the plugin list: {Error}")]
+    private partial void LogNoDestination(string error);
 }

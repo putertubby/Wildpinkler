@@ -9,24 +9,33 @@ namespace Wildpinkler.App.Tests;
 public sealed class GameDefinitionValidatorTests
 {
     [Fact]
-    public void PluginList_PointingAtSystemView_IsValid()
+    public void PluginList_RootedListPath_IsValid()
     {
         var definition = ValidDefinition();
-        definition.PluginList = new GamePluginList { ListViewVariable = "LocalAppData" };
+        definition.PluginList = new GamePluginList { ListPath = @"C:\games\plugins.txt" };
 
         Assert.True(GameDefinitionValidator.TryValidate(definition, out var error));
         Assert.Equal(string.Empty, error);
     }
 
     [Fact]
-    public void PluginList_PointingAtCustomVariable_IsValid()
+    public void PluginList_PathWithSystemVariable_IsValid()
     {
         var definition = ValidDefinition();
-        definition.Variables["DATA"] = "Data";
-        definition.PluginList = new GamePluginList { ListViewVariable = "DATA" };
+        definition.PluginList = new GamePluginList { ListPath = "${LocalAppData}\\plugins.txt" };
 
         Assert.True(GameDefinitionValidator.TryValidate(definition, out var error));
         Assert.Equal(string.Empty, error);
+    }
+
+    [Fact]
+    public void PluginList_EmptyListPath_IsRejected()
+    {
+        var definition = ValidDefinition();
+        definition.PluginList = new GamePluginList();
+
+        Assert.False(GameDefinitionValidator.TryValidate(definition, out var error));
+        Assert.Equal("The plugin list path is empty.", error);
     }
 
     [Fact]
@@ -35,7 +44,6 @@ public sealed class GameDefinitionValidatorTests
         var definition = ValidDefinition();
         definition.PluginList = new GamePluginList
         {
-            ListViewVariable = "LocalAppData",
             PluginExtensions = new List<string>()
         };
 
@@ -50,7 +58,6 @@ public sealed class GameDefinitionValidatorTests
         var definition = ValidDefinition();
         definition.PluginList = new GamePluginList
         {
-            ListViewVariable = "LocalAppData",
             PluginExtensions = extensions
         };
 
@@ -64,7 +71,6 @@ public sealed class GameDefinitionValidatorTests
         var definition = ValidDefinition();
         definition.PluginList = new GamePluginList
         {
-            ListViewVariable = "LocalAppData",
             PluginExtensions = new List<string> { "esm" }
         };
 
@@ -73,23 +79,13 @@ public sealed class GameDefinitionValidatorTests
     }
 
     [Fact]
-    public void PluginList_UnknownViewVariable_IsRejected()
+    public void PluginList_UnknownVariable_IsRejected()
     {
         var definition = ValidDefinition();
-        definition.PluginList = new GamePluginList { ListViewVariable = "NOTTHERE" };
+        definition.PluginList = new GamePluginList { ListPath = "${NOTTHERE}\\plugins.txt" };
 
         Assert.False(GameDefinitionValidator.TryValidate(definition, out var error));
-        Assert.Equal("The plugin list view variable 'NOTTHERE' is unknown.", error);
-    }
-
-    [Fact]
-    public void PluginList_EmptyViewVariable_IsRejected()
-    {
-        var definition = ValidDefinition();
-        definition.PluginList = new GamePluginList();
-
-        Assert.False(GameDefinitionValidator.TryValidate(definition, out var error));
-        Assert.Equal("The plugin list view variable '' is unknown.", error);
+        Assert.Equal("The plugin list path contains an unknown variable.", error);
     }
 
     [Fact]
@@ -98,7 +94,7 @@ public sealed class GameDefinitionValidatorTests
         var definition = ValidDefinition();
         definition.PluginList = new GamePluginList
         {
-            ListViewVariable = "LocalAppData",
+            ListPath = @"C:\plugins.txt",
             PluginDataFolder = "../Data"
         };
 
@@ -107,17 +103,16 @@ public sealed class GameDefinitionValidatorTests
     }
 
     [Fact]
-    public void PluginList_UnsafeListFileName_IsRejected()
+    public void PluginList_NonRootedListPath_IsRejected()
     {
         var definition = ValidDefinition();
         definition.PluginList = new GamePluginList
         {
-            ListViewVariable = "LocalAppData",
-            ListFileName = "../plugins.txt"
+            ListPath = "../plugins.txt"
         };
 
         Assert.False(GameDefinitionValidator.TryValidate(definition, out var error));
-        Assert.Equal("The plugin list file name is not a safe relative path.", error);
+        Assert.Equal("The plugin list path must be a full path to the plugin list file.", error);
     }
 
     private static GameDefinition ValidDefinition() => new()
