@@ -409,7 +409,7 @@ public sealed class PluginsTxtServiceTests : IDisposable
         Assert.False(File.Exists(destination));
 
         // Descriptor present, but the target is a tool.
-        var tool = target with { Kind = LaunchTargetKind.Tool };
+        var tool = GameTarget(installPath, LaunchTargetKind.Tool, new[] { writable });
         game.Definition!.PluginList = new GamePluginList { ListPath = destination };
         await _service.EnsureUpToDateAsync(profile, tool, game);
         Assert.False(File.Exists(destination));
@@ -468,10 +468,13 @@ public sealed class PluginsTxtServiceTests : IDisposable
         return profile;
     }
 
-    private static LaunchTarget GameTarget(string installPath, params MergedView[] views) => new(
+    private static LaunchTarget GameTarget(string installPath, params MergedView[] views) =>
+        GameTarget(installPath, LaunchTargetKind.Game, views);
+
+    private static LaunchTarget GameTarget(string installPath, LaunchTargetKind kind, MergedView[] views) => new(
         "game",
         "Game",
-        LaunchTargetKind.Game,
+        kind,
         Path.Combine(installPath, "Game.exe"),
         string.Empty,
         installPath,

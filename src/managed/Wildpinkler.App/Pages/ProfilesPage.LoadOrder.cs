@@ -66,9 +66,13 @@ public sealed partial class ProfilesPage
         // changes which mods are excluded from Available mods or which custom folders must exist, so
         // running the full cascade here would needlessly reassign/redraw sibling sections (and reset
         // their own scroll/selection/expansion) on every drag. Order still affects the merged-content
-        // preview (shadowing), so that alone is refreshed.
+        // preview (shadowing) AND the data baked into the cached targets, so both are refreshed -
+        // without the full repaint.
         if (isReorder)
+        {
+            RefreshTargets();
             RefreshMergedContentIfVisible();
+        }
         else
             RefreshWorkspace();
 

@@ -12,24 +12,80 @@ public enum LaunchTargetKind
     Tool
 }
 
-/// <summary>One launchable configuration of a profile: the game itself, or one of its enabled tools.</summary>
-public sealed record LaunchTarget(
-    string Id,
-    string DisplayName,
-    LaunchTargetKind Kind,
-    string ExecutablePath,
-    string Arguments,
-    string WorkingDirectory,
-    string VirtualExecutablePath,
-    string VirtualWorkingDirectory,
-    IReadOnlyList<MergedView> MergedViews,
-    IReadOnlyDictionary<string, string> Variables,
-    IReadOnlyCollection<string> BuiltInVariableNames,
-    string ConfigFileName,
-    bool ProducesOutput,
-    string SteamGameId)
+/// <summary>
+/// One launchable configuration of a profile: the game itself, or one of its enabled tools.
+/// Instances are cached by id (e.g. in <c>ProfilesPage._targets</c>) and refreshed in place via
+/// <see cref="UpdateFrom"/> when the profile changes, so the live instance is never replaced.
+/// </summary>
+public sealed class LaunchTarget
 {
+    public LaunchTarget(
+        string id,
+        string displayName,
+        LaunchTargetKind kind,
+        string executablePath,
+        string arguments,
+        string workingDirectory,
+        string virtualExecutablePath,
+        string virtualWorkingDirectory,
+        IReadOnlyList<MergedView> mergedViews,
+        IReadOnlyDictionary<string, string> variables,
+        IReadOnlyCollection<string> builtInVariableNames,
+        string configFileName,
+        bool producesOutput,
+        string steamGameId)
+    {
+        Id = id;
+        DisplayName = displayName;
+        Kind = kind;
+        ExecutablePath = executablePath;
+        Arguments = arguments;
+        WorkingDirectory = workingDirectory;
+        VirtualExecutablePath = virtualExecutablePath;
+        VirtualWorkingDirectory = virtualWorkingDirectory;
+        MergedViews = mergedViews;
+        Variables = variables;
+        BuiltInVariableNames = builtInVariableNames;
+        ConfigFileName = configFileName;
+        ProducesOutput = producesOutput;
+        SteamGameId = steamGameId;
+    }
+
+    public string Id { get; set; }
+    public string DisplayName { get; set; }
+    public LaunchTargetKind Kind { get; set; }
+    public string ExecutablePath { get; set; }
+    public string Arguments { get; set; }
+    public string WorkingDirectory { get; set; }
+    public string VirtualExecutablePath { get; set; }
+    public string VirtualWorkingDirectory { get; set; }
+    public IReadOnlyList<MergedView> MergedViews { get; set; }
+    public IReadOnlyDictionary<string, string> Variables { get; set; }
+    public IReadOnlyCollection<string> BuiltInVariableNames { get; set; }
+    public string ConfigFileName { get; set; }
+    public bool ProducesOutput { get; set; }
+    public string SteamGameId { get; set; }
+
     public bool IsGame => Kind == LaunchTargetKind.Game;
+
+    /// <summary>Copies every field from <paramref name="source"/> into this instance.</summary>
+    public void UpdateFrom(LaunchTarget source)
+    {
+        Id = source.Id;
+        DisplayName = source.DisplayName;
+        Kind = source.Kind;
+        ExecutablePath = source.ExecutablePath;
+        Arguments = source.Arguments;
+        WorkingDirectory = source.WorkingDirectory;
+        VirtualExecutablePath = source.VirtualExecutablePath;
+        VirtualWorkingDirectory = source.VirtualWorkingDirectory;
+        MergedViews = source.MergedViews;
+        Variables = source.Variables;
+        BuiltInVariableNames = source.BuiltInVariableNames;
+        ConfigFileName = source.ConfigFileName;
+        ProducesOutput = source.ProducesOutput;
+        SteamGameId = source.SteamGameId;
+    }
 }
 
 /// <summary>

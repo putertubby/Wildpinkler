@@ -178,6 +178,7 @@ public sealed partial class ProfilesPage : PageBase
         CollectionReconciler.Reconcile(target.Tools, source.Tools, tool => tool.ToolEntryId, (current, desired) => current.UpdateFrom(desired));
         target.Variables = source.Variables;
         target.MergedViews = source.MergedViews;
+        target.PluginListSorted = source.PluginListSorted;
         target.NotifySummaryChanged();
     }
 
@@ -526,6 +527,19 @@ public sealed partial class ProfilesPage : PageBase
             return;
         }
 
+        RefreshTargets();
+        RenderWorkspaceForTarget();
+    }
+
+    /// <summary>
+    /// Re-resolves the profile's launch targets and reconciles <see cref="_targets"/> in place,
+    /// refreshing every retained target from its fresh resolved counterpart. Does not repaint the
+    /// page sections, so callers that only need fresh target data (e.g. after a reorder) can skip
+    /// the full <see cref="RefreshWorkspace"/> repaint.
+    /// </summary>
+    private void RefreshTargets()
+    {
+        var profile = SelectedProfile!;
         var selectedId = SelectedTarget?.Id;
         var resolvedTargets = ResolveTargets();
 
@@ -540,13 +554,12 @@ public sealed partial class ProfilesPage : PageBase
 
         // Reassigning ItemsSource resets the ComboBox's selection, so keep the previously chosen target.
         // The SelectedItem assignment is skipped when it would be a no-op so the ComboBox is never
-        // touched (and its own selection/focus state disturbed) for no reason.
-        CollectionReconciler.Reconcile(_targets, resolvedTargets, target => target.Id);
+        // touched (and its own selection/focus state disturbed) for no reason. Existing targets are
+        // refreshed in place so a cached instance never outlives a profile change.
+        CollectionReconciler.Reconcile(_targets, resolvedTargets, target => target.Id, (current, desired) => current.UpdateFrom(desired));
         var resolvedSelection = _targets.FirstOrDefault(target => target.Id == selectedId) ?? _targets.FirstOrDefault();
         if (!ReferenceEquals(TargetSelector.SelectedItem, resolvedSelection))
             TargetSelector.SelectedItem = resolvedSelection;
-
-        RenderWorkspaceForTarget();
     }
 
     private void RenderWorkspaceForTarget()

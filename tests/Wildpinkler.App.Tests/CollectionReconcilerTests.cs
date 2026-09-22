@@ -80,5 +80,41 @@ public sealed class CollectionReconcilerTests
             row => row.Id));
     }
 
-    private sealed record Row(string Id, string Value);
+    [Fact]
+    public void Reconcile_WithUpdateCallback_RefreshesExistingInstanceInPlace()
+    {
+        var retained = new Row("b", "old b");
+        var target = new ObservableCollection<Row>
+        {
+            new("a", "a"),
+            retained
+        };
+        var source = new[]
+        {
+            new Row("b", "updated b"),
+            new Row("a", "a")
+        };
+
+        CollectionReconciler.Reconcile(target, source, row => row.Id, (current, desired) =>
+        {
+            current.Value = desired.Value;
+        });
+
+        // The existing instance is kept by reference but its data is refreshed from source.
+        Assert.Equal(new[] { "b", "a" }, target.Select(row => row.Id));
+        Assert.Same(retained, target[0]);
+        Assert.Equal("updated b", target[0].Value);
+    }
+
+    private sealed class Row
+    {
+        public Row(string id, string value)
+        {
+            Id = id;
+            Value = value;
+        }
+
+        public string Id { get; set; }
+        public string Value { get; set; }
+    }
 }

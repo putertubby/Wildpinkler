@@ -78,7 +78,7 @@ public sealed partial class UpdatesPage : PageBase
             VersionText = item.Entry.Version,
             UpdatedText = DisplayFormat.ShortDateTime(item.Update.LatestFileUpdate)
         }).ToList();
-        CollectionReconciler.Reconcile(Updates, desired, row => row.Id);
+        CollectionReconciler.Reconcile(Updates, desired, row => row.Id, (current, desired) => current.UpdateFrom(desired));
         foreach (var candidate in result.Candidates)
             candidate.Entry.HasUpdate = true;
         UpdatesCountText.Text = Updates.Count == 1 ? "1 update available" : $"{Updates.Count} updates available";
@@ -111,7 +111,7 @@ public sealed partial class UpdatesPage : PageBase
             LastModifiedText = DisplayFormat.ShortDateTime(mod.UpdatedAt, "Not available"),
             ModPageUrl = mod.Ref.PageUrl ?? string.Empty
         }).ToList();
-        CollectionReconciler.Reconcile(TrackedMods, desired, row => row.Id);
+        CollectionReconciler.Reconcile(TrackedMods, desired, row => row.Id, (current, desired) => current.UpdateFrom(desired));
         TrackedCountText.Text = TrackedMods.Count == 1 ? "1 tracked mod" : $"{TrackedMods.Count} tracked mods";
         TrackedEmptyPanel.Visibility = TrackedMods.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
@@ -161,7 +161,7 @@ public sealed partial class UpdatesPage : PageBase
                 LastModifiedText = DisplayFormat.ShortDateTime(mod.UpdatedAt, "Not available"),
                 ModPageUrl = mod.Ref.PageUrl ?? string.Empty
             }).ToList();
-            CollectionReconciler.Reconcile(TrackedMods, desired, row => row.Id);
+            CollectionReconciler.Reconcile(TrackedMods, desired, row => row.Id, (current, desired) => current.UpdateFrom(desired));
             TrackedCountText.Text = TrackedMods.Count == 1 ? "1 tracked mod" : $"{TrackedMods.Count} tracked mods";
             TrackedEmptyPanel.Visibility = TrackedMods.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         });
