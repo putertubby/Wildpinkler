@@ -485,6 +485,9 @@ public sealed class PluginsTxtServiceTests : IDisposable
         Array.Empty<string>(),
         "profile.json",
         false,
+        string.Empty,
+        null,
+        string.Empty,
         string.Empty);
 
     private static GameEntry Game(GamePluginList pluginList) => new()

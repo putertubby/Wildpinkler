@@ -85,5 +85,8 @@ public sealed class ActiveRunRegistryTests
         Array.Empty<string>(),
         "profile.json",
         false,
+        string.Empty,
+        null,
+        string.Empty,
         string.Empty);
 }

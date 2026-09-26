@@ -55,6 +55,61 @@ public sealed class LaunchTargetTests
     }
 
     [Fact]
+    public void TooltipText_ToolIncludesNameAndMod()
+    {
+        var target = CreateTarget("id", "Sorter", LaunchTargetKind.Tool, "C:\\mods\\sorter\\sorter.exe", "",
+            "cwd", "cwd", "cwd", Array.Empty<MergedView>(), new Dictionary<string, string>(),
+            Array.Empty<string>(), "p.json", false, "");
+        target.OriginModName = "Sorter mod";
+
+        Assert.Equal("Sorter — from mod Sorter mod", target.TooltipText);
+    }
+
+    [Fact]
+    public void TooltipText_ToolWithoutModOmitsModClause()
+    {
+        var target = CreateTarget("id", "Sorter", LaunchTargetKind.Tool, "C:\\tools\\sorter.exe", "",
+            "cwd", "cwd", "cwd", Array.Empty<MergedView>(), new Dictionary<string, string>(),
+            Array.Empty<string>(), "p.json", false, "");
+        target.OriginModName = string.Empty;
+
+        Assert.Equal("Sorter", target.TooltipText);
+    }
+
+    [Fact]
+    public void TooltipText_GameReturnsDisplayName()
+    {
+        var target = CreateTarget("id", "Test game", LaunchTargetKind.Game, "game.exe", "",
+            "cwd", "cwd", "cwd", Array.Empty<MergedView>(), new Dictionary<string, string>(),
+            Array.Empty<string>(), "p.json", false, "");
+
+        Assert.Equal("Test game", target.TooltipText);
+    }
+
+    [Fact]
+    public void UpdateFrom_CopiesToolOriginAndIcon()
+    {
+        var source = CreateTarget("id", "Sorter", LaunchTargetKind.Tool, "sorter.exe", "",
+            "cwd", "cwd", "cwd", Array.Empty<MergedView>(), new Dictionary<string, string>(),
+            Array.Empty<string>(), "p.json", false, "");
+        source.Icon = null;
+        source.OriginFolderId = "folder-1";
+        source.OriginModName = "Sorter mod";
+
+        var target = CreateTarget("id", "Game", LaunchTargetKind.Game, "game.exe", "",
+            "cwd", "cwd", "cwd", Array.Empty<MergedView>(), new Dictionary<string, string>(),
+            Array.Empty<string>(), "p.json", false, "");
+        target.OriginFolderId = "old-folder";
+        target.OriginModName = "old mod";
+
+        target.UpdateFrom(source);
+
+        Assert.Null(target.Icon);
+        Assert.Equal("folder-1", target.OriginFolderId);
+        Assert.Equal("Sorter mod", target.OriginModName);
+    }
+
+    [Fact]
     public void UpdateFrom_SwapsMergedViewsReference()
     {
         var oldViews = new[] { new MergedView { Name = "old" } };
@@ -80,5 +135,5 @@ public sealed class LaunchTargetTests
         string vexe, string vcwd, MergedView[] views,
         Dictionary<string, string> vars, string[] builtIn,
         string config, bool output, string steamId)
-        => new(id, name, kind, exe, args, cwd, vexe, vcwd, views, vars, builtIn, config, output, steamId);
+        => new(id, name, kind, exe, args, cwd, vexe, vcwd, views, vars, builtIn, config, output, steamId, null, string.Empty, string.Empty);
 }

@@ -39,6 +39,16 @@ public sealed partial class Profile : ObservableObject
 
     public ObservableCollection<ProfileTool> Tools { get; init; } = new();
 
+    /// <summary>
+    /// Tools discovered inside this profile's mod load order, persisted on the profile itself
+    /// rather than in the global tools store.
+    /// </summary>
+    public List<LocalTool> LocalTools { get; set; } = new();
+
+    /// <summary>Not persisted: in-memory tool representations of <see cref="LocalTools"/>, resolved after load.</summary>
+    [JsonIgnore]
+    public List<ToolEntry> LocalToolEntries { get; set; } = new();
+
     /// <summary>Profile-level variable overrides, applied after the game and tool definitions.</summary>
     public Dictionary<string, string> Variables { get; set; } = new();
 

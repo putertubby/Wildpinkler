@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using Microsoft.UI.Xaml.Media.Imaging;
 using Wildpinkler.App.Models;
 
 namespace Wildpinkler.App.Services;
@@ -33,7 +34,10 @@ public sealed class LaunchTarget
         IReadOnlyCollection<string> builtInVariableNames,
         string configFileName,
         bool producesOutput,
-        string steamGameId)
+        string steamGameId,
+        BitmapSource? icon,
+        string originFolderId,
+        string originModName)
     {
         Id = id;
         DisplayName = displayName;
@@ -49,6 +53,9 @@ public sealed class LaunchTarget
         ConfigFileName = configFileName;
         ProducesOutput = producesOutput;
         SteamGameId = steamGameId;
+        Icon = icon;
+        OriginFolderId = originFolderId;
+        OriginModName = originModName;
     }
 
     public string Id { get; set; }
@@ -66,7 +73,25 @@ public sealed class LaunchTarget
     public bool ProducesOutput { get; set; }
     public string SteamGameId { get; set; }
 
+    /// <summary>The executable's embedded icon, or <c>null</c> when it has none; the UI falls back to a glyph.</summary>
+    public BitmapSource? Icon { get; set; }
+
+    /// <summary>For tool targets originating from a discovered mod folder: the id of that load-order folder.</summary>
+    public string OriginFolderId { get; set; }
+
+    /// <summary>For tool targets provided by a specific mod (not a global tool): the mod's name.</summary>
+    public string OriginModName { get; set; }
+
     public bool IsGame => Kind == LaunchTargetKind.Game;
+
+    /// <summary>
+    /// The tooltip shown on the toolbar button: the tool's name and, for tools that are not
+    /// global, the name of the mod that provides them.
+    /// </summary>
+    public string TooltipText
+        => Kind != LaunchTargetKind.Tool || OriginModName.Length == 0
+            ? DisplayName
+            : $"{DisplayName} — from mod {OriginModName}";
 
     /// <summary>Copies every field from <paramref name="source"/> into this instance.</summary>
     public void UpdateFrom(LaunchTarget source)
@@ -85,6 +110,9 @@ public sealed class LaunchTarget
         ConfigFileName = source.ConfigFileName;
         ProducesOutput = source.ProducesOutput;
         SteamGameId = source.SteamGameId;
+        Icon = source.Icon;
+        OriginFolderId = source.OriginFolderId;
+        OriginModName = source.OriginModName;
     }
 }
 
@@ -113,7 +141,9 @@ public sealed class LaunchTargetResolver
         foreach (var binding in profile.Tools.Where(binding => binding.IsEnabled))
         {
             var tool = tools.FirstOrDefault(item => item.Id == binding.ToolEntryId);
-            if (tool?.Definition is null)
+            // A tool is launchable when it resolves a concrete executable, whether that comes from a
+            // resolved definition or from an explicit relative path (manual or discovered tools).
+            if (tool is null || tool.ExecutablePath.Length == 0)
                 continue;
 
             targets.Add(ResolveTool(profile, game, tools, binding, tool));
@@ -155,7 +185,10 @@ public sealed class LaunchTargetResolver
             profileScope.ReadOnlyNames,
             GameConfigFileName,
             false,
-            game.Definition?.SteamAppId ?? string.Empty);
+            game.Definition?.SteamAppId ?? string.Empty,
+            null,
+            string.Empty,
+            string.Empty);
     }
 
     /// <summary>The load-order view plus the game definition's own views plus the profile's own views, merged and sorted - shared by the game target and every mod-launcher target.</summary>
@@ -181,13 +214,14 @@ public sealed class LaunchTargetResolver
         ProfileTool binding,
         ToolEntry tool)
     {
-        var definition = tool.Definition!;
+        var definition = tool.Definition;
         var installPath = tool.InstallPath;
         // Tools always use their own install path as the base; all paths must be absolute via variables or rooted.
         var toolViewBaseFolder = tool.InstallPath;
 
         // A settings-only tool writes nothing back into the profile, so it owns no output folder.
-        var producesOutput = definition.ProducesOutput;
+        // Definition-less tools (manual/discovered) are treated as settings-only: no output overlay.
+        var producesOutput = definition?.ProducesOutput ?? false;
 
         // While a tool runs it writes into the *next* output version, which is promoted afterwards.
         // Only create an output folder if the tool produces output and UseOutputOverlay is enabled.
@@ -197,9 +231,9 @@ public sealed class LaunchTargetResolver
 
         var profileScope = BuildProfileScope(profile, game, tool);
 
-        var executable = definition.ExecutableRelativePath.Length == 0 || installPath.Length == 0
-            ? string.Empty
-            : Path.Combine(installPath, definition.ExecutableRelativePath);
+        // Executable: the definition's relative path wins when present, otherwise fall back to the
+        // explicit relative path (manual or discovered tools).
+        var executable = tool.ExecutablePath;
 
         var arguments = string.IsNullOrWhiteSpace(binding.LaunchArgumentsOverride)
             ? tool.LaunchArguments
@@ -213,13 +247,24 @@ public sealed class LaunchTargetResolver
             (producesOutput && binding.UseOutputOverlay) ? outputFolder : null);
         var gameViews = ResolveEntityViews(
             game.Definition?.MergedViews, game.Definition?.Variables, game.InstallPath, ProfileFolderService.GetCustomFolder(profile, game.Id));
-        
-        // For tool definitions, inject GameInstallPath as an available variable so tools can reference game views.
-        var toolScopeVars = new Dictionary<string, string>(definition.Variables ?? new Dictionary<string, string>());
-        toolScopeVars["GameInstallPath"] = game.InstallPath;
-        var toolDefinitionViews = ResolveEntityViews(definition.MergedViews, toolScopeVars, toolViewBaseFolder, ProfileFolderService.GetCustomFolder(profile, tool.Id))
-            .Select(view => WithOutputOverlay(view, outputFolder))
-            .ToList();
+
+        // Tool-definition views only exist for definition-backed tools; a definition-less tool contributes
+        // none of its own, so its merged views are simply the load order, the game's, the profile's,
+        // and the binding's overrides.
+        List<MergedView> toolDefinitionViews;
+        if (definition is not null)
+        {
+            // For tool definitions, inject GameInstallPath as an available variable so tools can reference game views.
+            var toolScopeVars = new Dictionary<string, string>(definition.Variables ?? new Dictionary<string, string>());
+            toolScopeVars["GameInstallPath"] = game.InstallPath;
+            toolDefinitionViews = ResolveEntityViews(definition.MergedViews, toolScopeVars, toolViewBaseFolder, ProfileFolderService.GetCustomFolder(profile, tool.Id))
+                .Select(view => WithOutputOverlay(view, outputFolder))
+                .ToList();
+        }
+        else
+        {
+            toolDefinitionViews = new List<MergedView>();
+        }
         var profileViews = ResolveScopeViews(profile.MergedViews, profileScope, game.InstallPath, profile.FolderPath);
         var overrideViews = ResolveScopeViews(binding.MergedViewOverrides, profileScope, game.InstallPath, profile.FolderPath);
 
@@ -231,9 +276,11 @@ public sealed class LaunchTargetResolver
             overrideViews);
         RepinLoadOrderView(views, loadOrderView, game.InstallPath);
 
-        var workingDirectory = definition.WorkingDirectory.Length > 0
+        // Working directory: a definition can name one; otherwise use the executable's own folder (which,
+        // for a discovered tool, is typically inside the mod folder), falling back to the install path.
+        var workingDirectory = definition is not null && definition.WorkingDirectory.Length > 0
             ? AbsolutizeRelative(BuildToolDefinitionScope(definition).Expand(definition.WorkingDirectory), toolViewBaseFolder)
-            : installPath;
+            : (Path.GetDirectoryName(executable) is { Length: > 0 } exeDir ? exeDir : installPath);
 
         // A tool's own binary is installed directly, never as part of a mounted branch, so its virtual and real paths are identical.
         return new LaunchTarget(
@@ -250,7 +297,10 @@ public sealed class LaunchTargetResolver
             profileScope.ReadOnlyNames,
             $"profile.{tool.Id}.json",
             producesOutput,
-            string.Empty);
+            string.Empty,
+            null,
+            tool.OriginFolderId,
+            tool.OriginModName);
     }
 
     /// <summary>

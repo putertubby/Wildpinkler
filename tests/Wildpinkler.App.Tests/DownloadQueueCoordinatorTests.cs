@@ -12,6 +12,10 @@ using Xunit;
 
 namespace Wildpinkler.App.Tests;
 
+// Serialized into its own collection: the cancellation path hops across background threads
+// (auth gate -> RunAsync -> State), so running this class concurrently with the rest of the
+// suite can starve those hops and trip the wait below under full-suite load.
+[Collection("DownloadQueue")]
 public sealed class DownloadQueueCoordinatorTests : IDisposable
 {
     private readonly string _root = Path.Combine(Path.GetTempPath(), "wp-download-queue-" + Guid.NewGuid().ToString("N"));
@@ -221,7 +225,7 @@ public sealed class DownloadQueueCoordinatorTests : IDisposable
         {
             if (!job.IsActive)
                 return;
-            await completion.Task.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+            await completion.Task.WaitAsync(TimeSpan.FromSeconds(30), TestContext.Current.CancellationToken);
         }
         finally
         {

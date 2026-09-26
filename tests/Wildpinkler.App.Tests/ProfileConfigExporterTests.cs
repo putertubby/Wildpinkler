@@ -166,6 +166,9 @@ public sealed class ProfileConfigExporterTests
             new List<string>(scope.ReadOnlyNames),
             "profile.json",
             false,
+            string.Empty,
+            null,
+            string.Empty,
             string.Empty);
     }
 
@@ -204,6 +207,9 @@ public sealed class ProfileConfigExporterTests
             builtInNames,
             "profile.json",
             false,
-            steamGameId);
+            steamGameId,
+            null,
+            string.Empty,
+            string.Empty);
     }
 }

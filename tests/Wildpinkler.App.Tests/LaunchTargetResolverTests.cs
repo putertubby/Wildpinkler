@@ -84,6 +84,55 @@ public sealed class LaunchTargetResolverTests
         Assert.Equal(Path.Combine(higherPriority.Path, "first.exe"), target.ExecutablePath);
     }
 
+    [Fact]
+    public void Resolve_ToolTargetCarriesOriginFolderAndModFromToolEntry()
+    {
+        var game = CreateGame();
+        var tool = CreateTool("tool-1", "Sorter", "sorter.exe", "C:\\mods\\sorter", "Sorter mod", "folder-1");
+        var profile = CreateProfile(game);
+        profile.Tools.Add(new ProfileTool { ToolEntryId = "tool-1", IsEnabled = true });
+
+        var targets = new LaunchTargetResolver().Resolve(profile, game, new[] { tool });
+
+        var toolTarget = Assert.Single(targets, target => target.Kind == LaunchTargetKind.Tool);
+        Assert.Equal("tool-1", toolTarget.Id);
+        Assert.Equal("Sorter", toolTarget.DisplayName);
+        Assert.Equal(Path.Combine("C:\\mods\\sorter", "sorter.exe"), toolTarget.ExecutablePath);
+        Assert.Equal("folder-1", toolTarget.OriginFolderId);
+        Assert.Equal("Sorter mod", toolTarget.OriginModName);
+        // The tooltip surfaces the tool name and the providing mod.
+        Assert.Equal("Sorter — from mod Sorter mod", toolTarget.TooltipText);
+    }
+
+    [Fact]
+    public void Resolve_GlobalToolTargetHasNoOriginMod()
+    {
+        var game = CreateGame();
+        var tool = CreateTool("tool-1", "Editor", "editor.exe", "C:\\tools", string.Empty, string.Empty);
+        var profile = CreateProfile(game);
+        profile.Tools.Add(new ProfileTool { ToolEntryId = "tool-1", IsEnabled = true });
+
+        var targets = new LaunchTargetResolver().Resolve(profile, game, new[] { tool });
+
+        var toolTarget = Assert.Single(targets, target => target.Kind == LaunchTargetKind.Tool);
+        Assert.Equal(string.Empty, toolTarget.OriginFolderId);
+        Assert.Equal(string.Empty, toolTarget.OriginModName);
+        Assert.Equal("Editor", toolTarget.TooltipText);
+    }
+
+    [Fact]
+    public void Resolve_SkipsDisabledToolBinding()
+    {
+        var game = CreateGame();
+        var tool = CreateTool("tool-1", "Sorter", "sorter.exe", "C:\\mods\\sorter", "Sorter mod", "folder-1");
+        var profile = CreateProfile(game);
+        profile.Tools.Add(new ProfileTool { ToolEntryId = "tool-1", IsEnabled = false });
+
+        var targets = new LaunchTargetResolver().Resolve(profile, game, new[] { tool });
+
+        Assert.Equal(LaunchTargetKind.Game, Assert.Single(targets).Kind);
+    }
+
     private static LaunchTarget Resolve(GameEntry game, ProfileFolder[] LoadOrder)
     {
         var profile = new Profile
@@ -98,6 +147,25 @@ public sealed class LaunchTargetResolverTests
 
         return new LaunchTargetResolver().Resolve(profile, game, Array.Empty<ToolEntry>()).Single();
     }
+
+    private static Profile CreateProfile(GameEntry game) => new()
+    {
+        Id = "profile",
+        Name = "Profile",
+        GameId = game.Id,
+        FolderPath = "C:\\profiles\\profile"
+    };
+
+    private static ToolEntry CreateTool(string id, string name, string executable, string installPath, string originModName, string originFolderId) => new()
+    {
+        Id = id,
+        Name = name,
+        SourceKind = ToolSourceKind.Discovered,
+        InstallPath = installPath,
+        ExecutableRelativePath = executable,
+        OriginModName = originModName,
+        OriginFolderId = originFolderId
+    };
 
     private static GameEntry CreateGame() => new()
     {

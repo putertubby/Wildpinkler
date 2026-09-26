@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.UI.Xaml;
@@ -8,6 +9,8 @@ using Wildpinkler.App.Controls;
 using Wildpinkler.App.Models;
 using Wildpinkler.App.Models.Fomod;
 using Wildpinkler.App.Services;
+using Wildpinkler.App.Services.Games;
+using Wildpinkler.App.Services.Profiles;
 
 namespace Wildpinkler.App.Pages;
 
@@ -76,6 +79,11 @@ public sealed partial class ProfilesPage
         else
             RefreshWorkspace();
 
+        // Defensively drop any bindings whose tool no longer exists (e.g. a local tool removed
+        // because its source mod folder left the load order).
+        if (ProfileToolCleanup.PruneMissingBindings(profile, _tools))
+            profile.NotifySummaryChanged();
+
         Save("Save load order");
         await RefreshDependencyIssuesAsync(profile);
     }
@@ -102,6 +110,27 @@ public sealed partial class ProfilesPage
         RefreshWorkspace();
         Save("Save load order");
         UiTask.Run(() => RefreshDependencyIssuesAsync(profile), nameof(FolderEnabled_Toggled), ShowLoadOrderError);
+
+        if (folder.Kind != ProfileFolderKind.Mod)
+            return;
+
+        if (toggle.IsOn)
+        {
+            // Re-enabling offers the role dialog again, pre-filled with the remembered choices.
+            UiTask.Run(() => PickAndApplyRolesAsync(profile, folder), nameof(FolderEnabled_Toggled), ShowLoadOrderError);
+            return;
+        }
+
+        // Disabling a mod silently disables its tools (no dialog); the choices are remembered on
+        // the kept LocalTool records and offered again when the mod is re-enabled.
+        var disabled = ProfileToolCleanup.DisableToolsForFolder(profile, folder.Id, _provisioner);
+        if (disabled > 0)
+        {
+            RefreshTools(profile);
+            RefreshWorkspace();
+            Save("Disable profile tools");
+            ShowInfo($"Disabled the mod's {disabled} tool(s).", InfoBarSeverity.Success);
+        }
     }
 
     // Advisory only - a failure here (e.g. the mods database is briefly locked) must never block editing the load order.
@@ -245,6 +274,21 @@ public sealed partial class ProfilesPage
         {
             var removedModId = folder.ModId;
             profile.LoadOrder.Remove(folder);
+
+            // Tools discovered from this mod folder leave with it; otherwise they become ghost
+            // tools pointing at a path that is no longer part of the profile.
+            if (folder.Kind == ProfileFolderKind.Mod)
+            {
+                var removedToolCount = ProfileToolCleanup.RemoveToolsForFolder(profile, folder.Id);
+                if (removedToolCount > 0)
+                {
+                    RefreshTools(profile);
+                    RefreshProfiles();
+                    ShowInfo($"Removed {removedToolCount} tool{(removedToolCount == 1 ? string.Empty : "s")} from '{folder.Name}'.",
+                        InfoBarSeverity.Success);
+                }
+            }
+
             if (removedModId is not null)
                 _ = UpdateModAssociationsAsync(profile.Id, new() { removedModId }, new());
         }
@@ -341,14 +385,6 @@ public sealed partial class ProfilesPage
 
             await ExtractAndSaveDependenciesAsync(mod, fomodModule, installation.FolderPath);
 
-            var launcherExecutable = await PickGameLauncherExecutableAsync(installation.FolderPath, currentSelection: null);
-            if (launcherExecutable is not null && string.IsNullOrWhiteSpace(mod.ProvidedGameVersion))
-            {
-                mod.ProvidedGameVersion = GameVersionInspector.ReadVersion(System.IO.Path.Combine(installation.FolderPath, launcherExecutable));
-                await AppServices.ModStore.UpsertAsync(mod);
-            }
-
-            var overlayIndex = profile.LoadOrder.ToList().FindIndex(item => item.Kind == ProfileFolderKind.Overlay);
             var newFolder = new ProfileFolder
             {
                 Id = Guid.NewGuid().ToString("N"),
@@ -357,12 +393,30 @@ public sealed partial class ProfilesPage
                 Kind = ProfileFolderKind.Mod,
                 ModId = mod.Id,
                 ModInstallationId = installation.Id,
-                IsEnabled = true,
-                LauncherExecutableRelativePath = launcherExecutable
+                IsEnabled = true
             };
-            if (launcherExecutable is not null)
-                ClearOtherLauncherDesignations(profile, newFolder.Id);
+
+            // Single per-executable role dialog in place of the old two-pass launcher picker:
+            // the user assigns each discovered executable a role (launcher, tool, or skip).
+            // A cancel (null) inserts the plain folder with no launcher and no tools.
+            var roles = await PickModRolesAsync(profile, newFolder);
+            if (roles is not null)
+            {
+                var launcherPath = roles.FirstOrDefault(role => role.Role == ModRole.Launcher)?.RelativePath;
+                newFolder.LauncherExecutableRelativePath = launcherPath;
+
+                if (launcherPath is not null && string.IsNullOrWhiteSpace(mod.ProvidedGameVersion))
+                {
+                    mod.ProvidedGameVersion = GameVersionInspector.ReadVersion(System.IO.Path.Combine(installation.FolderPath, launcherPath));
+                    await AppServices.ModStore.UpsertAsync(mod);
+                }
+            }
+
+            var overlayIndex = profile.LoadOrder.ToList().FindIndex(item => item.Kind == ProfileFolderKind.Overlay);
             profile.LoadOrder.Insert(overlayIndex + 1, newFolder);
+
+            if (roles is not null)
+                ApplyModRoles(profile, newFolder, roles);
 
             await UpdateModAssociationsAsync(profile.Id, new(), new() { mod.Id });
         }
@@ -390,41 +444,88 @@ public sealed partial class ProfilesPage
         await AppServices.ModStore.UpsertAsync(mod);
     }
 
-    // Scans the freshly installed folder for candidate launcher executables and, if any are found,
-    // offers the user the choice of designating one as this mod's game launcher. Returns null when
-    // there is nothing to scan, the user cancels, or the user picks "don't use".
-    private async Task<string?> PickGameLauncherExecutableAsync(string folderPath, string? currentSelection)
+    // Scans the mod folder for executables and lets the user assign each one a role: game
+    // launcher, tool (enabled by default), or skip. Returns null when there is nothing to offer
+    // or the user cancels.
+    private async Task<IReadOnlyList<ModRoleChoice>?> PickModRolesAsync(Profile profile, ProfileFolder folder)
     {
-        var candidates = ExecutableScanService.Scan(folderPath);
+        var candidates = await Task.Run(() =>
+            _toolDiscovery.DiscoverInFolder(folder, ProfileLocalToolMigration.MergedTools(_tools, profile)));
         if (candidates.Count == 0)
             return null;
 
-        var dialog = new GameLauncherPickerDialog(candidates, currentSelection) { XamlRoot = XamlRoot };
-        return await dialog.ShowAsync() == ContentDialogResult.Primary ? dialog.SelectedExecutableRelativePath : currentSelection;
+        var roles = candidates.Select(candidate => BuildRoleChoice(profile, folder, candidate)).ToList();
+        var dialog = new ModRolePickerDialog(folder.Name, roles) { XamlRoot = XamlRoot };
+        return await dialog.ShowAsync() == ContentDialogResult.Primary ? dialog.ChosenRoles : null;
     }
 
-    // Lets the user assign, change or clear a mod branch's game-launcher designation after install,
-    // from the branch row's "more" menu, without requiring a reinstall.
-    private void DesignateGameLauncher_Click(object sender, RoutedEventArgs args)
+    private static ModRoleChoice BuildRoleChoice(Profile profile, ProfileFolder folder, DiscoveredToolCandidate candidate)
     {
-        if ((sender as FrameworkElement)?.DataContext is not ProfileFolder { Kind: ProfileFolderKind.Mod } folder)
-            return;
+        var choice = new ModRoleChoice
+        {
+            ExecutablePath = candidate.ExecutablePath,
+            RelativePath = candidate.RelativePath,
+            SuggestedName = candidate.SuggestedName,
+            Reason = candidate.Reason,
+        };
 
-        UiTask.Run(() => DesignateGameLauncherAsync(folder), nameof(DesignateGameLauncher_Click), ShowLoadOrderError);
+        // Pre-fill from earlier choices: a remembered launcher wins, otherwise a remembered tool
+        // (with its enabled state) is offered again.
+        if (folder.LauncherExecutableRelativePath is not null
+            && candidate.RelativePath.Equals(folder.LauncherExecutableRelativePath, StringComparison.OrdinalIgnoreCase))
+        {
+            choice.Role = ModRole.Launcher;
+        }
+        else
+        {
+            var tool = profile.LocalTools.FirstOrDefault(item =>
+                item.OriginFolderId == folder.Id
+                && System.IO.Path.Combine(item.InstallPath, item.ExecutableRelativePath)
+                    .Equals(candidate.ExecutablePath, StringComparison.OrdinalIgnoreCase));
+            if (tool is not null)
+            {
+                choice.Role = ModRole.Tool;
+                choice.IsEnabled = profile.Tools.Any(binding => binding.ToolEntryId == tool.Id);
+            }
+        }
+
+        return choice;
     }
 
-    private async Task DesignateGameLauncherAsync(ProfileFolder folder)
+    private void ApplyModRoles(Profile profile, ProfileFolder folder, IReadOnlyList<ModRoleChoice> roles)
     {
-        if (SelectedProfile is not { } profile || !_runAccess.CanModify(profile))
-            return;
-
-        var launcherExecutable = await PickGameLauncherExecutableAsync(folder.Path, folder.LauncherExecutableRelativePath);
-        if (!_runAccess.CanModify(profile))
-            return;
-        folder.LauncherExecutableRelativePath = launcherExecutable;
-        if (launcherExecutable is not null)
+        var changed = ProfileToolCleanup.ApplyRoles(profile, folder, roles);
+        if (roles.Any(role => role.Role == ModRole.Launcher))
             ClearOtherLauncherDesignations(profile, folder.Id);
+
+        profile.NotifySummaryChanged();
+        // Re-assigning roles can change which plugins a tool produces, so a sorted order no longer applies.
+        profile.PluginListSorted = false;
+        RefreshTools(profile);
+        RefreshWorkspace();
         Save("Save load order");
+
+        if (changed > 0)
+            ShowInfo($"Updated {changed} role{(changed == 1 ? string.Empty : "s")} for '{folder.Name}'.",
+                InfoBarSeverity.Success);
+    }
+
+    private async Task PickAndApplyRolesAsync(Profile profile, ProfileFolder folder)
+    {
+        var roles = await PickModRolesAsync(profile, folder);
+        if (roles is not null && _runAccess.CanModify(profile))
+            ApplyModRoles(profile, folder, roles);
+    }
+
+    // Lets the user review or change the launcher/tool roles of a mod branch after install,
+    // from the branch row's "more" menu, without requiring a reinstall.
+    private void ChooseRoles_Click(object sender, RoutedEventArgs args)
+    {
+        if ((sender as FrameworkElement)?.DataContext is not ProfileFolder { Kind: ProfileFolderKind.Mod } folder
+            || SelectedProfile is not { } profile)
+            return;
+
+        UiTask.Run(() => PickAndApplyRolesAsync(profile, folder), nameof(ChooseRoles_Click), ShowLoadOrderError);
     }
 
     private static void ClearOtherLauncherDesignations(Profile profile, string exceptFolderId)

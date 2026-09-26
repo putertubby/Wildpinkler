@@ -7,6 +7,8 @@
     xmlns:pages="using:Wildpinkler.App.Pages"
     xmlns:models="using:Wildpinkler.App.Models"
     xmlns:controls="using:Wildpinkler.App.Controls"
+    xmlns:services="using:Wildpinkler.App.Services"
+    xmlns:converters="using:Wildpinkler.App.Converters"
     xmlns:controlsToolkit="using:CommunityToolkit.WinUI.Controls"
     Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
     KeyboardAcceleratorPlacementMode="Hidden">
@@ -55,7 +57,7 @@
             </CommandBar>
         </Grid>
 
-        <InfoBar x:Name="PageInfoBar" Grid.Row="1" IsOpen="False" />
+        <InfoBar x:Name="PageInfoBar" Grid.Row="1" IsOpen="False" IsClosable="True" />
 
         <Grid x:Name="ListDetailsGrid" Grid.Row="2" Loaded="ListDetailsGrid_Loaded" SizeChanged="ListDetailsGrid_SizeChanged">
             <Grid.ColumnDefinitions>
@@ -93,6 +95,7 @@
                                         </Grid.ColumnDefinitions>
                                         <Grid.ContextFlyout>
                                             <MenuFlyout>
+                                                <MenuFlyoutItem Click="ScanSelectedProfile_Click" Text="Scan for tools" />
                                                 <MenuFlyoutItem Click="ProfileRowDelete_Click" Text="Delete" />
                                             </MenuFlyout>
                                         </Grid.ContextFlyout>
@@ -195,7 +198,8 @@
                             </StackPanel>
                         </Grid>
 
-                        <!-- One target selector drives every section below, so the workspace always shows one configuration. -->
+                        <!-- The game launch is kept apart from the tools so a tool is never launched by
+                             accident: one prominent game button, then a per-tool toolbar of its own. -->
                         <Grid ColumnSpacing="12">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" MinWidth="160" />
@@ -203,20 +207,76 @@
                                 <ColumnDefinition Width="Auto" />
                                 <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
-                            <ComboBox x:Name="TargetSelector" Header="Launch target" HorizontalAlignment="Stretch"
-                                      DisplayMemberPath="DisplayName" SelectionChanged="TargetSelector_SelectionChanged" />
-                            <Button Grid.Column="1" x:Name="LaunchButton" VerticalAlignment="Bottom" Style="{StaticResource AccentButtonStyle}"
-                                    Command="{x:Bind LaunchCommand}" ToolTipService.ToolTip="Launch the selected target through uufs64">
-                                <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button x:Name="LaunchGameButton" HorizontalAlignment="Stretch" Style="{StaticResource AccentButtonStyle}"
+                                    Command="{x:Bind LaunchGameCommand}"
+                                    ToolTipService.ToolTip="Launch the game with this profile">
+                                <StackPanel Orientation="Horizontal" Spacing="8" HorizontalAlignment="Center">
                                     <FontIcon Glyph="&#xE768;" FontSize="14" />
-                                    <TextBlock Text="Launch" />
+                                    <TextBlock Text="Launch game" />
                                 </StackPanel>
                             </Button>
-                            <Button Grid.Column="2" x:Name="RevealFolderButton" VerticalAlignment="Bottom"
+                            <Button Grid.Column="1" x:Name="RevealFolderButton" VerticalAlignment="Bottom"
                                     Command="{x:Bind RevealFolderCommand}" Content="Reveal folder" />
-                            <ProgressRing Grid.Column="3" x:Name="LoadOrderBusyRing" VerticalAlignment="Bottom" Margin="0,0,0,6"
+                            <ProgressRing Grid.Column="2" x:Name="LoadOrderBusyRing" VerticalAlignment="Bottom" Margin="0,0,0,6"
                                           Width="20" Height="20" IsActive="False" Visibility="Collapsed" />
                         </Grid>
+                        <!-- One split button per enabled tool target: the main area launches the tool;
+                             the chevron opens the per-tool actions menu. -->
+                        <ItemsControl x:Name="ToolToolbar" HorizontalAlignment="Left"
+                                      Margin="0,10,0,0"
+                                      Visibility="{x:Bind ToolToolbarVisibility, Mode=OneWay}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <StackPanel Orientation="Horizontal" Spacing="6" />
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="services:LaunchTarget">
+                                    <!-- Split button: the main section launches the tool; the chevron
+                                         affordance opens the per-tool actions menu. -->
+                                    <Border BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                            BorderThickness="1" CornerRadius="4"
+                                            Background="{ThemeResource ControlFillColorSecondaryBrush}"
+                                            ToolTipService.ToolTip="{x:Bind TooltipText}">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <!-- Main launch section. -->
+                                            <Button Grid.Column="0" Click="ToolButton_Click" CommandParameter="{x:Bind}"
+                                                    Background="Transparent" BorderThickness="0" Padding="10,4"
+                                                    AutomationProperties.Name="Launch tool {x:Bind DisplayName}"
+                                                    KeyboardAcceleratorPlacementMode="Hidden">
+                                                <!-- The executable's embedded icon when available; otherwise a generic glyph. -->
+                                                <Grid>
+                                                    <Image Width="20" Height="20" Source="{x:Bind Icon}"
+                                                           Visibility="{x:Bind Icon, Converter={StaticResource NonNullToVisibilityConverter}}" />
+                                                    <FontIcon Glyph="&#xE90F;" FontSize="18"
+                                                           Visibility="{x:Bind Icon, Converter={StaticResource NullToVisibilityConverter}}" />
+                                                </Grid>
+                                            </Button>
+                                            <!-- Chevron affordance carrying the actions menu flyout. -->
+                                            <Button Grid.Column="1" CommandParameter="{x:Bind}"
+                                                    Background="Transparent"
+                                                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                                    BorderThickness="1,0,0,0" Padding="8,4"
+                                                    AutomationProperties.Name="Tool actions"
+                                                    KeyboardAcceleratorPlacementMode="Hidden">
+                                                <Button.Flyout>
+                                                    <MenuFlyout Placement="BottomEdgeAlignedRight">
+                                                        <MenuFlyoutItem Text="Remove tool" Click="ToolRemove_Click" CommandParameter="{x:Bind}" />
+                                                        <MenuFlyoutSeparator />
+                                                        <MenuFlyoutItem Text="Toggle output capture" Click="ToolOverlay_Click" CommandParameter="{x:Bind}" />
+                                                    </MenuFlyout>
+                                                </Button.Flyout>
+                                                <FontIcon Glyph="&#xE70D;" FontSize="12" />
+                                            </Button>
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
                         <InfoBar IsOpen="True" IsClosable="False" Severity="Informational"
                                  Visibility="{x:Bind SelectedProfileRunVisibility, Mode=OneWay}"
                                  Message="{x:Bind SelectedProfileRunText, Mode=OneWay}" />
@@ -268,8 +328,6 @@
                                         </Grid>
                                         <TextBlock Opacity="0.68" TextWrapping="Wrap"
                                                    Text="Highest priority first: a file in a higher branch hides the same file below it. The profile overlay stays on top and the game install stays at the bottom. Reorder by dragging a row, or from its actions menu with Alt+Up and Alt+Down." />
-                                        <TextBlock x:Name="TargetNoteText" TextWrapping="Wrap" Visibility="Collapsed"
-                                                   Foreground="{ThemeResource SystemFillColorCautionBrush}" />
                                         <ListView x:Name="FolderList" CanDragItems="True" CanReorderItems="True" AllowDrop="True" ReorderMode="Enabled"
                                                   IsEnabled="{x:Bind IsSelectedProfileModifiable, Mode=OneWay}"
                                                   DragItemsStarting="FolderList_DragItemsStarting"
@@ -325,7 +383,7 @@
                                                                         <MenuFlyoutItem Text="Move down" Click="MoveFolderDown_Click"
                                                                                         KeyboardAcceleratorTextOverride="Alt+Down" />
                                                                         <MenuFlyoutSeparator />
-                                                                        <MenuFlyoutItem Text="Game launcher..." Click="DesignateGameLauncher_Click"
+                                                                        <MenuFlyoutItem Text="Choose roles..." Click="ChooseRoles_Click"
                                                                                         Visibility="{x:Bind IsModBranch}" />
                                                                         <MenuFlyoutItem Text="Remove" Click="RemoveFolder_Click" />
                                                                     </MenuFlyout>
@@ -413,7 +471,7 @@
                         <ScrollViewer x:Name="ToolsSection" VerticalScrollBarVisibility="Auto" Padding="16,16,8,16" Visibility="Collapsed">
                             <StackPanel Spacing="12" Margin="0,0,8,0">
                                 <TextBlock Opacity="0.68" TextWrapping="Wrap"
-                                           Text="An enabled tool becomes a launch target. A tool that produces output also gets its own output folder directly below the profile overlay, and each run writes a new output version that replaces the previous one when the tool finishes; a settings-only tool adds nothing to the profile merged view." />
+                                           Text="An enabled tool becomes a launch target. Executables discovered in the mod load order are added as tools automatically and live in this profile only; the other tools below it come from the global tools list. A tool that produces output also gets its own output folder directly below the profile overlay, and each run writes a new output version that replaces the previous one when the tool finishes; a settings-only tool adds nothing to the profile merged view." />
                                 <Border Style="{StaticResource ContentCardStyle}" Padding="8">
                                     <!-- ItemsControl, not ListView: each row hosts editors that container recycling would tear down. -->
                                     <ItemsControl x:Name="ToolList" IsEnabled="{x:Bind IsSelectedProfileModifiable, Mode=OneWay}">
@@ -431,20 +489,42 @@
                                                             <Grid.ColumnDefinitions>
                                                                 <ColumnDefinition Width="32" />
                                                                 <ColumnDefinition Width="*" MinWidth="140" />
-                                                                <ColumnDefinition Width="Auto" />
-                                                            </Grid.ColumnDefinitions>
+                                                                <ColumnDefinition Width="Auto" />                                                                <ColumnDefinition Width="Auto" />                                                            </Grid.ColumnDefinitions>
                                                             <Border Style="{StaticResource RowAvatarStyle}">
-                                                                <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="SemiBold"
-                                                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                                                           Text="{x:Bind Name, Converter={StaticResource InitialLetterConverter}}" />
+                                                                <Grid>
+                                                                    <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="SemiBold"
+                                                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                                               Text="{x:Bind Name, Converter={StaticResource InitialLetterConverter}}"
+                                                                               Visibility="{x:Bind Icon, Converter={StaticResource NullToVisibilityConverter}}" />
+                                                                    <Image HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                                           Style="{StaticResource IconImageStyle}"
+                                                                           Source="{x:Bind Icon}" />
+                                                                </Grid>
                                                             </Border>
                                                             <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
                                                                 <TextBlock FontWeight="SemiBold" TextTrimming="CharacterEllipsis" Text="{x:Bind Name}" />
-                                                                <TextBlock Opacity="0.62" TextTrimming="CharacterEllipsis" Text="{x:Bind KindText}" />
+                                                                <TextBlock Opacity="0.62" TextTrimming="CharacterEllipsis"
+                                                                           Visibility="{x:Bind KindTextVisibility, Mode=OneWay}"
+                                                                           Text="{x:Bind KindText}" />
+                                                                <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center"
+                                                                           Opacity="0.62" Visibility="{x:Bind MissingWarningVisibility, Mode=OneWay}">
+                                                                    <FontIcon Glyph="&#xE783;" FontSize="11" Foreground="{ThemeResource SystemFillColorCriticalBrush}" />
+                                                                    <TextBlock Opacity="1" Text="Missing executable"
+                                                                               Foreground="{ThemeResource SystemFillColorCriticalBrush}" />
+                                                                </StackPanel>
                                                             </StackPanel>
                                                             <ToggleSwitch Grid.Column="2" VerticalAlignment="Center" OnContent="" OffContent=""
                                                                           AutomationProperties.Name="Enable this tool for the profile"
+                                                                          IsEnabled="{x:Bind ToggleEnabled, Mode=OneWay}"
                                                                           IsOn="{x:Bind IsEnabled, Mode=TwoWay}" Toggled="ToolEnabled_Toggled" />
+                                                            <Button Grid.Column="3" VerticalAlignment="Center"
+                                                                    Style="{StaticResource SubtleButtonStyle}"
+                                                                    Visibility="{x:Bind RemoveVisibility, Mode=OneWay}"
+                                                                    Click="RemoveLocalTool_Click"
+                                                                    ToolTipService.ToolTip="Remove this tool from the profile"
+                                                                    AutomationProperties.Name="Remove this tool from the profile">
+                                                                <FontIcon Glyph="&#xE74D;" FontSize="14" />
+                                                            </Button>
                                                         </Grid>
                                                     </Expander.Header>
                                                     <StackPanel Spacing="12" Padding="0,4,0,8">
@@ -452,10 +532,15 @@
                                                                  PlaceholderText="Leave empty to use the tool's own arguments"
                                                                  Text="{Binding LaunchArgumentsOverride, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                                  LostFocus="ToolOverride_LostFocus" />
-                                                        <ToggleSwitch Header="Capture tool output" OnContent="Yes" OffContent="No"
-                                                                      IsOn="{Binding UseOutputOverlay, Mode=TwoWay}" />
+                                                        <StackPanel Spacing="2" Visibility="{Binding OverlaySectionVisibility}">
+                                                            <ToggleSwitch Header="Capture tool output" OnContent="Yes" OffContent="No"
+                                                                          IsOn="{Binding UseOutputOverlay, Mode=TwoWay}" Toggled="ToolOverlay_Toggled" />
+                                                            <TextBlock Opacity="0.72" TextWrapping="Wrap"
+                                                                       Text="When enabled, writes to writable views are captured into a separate tools/[toolId]/ folder, giving this tool its own output priority. When disabled, writes go directly to the profile's writable views." />
+                                                        </StackPanel>
+                                                        <Border Style="{StaticResource CardSeparatorStyle}" />
                                                         <TextBlock Opacity="0.72" TextWrapping="Wrap"
-                                                                   Text="When enabled, writes to writable views are captured into a separate tools/[toolId]/ folder, giving this tool its own output priority. When disabled, writes go directly to the views declared in the tool definition." />
+                                                                   Text="When enabled, writes to writable views are captured into a separate tools/[toolId]/ folder, giving this tool its own output priority. When disabled, writes go directly to the profile's writable views." />
                                                         <StackPanel Spacing="12" Visibility="{Binding OutputSectionVisibility}">
                                                             <TextBlock Style="{StaticResource SectionLabelStyle}" Text="OUTPUT" />
                                                             <Grid ColumnSpacing="12">

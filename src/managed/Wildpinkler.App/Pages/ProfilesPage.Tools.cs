@@ -3,11 +3,15 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading.Tasks;
+using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
 using Wildpinkler.App.Controls;
 using Wildpinkler.App.Models;
 using Wildpinkler.App.Services;
+using Wildpinkler.App.Services.Games;
+using Wildpinkler.App.Services.Profiles;
 
 namespace Wildpinkler.App.Pages;
 
@@ -20,7 +24,17 @@ public sealed partial class ProfilesPage
     private void RefreshTools(Profile profile)
     {
         var gameDefinitionId = GameFor(profile)?.DefinitionId;
-        var compatible = _tools.Where(tool => tool.Definition?.SupportsGame(gameDefinitionId) == true).ToList();
+
+        // A tool is offered in the tools section when either it is definition-backed and the
+        // definition supports the active game, or it is definition-less (manual/discovered) and
+        // resolves to an executable the user can actually run. Discovered tools are scoped to the
+        // profile that found them - they never appear in other profiles.
+        var compatible = ProfileLocalToolMigration.MergedTools(_tools, profile)
+            .Where(tool => !tool.IsProfileScoped || tool.ProfileId == profile.Id)
+            .Where(tool => tool.Definition is not null
+                ? tool.Definition.SupportsGame(gameDefinitionId)
+                : tool.HasExecutablePath)
+            .ToList();
 
         // Tools carry no priority, so the list is simply alphabetical whether bound or not.
         var desiredOrder = compatible.OrderBy(tool => tool.Name, StringComparer.OrdinalIgnoreCase).ToList();
@@ -61,10 +75,23 @@ public sealed partial class ProfilesPage
         ToolsEmptyText.Visibility = _toolRows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         ToolList.Visibility = _toolRows.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
 
-        foreach (var row in _toolRows)
+        try
         {
-            if (row.ProducesOutput)
-                row.SetOutputFolder(ProfileFolderService.GetToolOutputFolder(profile, row.Tool.Id, row.OutputVersion));
+            var iconService = AppHost.Get<ToolIconService>();
+            foreach (var row in _toolRows)
+            {
+                if (row.ProducesOutput)
+                    row.SetOutputFolder(ProfileFolderService.GetToolOutputFolder(profile, row.Tool.Id, row.OutputVersion));
+
+                row.Icon = iconService.TryGetIcon(row.Tool.ExecutablePath);
+            }
+        }
+        catch (Exception exception)
+        {
+            // Icon extraction goes through the shell (SHGetFileInfo); a fault there must surface as a
+            // logged, dismissible InfoBar rather than taking the whole app down.
+            AppDiagnostics.Write(nameof(RefreshTools), exception);
+            ShowInfo($"Unable to load tool icons: {exception.Message}", InfoBarSeverity.Error);
         }
     }
 
@@ -120,7 +147,225 @@ public sealed partial class ProfilesPage
         CommitToolBindings();
     }
 
+    private void ToolOverlay_Toggled(object sender, RoutedEventArgs args)
+    {
+        // Don't rely on the two-way binding push having already run before this handler - read
+        // the switch's own state directly so a same-event ordering race can never read a stale value.
+        if (sender is not ToggleSwitch { DataContext: ProfileToolRow row } toggle)
+            return;
+
+        // A container rebuild can re-realize the switch and re-fire Toggled with the value it already
+        // has - only a real change should trigger another save.
+        if (row.UseOutputOverlay == toggle.IsOn)
+            return;
+
+        row.UseOutputOverlay = toggle.IsOn;
+
+        CommitToolBindings();
+    }
+
     private void ToolOverride_LostFocus(object sender, RoutedEventArgs args) => CommitToolBindings();
+
+    private void ScanTools_Click(object sender, RoutedEventArgs args)
+    {
+        if (SelectedProfile is not { } profile)
+            return;
+
+        UiTask.Run(() => ScanToolsAsync(profile), nameof(ScanTools_Click),
+            exception => ShowInfo($"The mod load order could not be scanned. {exception.Message}", InfoBarSeverity.Error));
+    }
+
+    private async Task ScanToolsAsync(Profile profile)
+    {
+        if (!_runAccess.CanModify(profile))
+            return;
+
+        var found = await DiscoverNewToolsAsync(profile);
+        if (found.Count == 0)
+        {
+            ShowInfo("No new executables were found in the mod load order.", InfoBarSeverity.Informational);
+            return;
+        }
+
+        await ShowToolReviewDialogAsync(profile, found);
+    }
+
+    /// <summary>
+    /// Scans the profile's mod load order (off the UI thread) and adds every newly found executable
+    /// straight to the profile's toolset - no review dialog. Each new executable becomes a
+    /// <see cref="LocalTool"/> with NO <see cref="ProfileTool"/> binding, so it lands in the tools card
+    /// as a disabled tool the user can individually enable. Executables already in the (merged)
+    /// toolset are never re-added.
+    /// </summary>
+    private async Task ScanAndAddToolsAsync(Profile profile)
+    {
+        if (!_runAccess.CanModify(profile))
+            return;
+
+        var found = await DiscoverNewToolsAsync(profile);
+        if (found.Count == 0)
+        {
+            ShowInfo("No new executables were found in the mod load order.", InfoBarSeverity.Informational);
+            return;
+        }
+
+        if (!ReferenceEquals(SelectedProfile, profile))
+            return;
+
+        foreach (var candidate in found)
+        {
+            profile.LocalTools.Add(new LocalTool
+            {
+                Id = Guid.NewGuid().ToString("N"),
+                Name = candidate.SuggestedName,
+                ExecutableRelativePath = candidate.RelativePath,
+                OriginModName = candidate.OriginModName,
+                OriginFolderId = candidate.OriginFolderId,
+                InstallPath = candidate.InstallPath
+            });
+        }
+
+        ProfileLocalToolMigration.MaterializeLocalToolEntries(profile);
+
+        RefreshTools(profile);
+        RefreshWorkspace();
+        Save("Save profile tools");
+        ShowInfo($"Added {found.Count} tool{(found.Count == 1 ? "" : "s")} to the profile as disabled tools.",
+            InfoBarSeverity.Success);
+    }
+
+    /// <summary>
+    /// Scans the profile's mod load order off the UI thread and returns every executable that is
+    /// not already part of the profile's toolset. The known set is the full merged toolset - every
+    /// global tool plus this profile's own local tools (whether or not bound) - so an executable
+    /// that is already represented anywhere in the list is never offered again.
+    /// </summary>
+    private Task<IReadOnlyList<DiscoveredToolCandidate>> DiscoverNewToolsAsync(Profile profile)
+        => Task.Run(() => _toolDiscovery.DiscoverForProfile(
+            profile,
+            ProfileLocalToolMigration.MergedTools(_tools, profile)));
+
+    private async Task ShowToolReviewDialogAsync(Profile profile, IReadOnlyList<DiscoveredToolCandidate> found)
+    {
+        var checks = new List<(DiscoveredToolCandidate Candidate, CheckBox Box)>();
+        var list = new StackPanel { Spacing = 6, MaxHeight = 360 };
+        foreach (var candidate in found)
+        {
+            var caption = string.Join("  ·  ", new[]
+            {
+                candidate.OriginModName,
+                candidate.RelativePath,
+                candidate.Reason
+            }.Where(part => !string.IsNullOrWhiteSpace(part)));
+
+            var box = new CheckBox
+            {
+                IsChecked = true,
+                Content = new StackPanel
+                {
+                    Margin = new Microsoft.UI.Xaml.Thickness(12, 0, 0, 0),
+                    Children =
+                    {
+                        new TextBlock { Text = candidate.SuggestedName, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold },
+                        new TextBlock
+                        {
+                            Text = caption,
+                            FontSize = 12,
+                            Foreground = (Brush)Application.Current.Resources["TextFillColorSecondaryBrush"]
+                        }
+                    }
+                }
+            };
+            checks.Add((candidate, box));
+            list.Children.Add(box);
+        }
+
+        var dialog = new ContentDialog
+        {
+            Title = "Add tools from the mod load order?",
+            Content = new ScrollViewer { Content = list, MaxHeight = 400 },
+            PrimaryButtonText = "Add selected",
+            CloseButtonText = "Cancel",
+            XamlRoot = XamlRoot,
+            DefaultButton = ContentDialogButton.Close
+        };
+
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+            return;
+
+        if (!_runAccess.CanModify(profile))
+            return;
+
+        var selected = checks.Where(pair => pair.Box.IsChecked == true).Select(pair => pair.Candidate).ToList();
+        if (selected.Count == 0)
+            return;
+
+        // Discovered tools now live on the profile itself, so the global tools store is no longer
+        // touched. Each candidate becomes a LocalTool plus an enabled binding so the toolbar and the
+        // tools card pick it up immediately; the profile save persists both.
+        foreach (var candidate in selected)
+        {
+            var local = new LocalTool
+            {
+                Id = Guid.NewGuid().ToString("N"),
+                Name = candidate.SuggestedName,
+                ExecutableRelativePath = candidate.RelativePath,
+                OriginModName = candidate.OriginModName,
+                OriginFolderId = candidate.OriginFolderId,
+                InstallPath = candidate.InstallPath
+            };
+            profile.LocalTools.Add(local);
+            profile.Tools.Add(new ProfileTool { ToolEntryId = local.Id, IsEnabled = true });
+        }
+
+        ProfileLocalToolMigration.MaterializeLocalToolEntries(profile);
+
+        RefreshTools(profile);
+        RefreshWorkspace();
+        Save("Save profile tools");
+        ShowInfo($"Added {selected.Count} tool{(selected.Count == 1 ? "" : "s")} to the profile's toolset.", InfoBarSeverity.Success);
+    }
+
+    // Removes a tool row from the profile. Local tools (discovered in this profile's load order)
+    // are deleted outright - both the LocalTool record and its binding. Global tools keep their
+    // entry on the Tools page; only this profile's binding is unbound, which disables and drops
+    // the tool from this profile's toolbar and tools card.
+    private void RemoveLocalTool_Click(object sender, RoutedEventArgs args)
+    {
+        if ((sender as FrameworkElement)?.DataContext is not ProfileToolRow row)
+            return;
+
+        if (SelectedProfile is not { } profile || !_runAccess.CanModify(profile))
+            return;
+
+        var binding = profile.Tools.FirstOrDefault(item => item.ToolEntryId == row.Tool.Id);
+
+        if (row.IsLocal)
+        {
+            profile.LocalTools.RemoveAll(local => local.Id == row.Tool.Id);
+            if (binding is not null)
+                profile.Tools.Remove(binding);
+            ProfileLocalToolMigration.MaterializeLocalToolEntries(profile);
+        }
+        else if (binding is not null)
+        {
+            _provisioner.DisableTool(profile, binding);
+            profile.Tools.Remove(binding);
+        }
+        else
+        {
+            // Nothing bound (a disabled global row) - there is nothing to remove.
+            return;
+        }
+
+        profile.NotifySummaryChanged();
+        profile.PluginListSorted = false;
+        RefreshTools(profile);
+        RefreshProfiles();
+        RefreshWorkspace();
+        Save("Remove profile tool");
+        ShowInfo($"Removed {row.Name} from the profile.", InfoBarSeverity.Success);
+    }
 
     private void ClearToolOutput_Click(object sender, RoutedEventArgs args)
     {

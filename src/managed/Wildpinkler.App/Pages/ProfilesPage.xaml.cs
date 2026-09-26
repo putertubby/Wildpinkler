@@ -14,6 +14,8 @@ using Microsoft.UI.Xaml.Input;
 using Wildpinkler.App.Controls;
 using Wildpinkler.App.Models;
 using Wildpinkler.App.Services;
+using Wildpinkler.App.Services.Games;
+using Wildpinkler.App.Services.Profiles;
 
 namespace Wildpinkler.App.Pages;
 
@@ -44,7 +46,11 @@ public sealed partial class ProfilesPage : PageBase
     // the selected profile's game, same as the removed ModPickerDialog did.
     private readonly List<ModEntry> _allMods = new();
     private readonly ProfileGarbageCollector _garbageCollector = AppServices.ProfileGarbageCollector;
+    private readonly Wildpinkler.App.Services.Games.ToolDiscoveryService _toolDiscovery =
+        AppHost.Get<Wildpinkler.App.Services.Games.ToolDiscoveryService>();
     private readonly ObservableCollection<LaunchTarget> _targets = new();
+    // Enabled tool launch targets, one button per tool in the toolbar (kept apart from the game launch).
+    private readonly ObservableCollection<LaunchTarget> _toolTargets = new();
     private double _listDetailsWidth;
     private long _profilesRevision;
 
@@ -75,6 +81,13 @@ public sealed partial class ProfilesPage : PageBase
     public string SelectedProfileRunText => SelectedProfile?.ActiveRunText ?? string.Empty;
     public Visibility SelectedProfileRunVisibility => SelectedProfile?.IsRunActive == true ? Visibility.Visible : Visibility.Collapsed;
 
+    private Visibility _toolToolbarVisibility = Visibility.Collapsed;
+    public Visibility ToolToolbarVisibility
+    {
+        get => _toolToolbarVisibility;
+        set { if (SetProperty(ref _toolToolbarVisibility, value)) OnPropertyChanged(nameof(ToolToolbarVisibility)); }
+    }
+
     public bool HasLoadError => LoadErrorMessage is not null;
 
     // Searching a collection that is loading, failed or genuinely empty is noise; the empty state owns that surface.
@@ -100,7 +113,7 @@ public sealed partial class ProfilesPage : PageBase
         ProfileList.ItemsSource = _visibleProfiles;
         ListColumnDef.RegisterPropertyChangedCallback(ColumnDefinition.WidthProperty, ListColumnDef_WidthChanged);
         ToolList.ItemsSource = _toolRows;
-        TargetSelector.ItemsSource = _targets;
+        ToolToolbar.ItemsSource = _toolTargets;
         _queue.Changed += Queue_Changed;
         // Another page can delete profiles (deleting a game cascades into them), so the cached list
         // has to follow the store instead of staying at whatever the constructor read.
@@ -176,6 +189,11 @@ public sealed partial class ProfilesPage : PageBase
         target.Name = source.Name;
         CollectionReconciler.Reconcile(target.LoadOrder, source.LoadOrder, folder => folder.Id, (current, desired) => current.UpdateFrom(desired));
         CollectionReconciler.Reconcile(target.Tools, source.Tools, tool => tool.ToolEntryId, (current, desired) => current.UpdateFrom(desired));
+        // LocalTools hold no bound instances (the UI rows and targets are derived from the
+        // LocalToolEntries below and rebuilt afterwards), so a plain in-place copy is safe here.
+        target.LocalTools.Clear();
+        target.LocalTools.AddRange(source.LocalTools);
+        ProfileLocalToolMigration.MaterializeLocalToolEntries(target);
         target.Variables = source.Variables;
         target.MergedViews = source.MergedViews;
         target.PluginListSorted = source.PluginListSorted;
@@ -318,14 +336,7 @@ public sealed partial class ProfilesPage : PageBase
     private void PruneMissingToolBindings()
     {
         foreach (var profile in _allProfiles)
-        {
-            var orphaned = profile.Tools
-                .Where(bound => _tools.All(tool => tool.Id != bound.ToolEntryId))
-                .ToList();
-
-            foreach (var binding in orphaned)
-                profile.Tools.Remove(binding);
-        }
+            ProfileToolCleanup.PruneMissingBindings(profile, _tools);
     }
 
     private async Task LoadAsync()
@@ -339,6 +350,19 @@ public sealed partial class ProfilesPage : PageBase
             _profilesRevision = _store.Revision;
             foreach (var profile in await _store.LoadAsync())
                 _allProfiles.Add(profile);
+
+            // One-time migration: tools discovered inside a profile used to live in the global tools
+            // store; move them onto the profile itself so the global store stays definition/manual-only.
+            if (ProfileLocalToolMigration.Migrate(_tools, _allProfiles.ToList()))
+            {
+                await _toolStore.SaveAsync(_tools);
+                await _store.SaveAsync(_allProfiles.ToList());
+            }
+
+            // Local tools live on the profile; materialize their in-memory tool entries so rows,
+            // launch targets, exports and discovery can resolve them the same way as global tools.
+            foreach (var profile in _allProfiles)
+                ProfileLocalToolMigration.MaterializeLocalToolEntries(profile);
 
             ApplyGameNames();
 
@@ -392,6 +416,7 @@ public sealed partial class ProfilesPage : PageBase
     private void ShowInfo(string message, InfoBarSeverity severity = InfoBarSeverity.Informational)
     {
         PageInfoBar.ActionButton = null;
+        PageInfoBar.IsClosable = true;
         PageInfoBar.Severity = severity;
         PageInfoBar.Message = message;
         PageInfoBar.IsOpen = true;
@@ -412,7 +437,7 @@ public sealed partial class ProfilesPage : PageBase
         CleanUpCommand.NotifyCanExecuteChanged();
         DeleteSelectedCommand.NotifyCanExecuteChanged();
         ExportModListCommand.NotifyCanExecuteChanged();
-        LaunchCommand.NotifyCanExecuteChanged();
+        LaunchGameCommand.NotifyCanExecuteChanged();
     }
 
     private Profile? SelectedProfile => ProfileList.SelectedItems.Count == 1 ? ProfileList.SelectedItem as Profile : null;
@@ -438,7 +463,7 @@ public sealed partial class ProfilesPage : PageBase
         {
             var installations = await AppServices.ModInstallationStore.LoadAsync();
             var result = await AppServices.ModListExportService.CreateAsync(
-                profile, game, definition, _allMods, installations, _tools, dialog.Metadata);
+                profile, game, definition, _allMods, installations, ProfileLocalToolMigration.MergedTools(_tools, profile), dialog.Metadata);
             await AppServices.ModListCatalogStore.SaveAsync(result.Manifest);
 
             var picker = new Windows.Storage.Pickers.FileSavePicker
@@ -509,9 +534,12 @@ public sealed partial class ProfilesPage : PageBase
         ResetMergedContent();
         RefreshWorkspace();
     }
-
     /// <summary>The one target every workspace section is scoped to.</summary>
-    private LaunchTarget? SelectedTarget => TargetSelector.SelectedItem as LaunchTarget;
+    /// <summary>
+    /// The game launch target (id "game") for the selected profile, or <see langword="null"/>.
+    /// Tools are launched from their own toolbar buttons, never from this target.
+    /// </summary>
+    private LaunchTarget? GameTarget => _targets.FirstOrDefault(target => target.IsGame);
 
     /// <summary>
     /// Re-resolves the profile's launch targets and repaints every section that depends on them. The
@@ -523,6 +551,8 @@ public sealed partial class ProfilesPage : PageBase
         if (SelectedProfile is not { } profile)
         {
             CollectionReconciler.Reconcile(_targets, Array.Empty<LaunchTarget>(), target => target.Id);
+            CollectionReconciler.Reconcile(_toolTargets, Array.Empty<LaunchTarget>(), target => target.Id);
+            ToolToolbarVisibility = Visibility.Collapsed;
             RefreshCustomViews(null, null);
             return;
         }
@@ -540,7 +570,6 @@ public sealed partial class ProfilesPage : PageBase
     private void RefreshTargets()
     {
         var profile = SelectedProfile!;
-        var selectedId = SelectedTarget?.Id;
         var resolvedTargets = ResolveTargets();
 
         try
@@ -552,20 +581,38 @@ public sealed partial class ProfilesPage : PageBase
             ShowInfo($"Unable to create the profile's custom branch folders. {exception.Message}", InfoBarSeverity.Warning);
         }
 
-        // Reassigning ItemsSource resets the ComboBox's selection, so keep the previously chosen target.
-        // The SelectedItem assignment is skipped when it would be a no-op so the ComboBox is never
-        // touched (and its own selection/focus state disturbed) for no reason. Existing targets are
-        // refreshed in place so a cached instance never outlives a profile change.
+        // Existing targets are refreshed in place so a cached instance never outlives a profile change.
+        // Tools are split out into their own collection driving the launch toolbar, kept apart from
+        // the game target so a tool can never be launched by mistake.
         CollectionReconciler.Reconcile(_targets, resolvedTargets, target => target.Id, (current, desired) => current.UpdateFrom(desired));
-        var resolvedSelection = _targets.FirstOrDefault(target => target.Id == selectedId) ?? _targets.FirstOrDefault();
-        if (!ReferenceEquals(TargetSelector.SelectedItem, resolvedSelection))
-            TargetSelector.SelectedItem = resolvedSelection;
+        CollectionReconciler.Reconcile(
+            _toolTargets,
+            resolvedTargets.Where(target => !target.IsGame).ToList(),
+            target => target.Id,
+            (current, desired) => current.UpdateFrom(desired));
+        // Icons come from a COM-owning shell lookup, so they are attached on the UI thread
+        // after reconciliation rather than inside the resolver (which may run off-thread).
+        try
+        {
+            var iconService = AppHost.Get<ToolIconService>();
+            foreach (var target in _toolTargets)
+                target.Icon = iconService.TryGetIcon(target.ExecutablePath);
+        }
+        catch (Exception exception)
+        {
+            // SHGetFileInfo is a native shell call; a fault there must surface as a logged,
+            // dismissible InfoBar rather than taking the whole app down.
+            AppDiagnostics.Write(nameof(RefreshTargets), exception);
+            ShowInfo($"Unable to load tool icons: {exception.Message}", InfoBarSeverity.Error);
+        }
+
+        ToolToolbarVisibility = _toolTargets.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
     }
 
     private void RenderWorkspaceForTarget()
     {
         var profile = SelectedProfile;
-        var target = SelectedTarget;
+        var target = GameTarget;
 
         var game = profile is null ? null : GameFor(profile);
         var profileView = target is null || game is null
@@ -576,19 +623,10 @@ public sealed partial class ProfilesPage : PageBase
         ProfileViewName = string.IsNullOrWhiteSpace(profileView?.Name) ? "GameInstall" : profileView.Name;
         ProfileViewMountPath = profileView?.MountPath ?? string.Empty;
 
-        // Only a tool run swaps the overlay out, so say so rather than showing a different branch list.
-        var isToolRun = target is not null && !target.IsGame;
-        TargetNoteText.Text = isToolRun
-            ? $"While {target!.DisplayName} runs, its new output folder replaces the profile overlay as the top branch, so everything it writes lands in that version."
-            : string.Empty;
-        TargetNoteText.Visibility = isToolRun ? Visibility.Visible : Visibility.Collapsed;
-
         RefreshCustomViews(profile, target);
         RefreshMergedContentIfVisible();
-        LaunchCommand.NotifyCanExecuteChanged();
+        LaunchGameCommand.NotifyCanExecuteChanged();
     }
-
-    private void TargetSelector_SelectionChanged(object sender, SelectionChangedEventArgs args) => RenderWorkspaceForTarget();
 
     private void WorkspaceSelector_SelectionChanged(SelectorBar sender, SelectorBarSelectionChangedEventArgs args)
     {
@@ -724,6 +762,7 @@ public sealed partial class ProfilesPage : PageBase
 
             binding ??= new ProfileTool { ToolEntryId = row.Tool.Id };
             binding.IsEnabled = true;
+            binding.UseOutputOverlay = row.UseOutputOverlay;
             binding.LaunchArgumentsOverride = row.LaunchArgumentsOverride;
             binding.OutputVersion = row.OutputVersion;
             binding.VariableOverrides = new Dictionary<string, string>(row.VariableOverrides);
@@ -752,12 +791,12 @@ public sealed partial class ProfilesPage : PageBase
             Process.Start(new ProcessStartInfo("explorer.exe", $"\"{path}\"") { UseShellExecute = true });
     }
 
-    private bool CanLaunch() => SelectedTarget is not null && IsSelectedProfileModifiable;
+    private bool CanLaunchGame() => GameTarget is not null && IsSelectedProfileModifiable;
 
-    [RelayCommand(CanExecute = nameof(CanLaunch))]
-    private async Task LaunchAsync()
+    [RelayCommand(CanExecute = nameof(CanLaunchGame))]
+    private async Task LaunchGameAsync()
     {
-        if (SelectedTarget is { } target)
+        if (GameTarget is { } target)
             await LaunchTargetAsync(target);
     }
 
@@ -768,7 +807,7 @@ public sealed partial class ProfilesPage : PageBase
 
         try
         {
-            return _launchTargetResolver.Resolve(profile, game, _tools);
+            return _launchTargetResolver.Resolve(profile, game, ProfileLocalToolMigration.MergedTools(_tools, profile));
         }
         catch (Exception exception)
         {
@@ -800,6 +839,67 @@ public sealed partial class ProfilesPage : PageBase
         {
             ShowInfo($"Unable to launch {target.DisplayName}. {exception.Message}", InfoBarSeverity.Error);
         }
+    }
+
+    // Toolbar: launch a single tool from its own button, deliberately separate from the game launch.
+    private async void ToolButton_Click(object sender, RoutedEventArgs args)
+    {
+        if (sender is Button { CommandParameter: LaunchTarget target })
+            await LaunchTargetAsync(target);
+    }
+
+    // Toolbar: remove the tool binding so it drops out of the toolbar and is never launched again.
+    private void ToolRemove_Click(object sender, RoutedEventArgs args)
+    {
+        if (SelectedProfile is not { } profile || !_runAccess.CanModify(profile))
+            return;
+        if (sender is not Button or MenuFlyoutItem)
+            return;
+        var target = sender switch
+        {
+            Button button => button.CommandParameter as LaunchTarget,
+            MenuFlyoutItem item => item.CommandParameter as LaunchTarget,
+            _ => null
+        };
+        if (target is null)
+            return;
+
+        var binding = profile.Tools.FirstOrDefault(item => item.ToolEntryId == target.Id);
+        if (binding is null)
+            return;
+
+        _provisioner.DisableTool(profile, binding);
+        profile.Tools.Remove(binding);
+        profile.NotifySummaryChanged();
+        profile.PluginListSorted = false;
+        RefreshProfiles();
+        RefreshWorkspace();
+        Save("Save profile tools");
+    }
+
+    // Toolbar: flip the tool's "capture output" overlay and re-resolve so the branch tree reflects it.
+    private void ToolOverlay_Click(object sender, RoutedEventArgs args)
+    {
+        if (SelectedProfile is not { } profile || !_runAccess.CanModify(profile))
+            return;
+        if (sender is not Button or MenuFlyoutItem)
+            return;
+        var target = sender switch
+        {
+            Button button => button.CommandParameter as LaunchTarget,
+            MenuFlyoutItem item => item.CommandParameter as LaunchTarget,
+            _ => null
+        };
+        if (target is null)
+            return;
+
+        var binding = profile.Tools.FirstOrDefault(item => item.ToolEntryId == target.Id);
+        if (binding is null)
+            return;
+
+        binding.UseOutputOverlay = !binding.UseOutputOverlay;
+        RefreshWorkspace();
+        Save("Save profile tools");
     }
 
     // Advisory only: lists whatever DependencyGraphService found and lets the user launch anyway -
@@ -901,6 +1001,15 @@ public sealed partial class ProfilesPage : PageBase
         DeleteSelectedCommand.Execute(null);
     }
 
+    private void ScanSelectedProfile_Click(object sender, RoutedEventArgs args)
+    {
+        if ((sender as FrameworkElement)?.DataContext is not Profile profile)
+            return;
+
+        UiTask.Run(() => ScanAndAddToolsAsync(profile), nameof(ScanSelectedProfile_Click),
+            exception => ShowInfo($"The scan for tools could not be completed. {exception.Message}", InfoBarSeverity.Error));
+    }
+
     private bool CanDeleteSelected() => ProfileList.SelectedItems.Count > 0 && ProfileList.SelectedItems.Cast<Profile>().All(_runAccess.CanModify);
 
     [RelayCommand(CanExecute = nameof(CanDeleteSelected))]
@@ -930,6 +1039,8 @@ public sealed partial class ProfilesPage : PageBase
 
         Enqueue("Delete profile", async () =>
         {
+            // Local (discovered) tools live on the profile's own records, so deleting the profile
+            // removes them as part of the store save - nothing to drop from the global tools list.
             await _deletionService.DeleteProfilesAsync(selected);
             await _store.SaveAsync(_allProfiles.ToList());
         });

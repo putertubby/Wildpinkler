@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Wildpinkler.App.Agent;
 using Wildpinkler.App.Commands;
 using Wildpinkler.App.Services.Diagnostics;
+using Wildpinkler.App.Services.Games;
 using Wildpinkler.Remote;
 using Wildpinkler.Remote.Nexus;
 
@@ -64,6 +65,8 @@ public static class ServiceRegistration
         services.AddSingleton<GameDefinitionStore>();
         services.AddSingleton<ToolStore>();
         services.AddSingleton<ToolDefinitionStore>();
+        services.AddSingleton<ToolDiscoveryService>();
+        services.AddSingleton<ToolIconService>();
         return services;
     }
 

@@ -34,5 +34,5 @@ public sealed class ProfileRunAccessPolicyTests
     private static LaunchTarget CreateTarget() => new(
         "game", "Game", LaunchTargetKind.Game, "game.exe", string.Empty, string.Empty,
         "game.exe", string.Empty, Array.Empty<MergedView>(), new Dictionary<string, string>(),
-        Array.Empty<string>(), "profile.json", false, string.Empty);
+        Array.Empty<string>(), "profile.json", false, string.Empty, null, string.Empty, string.Empty);
 }

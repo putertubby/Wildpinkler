@@ -477,12 +477,15 @@ public sealed partial class ToolsPage : PageBase
     {
         var query = ListHeader?.SearchText.Trim() ?? string.Empty;
 
-        var filteredTools = _allTools.Where(tool =>
-            (string.IsNullOrEmpty(query) ||
-             tool.Name.Contains(query, StringComparison.OrdinalIgnoreCase) ||
-             tool.InstallPath.Contains(query, StringComparison.OrdinalIgnoreCase) ||
-             tool.ExecutablePath.Contains(query, StringComparison.OrdinalIgnoreCase)) &&
-            MatchesGameFilter(tool));
+        // Tools discovered inside a profile are local to that profile's toolset - they are managed
+        // from the profile page, so the global tools page only shows global (non-scoped) entries.
+        var filteredTools = _allTools.Where(tool => !tool.IsProfileScoped)
+            .Where(tool =>
+                (string.IsNullOrEmpty(query) ||
+                 tool.Name.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+                 tool.InstallPath.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+                 tool.ExecutablePath.Contains(query, StringComparison.OrdinalIgnoreCase)) &&
+                MatchesGameFilter(tool));
 
         var desiredTools = filteredTools.OrderBy(tool => tool.Name, StringComparer.OrdinalIgnoreCase).ToList();
         CollectionReconciler.Reconcile(_visibleTools, desiredTools, tool => tool.Id);

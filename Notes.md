@@ -82,6 +82,8 @@ git rebase -r 6a8b51fbf9cb1dea6a35cceb5cbb04833c8f86ab --exec 'git commit --amen
 
 - [x] Enable/disable mod does not trigger regereration of profile.json and Plugins.txt. Must restart Wildpinkler to make profile.json update properly
 - [x] Restore "HKCU:\Software\Microsoft\Windows\Windows Error Reporting\LocalDumps" after debugging
+- [ ] Overlay for tools doesn't work. Overlay branch should be added to view automatically.
+- [ ] "Chose roles" menu item does nothing
 - [ ] Check! Game launcher is mutually exclusive (only one mod at a time (at most) can launch)
 - [ ] No scrollbar in add mods dialog
 - [ ] Local ollama does not work
@@ -99,6 +101,7 @@ git rebase -r 6a8b51fbf9cb1dea6a35cceb5cbb04833c8f86ab --exec 'git commit --amen
 
 ## Features
 
+- [ ] Tool icon: Excluded: cache-policy changes, DPI scaling, per-tool custom icons, logging beyond the existing InfoBar pattern.
 - [ ] Bodyslide, FNIS and others - not a tool and not a game! Make all executables visible as toolbuttons using their icons (mutually exclusive launchable, including actual game)
 - [ ] Add mod definitions like game and tool definitions.
 - [ ] Icon

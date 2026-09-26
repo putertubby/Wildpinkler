@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Linq;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Media.Imaging;
 using Wildpinkler.App.Models;
 
 namespace Wildpinkler.App.Controls;
@@ -11,13 +12,19 @@ public sealed partial class ProfileToolRow : ObservableObject
 {
     private bool _isEnabled;
     private bool _isExpanded;
+    private bool _useOutputOverlay;
     private string _launchArgumentsOverride;
     private string _outputFolder = string.Empty;
+
+    /// <summary>The profile's binding for this tool, if one exists; null until the tool is enabled.</summary>
+    public ProfileTool? Binding { get; }
 
     public ProfileToolRow(ToolEntry tool, ProfileTool? binding)
     {
         Tool = tool;
+        Binding = binding;
         _isEnabled = binding?.IsEnabled ?? false;
+        _useOutputOverlay = binding?.UseOutputOverlay ?? true;
         _launchArgumentsOverride = binding?.LaunchArgumentsOverride ?? string.Empty;
         OutputFolderId = binding?.OutputFolderId ?? string.Empty;
         OutputVersion = binding?.OutputVersion ?? 1;
@@ -35,10 +42,43 @@ public sealed partial class ProfileToolRow : ObservableObject
 
     public string KindText => Tool.KindText;
 
-    public bool ProducesOutput => Tool.Definition?.ProducesOutput ?? true;
+    /// <summary>Where this tool comes from (its origin mod, or its kind); shown as a secondary line.</summary>
+    public string OriginText => Tool.OriginText;
+
+    /// <summary>The executable's embedded icon, resolved on the UI thread; null when it cannot be read.</summary>
+    public BitmapSource? Icon { get; set; }
+
+    /// <summary>True when the tool's executable no longer exists on disk; the enable toggle is disabled in that case.</summary>
+    public bool ExecutableMissing => Tool.ExecutableMissing;
+
+    /// <summary>The enable toggle is dead when the executable is missing, so it cannot be switched on.</summary>
+    public bool ToggleEnabled => !ExecutableMissing;
+
+    /// <summary>Visibility of the "missing executable" warning in the row header; rows are rebuilt on refresh, so no notification is needed.</summary>
+    public Visibility MissingWarningVisibility => ExecutableMissing ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <summary>The kind/origin line is replaced by the missing-executable warning.</summary>
+    public Visibility KindTextVisibility => ExecutableMissing ? Visibility.Collapsed : Visibility.Visible;
+
+    // A definition-less tool (manual or discovered) does not write tool output, so the output
+    // section is hidden for it; definition-backed tools follow their definition.
+    public bool ProducesOutput => Tool.Definition?.ProducesOutput ?? false;
+
+    /// <summary>True when the tool lives in the profile itself (discovered in its mod load order) rather than in the global tools list.</summary>
+    public bool IsLocal => Tool.IsProfileScoped;
+
+    /// <summary>
+    /// Every row has a remove button: for local tools it deletes the tool and its binding; for global
+    /// tools it removes only this profile's binding (the global entry itself stays on the Tools page).
+    /// </summary>
+    public Visibility RemoveVisibility => Visibility.Visible;
 
     /// <summary>A <see cref="Visibility"/>, not a bool: this row is bound with classic {Binding}, which has no bool conversion.</summary>
     public Visibility OutputSectionVisibility => ProducesOutput ? Visibility.Visible : Visibility.Collapsed;
+
+    // A local tool's writes go straight to the profile's writable views; it never has its own
+    // output overlay, so the capture toggle is hidden for it.
+    public Visibility OverlaySectionVisibility => IsLocal ? Visibility.Collapsed : Visibility.Visible;
 
     public bool IsEnabled
     {
@@ -47,6 +87,20 @@ public sealed partial class ProfileToolRow : ObservableObject
         {
             if (SetProperty(ref _isEnabled, value))
                 NotifyOutputChanged();
+        }
+    }
+
+    /// <summary>
+    /// Whether this tool's writes are captured into its own tools/[toolId] output overlay. Only
+    /// meaningful for tools that produce output; defaults to true (capture on) for a new binding.
+    /// </summary>
+    public bool UseOutputOverlay
+    {
+        get => _useOutputOverlay;
+        set
+        {
+            if (SetProperty(ref _useOutputOverlay, value) && Binding is { } binding)
+                binding.UseOutputOverlay = value;
         }
     }
 

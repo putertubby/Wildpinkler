@@ -66,7 +66,7 @@ public sealed partial class ProfilesPage
 
         ShowEmptyMergedSelection();
 
-        if (SelectedTarget is not { } target)
+        if (GameTarget is not { } target)
         {
             ContentTree.RootNodes.Clear();
             return;

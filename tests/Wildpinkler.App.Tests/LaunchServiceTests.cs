@@ -116,7 +116,8 @@ public sealed class LaunchServiceTests : IDisposable
         profile.Tools.Add(binding);
         var target = new LaunchTarget(
             "tool", "Tool", LaunchTargetKind.Tool, executable, string.Empty, _root, executable, _root,
-            Array.Empty<MergedView>(), new Dictionary<string, string>(), Array.Empty<string>(), "profile.tool.json", true, string.Empty);
+            Array.Empty<MergedView>(), new Dictionary<string, string>(), Array.Empty<string>(), "profile.tool.json", true, string.Empty,
+            null, string.Empty, string.Empty);
         var process = new FakeProcess();
         var launcher = new FakeLauncher(process, throwOnStart);
         var runs = new ActiveRunRegistry();
@@ -143,7 +144,8 @@ public sealed class LaunchServiceTests : IDisposable
         var target = new LaunchTarget(
             "game", "Game", LaunchTargetKind.Game, realExecutable, string.Empty, Path.GetDirectoryName(realExecutable)!,
             virtualExecutable, @"C:\games\test\loaders",
-            Array.Empty<MergedView>(), new Dictionary<string, string>(), Array.Empty<string>(), "profile.json", false, string.Empty);
+            Array.Empty<MergedView>(), new Dictionary<string, string>(), Array.Empty<string>(), "profile.json", false, string.Empty,
+            null, string.Empty, string.Empty);
         var process = new FakeProcess();
         var launcher = new FakeLauncher(process, throwOnStart: false);
         var service = new LaunchService(new ProfileConfigExporter(), new ProfileFolderService(_root), new ActiveRunRegistry(), launcher, loader);
@@ -185,7 +187,8 @@ public sealed class LaunchServiceTests : IDisposable
         var target = new LaunchTarget(
             "game", "Game", LaunchTargetKind.Game, realExecutable, string.Empty, Path.GetDirectoryName(realExecutable)!,
             virtualExecutable, @"C:\games\test\bin",
-            Array.Empty<MergedView>(), new Dictionary<string, string>(), Array.Empty<string>(), "profile.json", false, string.Empty);
+            Array.Empty<MergedView>(), new Dictionary<string, string>(), Array.Empty<string>(), "profile.json", false, string.Empty,
+            null, string.Empty, string.Empty);
         var process = new FakeProcess();
         var launcher = new FakeLauncher(process, throwOnStart: false);
         var service = new LaunchService(new ProfileConfigExporter(), new ProfileFolderService(_root), new ActiveRunRegistry(), launcher, loader);
@@ -289,7 +292,8 @@ public sealed class LaunchServiceTests : IDisposable
         var target = new LaunchTarget(
             "game", "Game", LaunchTargetKind.Game, realExecutable, arguments, Path.GetDirectoryName(realExecutable)!,
             virtualExecutable, @"C:\games\test\bin",
-            Array.Empty<MergedView>(), new Dictionary<string, string>(), Array.Empty<string>(), "profile.json", false, steamId);
+            Array.Empty<MergedView>(), new Dictionary<string, string>(), Array.Empty<string>(), "profile.json", false, steamId,
+            null, string.Empty, string.Empty);
         var process = new FakeProcess();
         var launcher = new FakeLauncher(process, throwOnStart: false);
         var service = new LaunchService(new ProfileConfigExporter(), new ProfileFolderService(_root), new ActiveRunRegistry(), launcher, loader);
