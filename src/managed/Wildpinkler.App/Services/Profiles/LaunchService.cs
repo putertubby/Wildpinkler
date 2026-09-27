@@ -209,7 +209,7 @@ public sealed partial class LaunchService
             target.Kind.ToString(),
             exitCode);
 
-        var completion = new LaunchCompletion(profile, target, succeeded, pendingRun);
+        var completion = new LaunchCompletion(profile, target, succeeded, pendingRun, exitCode);
         LaunchCompleted?.Invoke(completion);
         return completion;
     }
@@ -285,4 +285,5 @@ public sealed record LaunchCompletion(
     Profile Profile,
     LaunchTarget Target,
     bool Succeeded,
-    ProfileFolderService.PendingToolRun? PendingToolRun);
+    ProfileFolderService.PendingToolRun? PendingToolRun,
+    int? ExitCode);

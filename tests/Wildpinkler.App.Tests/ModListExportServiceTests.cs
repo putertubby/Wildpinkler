@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Wildpinkler.App.Models;
 using Wildpinkler.App.Services;
@@ -141,5 +142,37 @@ public sealed class ModListExportServiceTests
         var exported = Assert.IsType<ModListModEntry>(Assert.Single(result.Manifest.Content));
         Assert.Empty(exported.Archive.Sha256);
         Assert.IsType<GuidedInstallationRecipe>(exported.Installation);
+    }
+
+    [Fact]
+    public async Task CreateAsync_ExportedToolRequirements_KeepDefinitionIdAndEnabledState()
+    {
+        var profile = new Profile { Id = "profile", Name = "Test", GameId = "game" };
+        profile.Tools.Add(new ProfileTool { ToolEntryId = "output-tool", IsEnabled = true });
+        profile.Tools.Add(new ProfileTool { ToolEntryId = "settings-tool", IsEnabled = true });
+        profile.Tools.Add(new ProfileTool { ToolEntryId = "disabled-tool", IsEnabled = false });
+        var game = new GameEntry { Id = "game", DefinitionId = "skyrim-se" };
+        var definition = new GameDefinition { DefinitionId = "skyrim-se", DefinitionVersion = 1, Name = "Skyrim SE" };
+        var outputTool = new ToolEntry { Id = "output-tool", Name = "Sorter", DefinitionId = "sorter", DefinitionVersion = 2 };
+        outputTool.Definition = new ToolDefinition { DefinitionId = "sorter", ExecutableRelativePath = "sorter.exe", ProducesOutput = true };
+        var settingsTool = new ToolEntry { Id = "settings-tool", Name = "Settings tool", DefinitionId = "settings", DefinitionVersion = 1 };
+        settingsTool.Definition = new ToolDefinition { DefinitionId = "settings", ExecutableRelativePath = "settings.exe", ProducesOutput = false };
+        var disabledTool = new ToolEntry { Id = "disabled-tool", Name = "Disabled" };
+
+        var result = await new ModListExportService().CreateAsync(
+            profile, game, definition, Array.Empty<ModEntry>(), Array.Empty<ModInstallation>(),
+            new[] { outputTool, settingsTool, disabledTool },
+            new ModListExportMetadata("test-list", 1, "Test list", "", ""),
+            TestContext.Current.CancellationToken);
+
+        var exportedTools = result.Manifest.Tools.OrderBy(tool => tool.Name).ToArray();
+        Assert.Equal(2, exportedTools.Length);
+        var sorter = Assert.Single(exportedTools, tool => tool.DefinitionId == "sorter");
+        Assert.Equal("tool-sorter", sorter.RequirementId);
+        Assert.True(sorter.IsEnabled);
+        Assert.Equal("Sorter", sorter.Name);
+        var settings = Assert.Single(exportedTools, tool => tool.DefinitionId == "settings");
+        Assert.Equal("tool-settings", settings.RequirementId);
+        Assert.True(settings.IsEnabled);
     }
 }

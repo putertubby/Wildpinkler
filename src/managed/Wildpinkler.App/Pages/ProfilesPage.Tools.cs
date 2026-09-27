@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -130,6 +132,8 @@ public sealed partial class ProfilesPage
         Save("Save profile tools");
     }
 
+    // Enabling a local (definition-less) tool also materializes its output row in the load order,
+    // disabled until capture is turned on - the same ApplyToolBindings path the capture toggle uses.
     private void ToolEnabled_Toggled(object sender, RoutedEventArgs args)
     {
         // Don't rely on the x:Bind TwoWay push having already run before this handler - read the
@@ -147,19 +151,16 @@ public sealed partial class ProfilesPage
         CommitToolBindings();
     }
 
-    private void ToolOverlay_Toggled(object sender, RoutedEventArgs args)
+    private void CaptureOutput_Toggled(object sender, RoutedEventArgs args)
     {
-        // Don't rely on the two-way binding push having already run before this handler - read
-        // the switch's own state directly so a same-event ordering race can never read a stale value.
+        // Read the switch's own state directly for the same reason ToolEnabled_Toggled does.
         if (sender is not ToggleSwitch { DataContext: ProfileToolRow row } toggle)
             return;
 
-        // A container rebuild can re-realize the switch and re-fire Toggled with the value it already
-        // has - only a real change should trigger another save.
-        if (row.UseOutputOverlay == toggle.IsOn)
+        if (row.CapturesOutput == toggle.IsOn)
             return;
 
-        row.UseOutputOverlay = toggle.IsOn;
+        row.CapturesOutput = toggle.IsOn;
 
         CommitToolBindings();
     }
@@ -409,6 +410,52 @@ public sealed partial class ProfilesPage
         catch (Exception exception)
         {
             ShowInfo($"Unable to clear {row.Name}'s output. {exception.Message}", InfoBarSeverity.Error);
+        }
+    }
+
+    // The "Discard" action on the tool-output completion banner. It drops the version the run just
+    // produced: a successful run's output was promoted, so discarding makes the previous version
+    // current again; a failed run left only an un-promoted pending folder, so discarding just deletes it.
+    // No confirmation - the banner's wording already names what will be dropped.
+    [RelayCommand]
+    private void DiscardRunToolOutput(object? parameter)
+    {
+        if (parameter is not ProfileToolRow row)
+            return;
+
+        var profile = SelectedProfile;
+        if (profile is null || !_runAccess.CanModify(profile) || row.Binding is null || !row.Binding.IsEnabled)
+            return;
+
+        var binding = row.Binding;
+        var pendingVersion = binding.OutputVersion + 1;
+        var pendingFolder = ProfileFolderService.GetToolOutputFolder(profile, row.Tool.Id, pendingVersion);
+
+        try
+        {
+            if (Directory.Exists(pendingFolder))
+            {
+                // A failed run's pending output, never promoted - delete it and keep the current version.
+                Directory.Delete(pendingFolder, recursive: true);
+                ShowInfo($"Discarded the pending output of {row.Name}.", InfoBarSeverity.Success);
+            }
+            else
+            {
+                // A successful run's output, now the current version - demote to the previous one.
+                var discarded = binding.OutputVersion;
+                var previous = _provisioner.DiscardToolOutput(profile, binding, row.Tool.Id, discarded);
+                row.OutputVersion = previous;
+                row.SetOutputFolder(ProfileFolderService.GetToolOutputFolder(profile, row.Tool.Id, previous));
+                ShowInfo($"Discarded version {discarded} of {row.Name}.", InfoBarSeverity.Success);
+            }
+
+            RefreshWorkspace();
+            Save("Discard tool output");
+            PageInfoBar.IsOpen = false;
+        }
+        catch (Exception exception)
+        {
+            ShowInfo($"The tool output could not be discarded. {exception.Message}", InfoBarSeverity.Error);
         }
     }
 }

@@ -26,6 +26,7 @@ public sealed class LaunchServiceTests : IDisposable
         var completion = await completionTask.WaitAsync(TestContext.Current.CancellationToken);
 
         Assert.True(completion.Succeeded);
+        Assert.Equal(0, completion.ExitCode);
         Assert.Equal(2, fixture.Binding.OutputVersion);
         Assert.False(fixture.Runs.HasRun(fixture.Profile.Id));
     }
@@ -51,6 +52,7 @@ public sealed class LaunchServiceTests : IDisposable
 
         Assert.NotNull(completion);
         Assert.True(completion!.Succeeded);
+        Assert.Equal(0, completion.ExitCode);
         Assert.Equal(2, fixture.Binding.OutputVersion);
         Assert.False(fixture.Runs.HasRun(fixture.Profile.Id));
     }
@@ -67,6 +69,7 @@ public sealed class LaunchServiceTests : IDisposable
         var completion = await completionSource.Task.WaitAsync(TestContext.Current.CancellationToken);
 
         Assert.False(completion.Succeeded);
+        Assert.Equal(1, completion.ExitCode);
         Assert.Equal(1, fixture.Binding.OutputVersion);
         Assert.True(Directory.Exists(ProfileFolderService.GetToolOutputFolder(fixture.Profile, fixture.Target.Id, 2)));
         Assert.False(fixture.Runs.HasRun(fixture.Profile.Id));

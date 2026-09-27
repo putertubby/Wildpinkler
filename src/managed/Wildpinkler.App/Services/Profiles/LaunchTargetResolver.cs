@@ -219,13 +219,14 @@ public sealed class LaunchTargetResolver
         // Tools always use their own install path as the base; all paths must be absolute via variables or rooted.
         var toolViewBaseFolder = tool.InstallPath;
 
-        // A settings-only tool writes nothing back into the profile, so it owns no output folder.
-        // Definition-less tools (manual/discovered) are treated as settings-only: no output overlay.
-        var producesOutput = definition?.ProducesOutput ?? false;
+        // A tool that produces no output writes nothing back into the profile, so it owns no
+        // output folder. Definition-backed tools follow their definition; definition-less tools
+        // follow the profile's per-tool capture flag.
+        var producesOutput = ProfileTool.EffectiveProducesOutput(tool, binding);
 
         // While a tool runs it writes into the *next* output version, which is promoted afterwards.
-        // Only create an output folder if the tool produces output and UseOutputOverlay is enabled.
-        var outputFolder = producesOutput && binding.UseOutputOverlay
+        // Only a tool that produces output owns an output folder at all.
+        var outputFolder = producesOutput
             ? ProfileFolderService.GetToolOutputFolder(profile, tool.Id, binding.OutputVersion + 1)
             : string.Empty;
 
@@ -240,11 +241,11 @@ public sealed class LaunchTargetResolver
             : binding.LaunchArgumentsOverride;
 
         // A tool that owns an output folder swaps the profile overlay for the pending version it is
-        // writing into; a settings-only tool or a tool with output overlay disabled keeps the profile's view unchanged.
+        // writing into; a settings-only tool keeps the profile's view unchanged.
         var loadOrderView = BuildLoadOrderView(
             profile,
             game,
-            (producesOutput && binding.UseOutputOverlay) ? outputFolder : null);
+            producesOutput ? outputFolder : null);
         var gameViews = ResolveEntityViews(
             game.Definition?.MergedViews, game.Definition?.Variables, game.InstallPath, ProfileFolderService.GetCustomFolder(profile, game.Id));
 

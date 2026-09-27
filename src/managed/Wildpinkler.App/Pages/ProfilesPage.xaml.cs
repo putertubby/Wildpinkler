@@ -168,6 +168,11 @@ public sealed partial class ProfilesPage : PageBase
 
         var selected = SelectedProfile;
         CollectionReconciler.Reconcile(_allProfiles, stored, profile => profile.Id, MergeProfileContent);
+        // The stored profiles may already hold tool-output rows; materialize any that are still
+        // missing so externally enabled tools (for example from an agent action) surface their
+        // branch in the load order without waiting for the user to toggle the tool.
+        foreach (var profile in _allProfiles)
+            _provisioner.EnsureToolOutputRows(profile, ProfileLocalToolMigration.MergedTools(_tools, profile));
         ApplyGameNames();
         RefreshProfiles();
 
@@ -202,10 +207,32 @@ public sealed partial class ProfilesPage : PageBase
 
     private void LaunchService_LaunchCompleted(LaunchCompletion completion) => DispatcherQueue.TryEnqueue(() =>
     {
-        if (ReferenceEquals(SelectedProfile, completion.Profile))
+        // The rows show the profile that is open, so refresh them and report the outcome only for it.
+        var isShownProfile = ReferenceEquals(SelectedProfile, completion.Profile);
+        var row = isShownProfile ? _toolRows.FirstOrDefault(item => item.Tool.Id == completion.Target.Id) : null;
+        if (row is not null && row.Binding is not null)
+        {
+            row.OutputVersion = row.Binding.OutputVersion;
+            row.SetOutputFolder(ProfileFolderService.GetToolOutputFolder(completion.Profile, row.Tool.Id, row.OutputVersion));
+        }
+
+        if (isShownProfile)
             RefreshWorkspace();
         if (completion.Succeeded && completion.Target.ProducesOutput)
             Save("Save tool output version");
+
+        if (row is null || !completion.Target.ProducesOutput)
+            return;
+
+        if (completion.Succeeded)
+        {
+            ShowToolOutputInfo($"{row.Name} finished - its output is now version {row.OutputVersion}.", InfoBarSeverity.Success, row);
+        }
+        else
+        {
+            var code = completion.ExitCode is { } value ? $" code {value}" : string.Empty;
+            ShowToolOutputInfo($"{row.Name} exited with{code}; its captured output was not kept.", InfoBarSeverity.Warning, row);
+        }
     });
 
     private void UpdateLayoutState(double width)
@@ -362,9 +389,18 @@ public sealed partial class ProfilesPage : PageBase
             // Local tools live on the profile; materialize their in-memory tool entries so rows,
             // launch targets, exports and discovery can resolve them the same way as global tools.
             foreach (var profile in _allProfiles)
+            {
                 ProfileLocalToolMigration.MaterializeLocalToolEntries(profile);
+                _provisioner.EnsureToolOutputRows(profile, ProfileLocalToolMigration.MergedTools(_tools, profile));
+            }
 
             ApplyGameNames();
+
+            // A tool run that ended without its completion being recorded (the app was closed
+            // mid-run, the loader crashed, ...) leaves a pending output version on disk. Reconcile
+            // it now so disk and profile state converge before the user interacts: nonempty
+            // leftovers are promoted into the load order, empty ones are deleted.
+            UiTask.Run(SweepOrphanedToolOutputs, nameof(SweepOrphanedToolOutputs), ShowLoadOrderError);
 
             if (warnings.Count > 0)
                 ShowInfo(string.Join("\n", warnings), InfoBarSeverity.Warning);
@@ -419,6 +455,33 @@ public sealed partial class ProfilesPage : PageBase
         PageInfoBar.IsClosable = true;
         PageInfoBar.Severity = severity;
         PageInfoBar.Message = message;
+        PageInfoBar.IsOpen = true;
+    }
+
+    /// <summary>
+    /// The one InfoBar variant with an action button: the tool-output completion banner, whose
+    /// "Discard" button drops the version the run just produced (or left pending).
+    /// </summary>
+    private void ShowToolOutputInfo(string message, InfoBarSeverity severity, ProfileToolRow? discardRow)
+    {
+        PageInfoBar.IsClosable = true;
+        PageInfoBar.Severity = severity;
+        PageInfoBar.Message = message;
+        if (discardRow is not null)
+        {
+            PageInfoBar.ActionButton = new Button
+            {
+                Content = "Discard",
+                Command = DiscardRunToolOutputCommand,
+                CommandParameter = discardRow
+            };
+            DiscardRunToolOutputCommand.NotifyCanExecuteChanged();
+        }
+        else
+        {
+            PageInfoBar.ActionButton = null;
+        }
+
         PageInfoBar.IsOpen = true;
     }
 
@@ -762,15 +825,18 @@ public sealed partial class ProfilesPage : PageBase
 
             binding ??= new ProfileTool { ToolEntryId = row.Tool.Id };
             binding.IsEnabled = true;
-            binding.UseOutputOverlay = row.UseOutputOverlay;
+            if (row.Tool.Definition is null)
+                binding.CapturesOutput = row.CapturesOutput;
             binding.LaunchArgumentsOverride = row.LaunchArgumentsOverride;
             binding.OutputVersion = row.OutputVersion;
             binding.VariableOverrides = new Dictionary<string, string>(row.VariableOverrides);
             binding.MergedViewOverrides = row.MergedViewOverrides.Select(view => view.Clone()).ToList();
 
-            // A settings-only tool is still a launch target, it just owns no output branch.
-            if (row.ProducesOutput)
-                _provisioner.EnableTool(profile, binding, row.Tool);
+            // A tool that produces no output is still a launch target, it just owns no output branch.
+            // Local tools always own a branch while enabled (disabled until capture is on), so the
+            // row is materialized rather than deleted when capture is off.
+            if (row.Tool.Definition is null || ProfileTool.EffectiveProducesOutput(row.Tool, binding))
+                _provisioner.EnsureToolOutputRow(profile, binding, row.Tool);
             else
                 _provisioner.DisableTool(profile, binding);
 
@@ -873,31 +939,6 @@ public sealed partial class ProfilesPage : PageBase
         profile.NotifySummaryChanged();
         profile.PluginListSorted = false;
         RefreshProfiles();
-        RefreshWorkspace();
-        Save("Save profile tools");
-    }
-
-    // Toolbar: flip the tool's "capture output" overlay and re-resolve so the branch tree reflects it.
-    private void ToolOverlay_Click(object sender, RoutedEventArgs args)
-    {
-        if (SelectedProfile is not { } profile || !_runAccess.CanModify(profile))
-            return;
-        if (sender is not Button or MenuFlyoutItem)
-            return;
-        var target = sender switch
-        {
-            Button button => button.CommandParameter as LaunchTarget,
-            MenuFlyoutItem item => item.CommandParameter as LaunchTarget,
-            _ => null
-        };
-        if (target is null)
-            return;
-
-        var binding = profile.Tools.FirstOrDefault(item => item.ToolEntryId == target.Id);
-        if (binding is null)
-            return;
-
-        binding.UseOutputOverlay = !binding.UseOutputOverlay;
         RefreshWorkspace();
         Save("Save profile tools");
     }
@@ -1136,6 +1177,57 @@ public sealed partial class ProfilesPage : PageBase
             profile.IsRunActive = _activeRuns.TryGetRun(profile.Id, out var run);
             profile.ActiveRunText = run is null ? string.Empty : $"Running: {run.TargetName}";
         }
+    }
+
+    // Recovers tool output versions left un-finalized by a run that ended without its completion
+    // being recorded (the app was closed mid-run, the loader crashed, ...): a nonempty pending
+    // version is promoted into the load order, an empty leftover is deleted. Empty cleanup is
+    // silent; promotions are reported.
+    private Task SweepOrphanedToolOutputs()
+    {
+        var recovered = new List<string>();
+        var removedEmpty = 0;
+
+        foreach (var profile in _allProfiles)
+        {
+            if (_activeRuns.HasRun(profile.Id))
+                continue;
+
+            foreach (var binding in profile.Tools)
+            {
+                if (!binding.IsEnabled)
+                    continue;
+
+                try
+                {
+                    var result = _provisioner.ReconcileToolOutput(profile, binding, binding.ToolEntryId);
+                    if (result.Promoted)
+                        recovered.Add($"version {result.Version} of {binding.Tool?.Name ?? binding.ToolEntryId}");
+                    else if (result.DeletedEmpty)
+                        removedEmpty++;
+                }
+                catch (Exception exception)
+                {
+                    AppDiagnostics.Write($"Tool output recovery failed for profile '{profile.Name}'.", exception);
+                }
+            }
+        }
+
+        if (recovered.Count == 0 && removedEmpty == 0)
+            return Task.CompletedTask;
+
+        var message = string.Empty;
+        if (recovered.Count > 0)
+            message += $"Recovered {recovered.Count} interrupted tool run{(recovered.Count == 1 ? string.Empty : "s")}: {string.Join(", ", recovered)}.";
+        if (removedEmpty > 0)
+            message += $" Removed {removedEmpty} empty leftover folder{(removedEmpty == 1 ? string.Empty : "s")}.";
+
+        ShowInfo(message, InfoBarSeverity.Informational);
+
+        if (recovered.Count > 0)
+            Save("Recover tool output versions");
+
+        return Task.CompletedTask;
     }
 
     private void Save(string label) => Enqueue(label, () => _store.SaveAsync(_allProfiles.ToList()));

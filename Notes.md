@@ -82,7 +82,9 @@ git rebase -r 6a8b51fbf9cb1dea6a35cceb5cbb04833c8f86ab --exec 'git commit --amen
 
 - [x] Enable/disable mod does not trigger regereration of profile.json and Plugins.txt. Must restart Wildpinkler to make profile.json update properly
 - [x] Restore "HKCU:\Software\Microsoft\Windows\Windows Error Reporting\LocalDumps" after debugging
-- [ ] Overlay for tools doesn't work. Overlay branch should be added to view automatically.
+- [ ] Toolbutton menus does nothing
+- [x] Overlay for tools doesn't work. Overlay branch should be added to view automatically.
+- [ ] Diabling/enabling mods does not remove and bring back tools automatically
 - [ ] "Chose roles" menu item does nothing
 - [ ] Check! Game launcher is mutually exclusive (only one mod at a time (at most) can launch)
 - [ ] No scrollbar in add mods dialog

@@ -165,13 +165,15 @@ Anything that expands to an already-rooted path - typically because it was built
 
 ### Tool output versions
 
-Tool output is per profile and versioned: `<profile folder>\tool-output\<toolId>-<version>`. Enabling a tool creates version 1 and inserts it into the profile merged view directly below the overlay, so tool output overrides mods.
+Tool output is per profile and versioned: `<profile folder>\tool-output\<toolId>-<version>`. Enabling a tool whose definition produces output (`"producesOutput": true`, the default) creates version 1 and inserts it into the profile merged view directly below the overlay, so tool output overrides mods.
 
-Launching that tool creates the *next* version and mounts it as the top branch of the tool's own merged view, in place of the profile overlay - so a run never mixes its output with the previous run's, and never pollutes the overlay. When the tool exits, the new version is promoted: the profile's branch is repointed at it and the previous version becomes garbage. "Clear output" on the Tools tab deletes every version for that tool and restarts at version 1.
+Launching that tool creates the *next* version and mounts it as the top branch of the tool's own merged view, in place of the profile overlay - so a run never mixes its output with the previous run's, and never pollutes the overlay. There is no keep/discard prompt: a successful run is kept automatically, the profile's branch is repointed at the new version, the previous version becomes garbage, and an info bar offers a one-click **Discard** to remove it. A failed run is never promoted; its pending version stays in place and the same info bar offers **Discard** to clean it up. "Clear output" on the Tools tab deletes every version for that tool and restarts at version 1. If the app is closed while a run is in flight, the pending version is recovered the next time the profile is loaded: a nonempty pending folder is promoted, an empty one is deleted.
 
 A mod designated as a game launcher (see [Mods as game launchers](#mods-as-game-launchers)) is the exception: it starts the game itself through the profile's single Game launch target, so it reuses the profile merged view unchanged - no overlay swap, no output version.
 
-A tool definition can also declare that it produces no output at all (`"producesOutput": false`), for a tool that only changes settings - LOOT, for example, which writes its own configuration outside the game folder. Enabling such a tool creates no `tool-output` folder and adds nothing to the profile merged view; it becomes a launch target like any other, and its writable merged views write straight to the branches the definition declares.
+A tool definition can also declare that it produces no output at all (`"producesOutput": false`), for a tool that only changes settings - LOOT, for example, which writes its own configuration outside the game folder. Such a tool has no output capture at all: enabling it creates no `tool-output` folder, adds nothing to the profile merged view, and the tool row shows no output section. It becomes a launch target like any other, and its writable merged views write straight to the branches the definition declares.
+
+A *local* tool - one without a definition, discovered in the profile or added manually - has no definition flag to govern it, so its output capture is a per-profile toggle in the tool row's expanded configuration. Toggling it on for an enabled local tool creates `tool-output/<toolId>-1` and behaves exactly like a definition-produced output tool from that point on; toggling it off removes the branch from the load order (the directory is kept on disk). Definition-backed tools stay governed by their shared definition's `producesOutput` flag - there is no per-profile override for them.
 
 ### Garbage collection
 
@@ -330,7 +332,7 @@ Each exported config has exactly two top-level keys, `variables` and `mountpoint
 
 A tool is a launchable program tied to one or more games and enabled per profile — LOOT, FNIS or BodySlide, for example. A tool can never start the game itself; an executable that does (SKSE and similar) is installed as a mod instead and designated as that mod's game launcher (see [Mods as game launchers](#mods-as-game-launchers)). Like a game, a tool is split into a portable *tool definition* (`<toolId>.wptool.json`, shareable, no local paths) and a local *tool entry* (name, install path, launch arguments). Enabling a tool that produces output creates `tool-output/<toolId>-<version>/` and inserts it into the profile merged view directly below the profile overlay, so tool output overrides mods. A tool that only changes settings declares `"producesOutput": false` and gets neither.
 
-A tool's merged views and all paths within them must use variables like `${GameInstallPath}` or `${ToolInstallPath}` to resolve to absolute folders. When you enable a tool in a profile, you can toggle "Capture tool output" to organize that tool's writes into a separate priority folder, or disable it to write directly to the views it declares.
+A tool's merged views and all paths within them must use variables like `${GameInstallPath}` or `${ToolInstallPath}` to resolve to absolute folders. Whether a tool captures its output into per-profile versioned folders is decided by its definition's `producesOutput` flag for definition-backed tools, and by a per-profile toggle in the tool row's configuration for local, definition-less tools (see [Tool output versions](#tool-output-versions)).
 
 ## Mods as game launchers
 

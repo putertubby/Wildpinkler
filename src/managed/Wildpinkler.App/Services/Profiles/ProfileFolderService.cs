@@ -75,24 +75,81 @@ public sealed class ProfileFolderService
             return existing;
         }
 
+        var folder = CreateToolOutputRow(profile, binding, tool, isEnabled: true);
+        binding.OutputFolderId = folder.Id;
+        return folder;
+    }
+
+    /// <summary>
+    /// Materializes (or finds) the load-order row a tool's output lives in, so the branch is always
+    /// visible and reorderable in the load order. A definition-backed settings-only tool owns no
+    /// branch and gets no row; a local tool always gets one while it is enabled - disabled until
+    /// its capture flag is turned on. Returns <see langword="null"/> when no row is owned.
+    /// </summary>
+    public ProfileFolder? EnsureToolOutputRow(Profile profile, ProfileTool binding, ToolEntry tool)
+    {
+        var isLocal = tool.Definition is null;
+        var producesOutput = ProfileTool.EffectiveProducesOutput(tool, binding);
+
+        if (!isLocal && !producesOutput)
+            return null;
+
+        var path = GetToolOutputFolder(profile, tool.Id, binding.OutputVersion);
+        Directory.CreateDirectory(path);
+
+        var existing = profile.LoadOrder.FirstOrDefault(folder => folder.ToolEntryId == tool.Id);
+        if (existing is not null)
+        {
+            existing.Path = path;
+            // A local tool's row enabled state mirrors its capture flag; a definition-backed row's
+            // toggle is the user's include/exclude choice and is never rewritten here.
+            if (isLocal)
+                existing.IsEnabled = producesOutput;
+
+            binding.OutputFolderId = existing.Id;
+            return existing;
+        }
+
+        var folder = CreateToolOutputRow(profile, binding, tool, isEnabled: producesOutput);
+        binding.OutputFolderId = folder.Id;
+        return folder;
+    }
+
+    /// <summary>Materializes the load-order rows for every enabled binding that owns an output branch.</summary>
+    public void EnsureToolOutputRows(Profile profile, IReadOnlyList<ToolEntry> tools)
+    {
+        foreach (var binding in profile.Tools.Where(item => item.IsEnabled).ToList())
+        {
+            var tool = tools.FirstOrDefault(item => item.Id == binding.ToolEntryId);
+            if (tool is null)
+                continue;
+
+            EnsureToolOutputRow(profile, binding, tool);
+        }
+    }
+
+    // Creates a fresh tool-output row and inserts it below the pinned overlay folder (tool output
+    // overrides mods). Callers own the binding.OutputFolderId bookkeeping.
+    private static ProfileFolder CreateToolOutputRow(Profile profile, ProfileTool binding, ToolEntry tool, bool isEnabled)
+    {
         var path = GetToolOutputFolder(profile, tool.Id, binding.OutputVersion);
         Directory.CreateDirectory(path);
 
         var folder = new ProfileFolder
         {
             Id = Guid.NewGuid().ToString("N"),
-            Name = $"{tool.Name} output",
+            Name = GetToolOutputName(tool),
             Path = path,
             Kind = ProfileFolderKind.ToolOutput,
-            ToolEntryId = tool.Id
+            ToolEntryId = tool.Id,
+            IsEnabled = isEnabled
         };
 
-        // Tool output overrides mods, so it starts directly below the pinned overlay folder.
-        var overlayIndex = IndexOfKind(profile, ProfileFolderKind.Overlay);
-        profile.LoadOrder.Insert(overlayIndex + 1, folder);
-        binding.OutputFolderId = folder.Id;
+        profile.LoadOrder.Insert(IndexOfKind(profile, ProfileFolderKind.Overlay) + 1, folder);
         return folder;
     }
+
+    internal static string GetToolOutputName(ToolEntry tool) => $"{tool.Name} output";
 
     /// <summary>Drops the tool's output folder from the load order; the directory itself is kept.</summary>
     public void DisableTool(Profile profile, ProfileTool binding)
@@ -165,6 +222,73 @@ public sealed class ProfileFolderService
             folder.Path = current;
 
         return 1;
+    }
+
+    /// <summary>
+    /// Deletes one captured output version and makes the previous version current again. If no
+    /// earlier version exists (the discarded version was 1) an empty version 1 is recreated so the
+    /// load order always points at a real folder. Returns the version now current.
+    /// </summary>
+    public int DiscardToolOutput(Profile profile, ProfileTool binding, string toolId, int discardedVersion)
+    {
+        var discarded = GetToolOutputFolder(profile, toolId, discardedVersion);
+        if (Directory.Exists(discarded))
+            Directory.Delete(discarded, recursive: true);
+
+        var previous = discardedVersion - 1;
+        var current = previous >= 1 && Directory.Exists(GetToolOutputFolder(profile, toolId, previous))
+            ? GetToolOutputFolder(profile, toolId, previous)
+            : GetToolOutputFolder(profile, toolId, 1);
+
+        if (previous < 1)
+            Directory.CreateDirectory(current);
+
+        binding.OutputVersion = previous >= 1 ? previous : 1;
+
+        var folder = profile.LoadOrder.FirstOrDefault(item => item.ToolEntryId == toolId);
+        if (folder is not null)
+            folder.Path = current;
+
+        return binding.OutputVersion;
+    }
+
+    /// <summary>
+    /// Recovers output versions written by a tool run that ended without being finalized (for
+    /// example, the app was closed while the tool still ran). The highest version above the
+    /// current one is promoted into the load order if it contains any files; an empty leftover is
+    /// deleted instead.
+    /// </summary>
+    public (bool Promoted, int Version, bool DeletedEmpty) ReconcileToolOutput(Profile profile, ProfileTool binding, string toolId)
+    {
+        var root = GetToolOutputRoot(profile);
+        var bestVersion = 0;
+        if (Directory.Exists(root))
+        {
+            foreach (var directory in Directory.EnumerateDirectories(root, $"{toolId}-*"))
+            {
+                var name = Path.GetFileName(directory);
+                if (!int.TryParse(name[(toolId.Length + 1)..], out var version))
+                    continue;
+                if (version > binding.OutputVersion && version > bestVersion)
+                    bestVersion = version;
+            }
+        }
+
+        if (bestVersion == 0)
+            return (false, binding.OutputVersion, false);
+
+        var folder = GetToolOutputFolder(profile, toolId, bestVersion);
+        if (Directory.EnumerateFileSystemEntries(folder).Any())
+        {
+            binding.OutputVersion = bestVersion;
+            var loadOrderFolder = profile.LoadOrder.FirstOrDefault(item => item.ToolEntryId == toolId);
+            if (loadOrderFolder is not null)
+                loadOrderFolder.Path = folder;
+            return (true, bestVersion, false);
+        }
+
+        Directory.Delete(folder, recursive: true);
+        return (false, binding.OutputVersion, true);
     }
 
     /// <summary>

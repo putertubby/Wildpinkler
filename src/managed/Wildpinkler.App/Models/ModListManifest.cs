@@ -104,7 +104,6 @@ public sealed class ModListToolRequirement
     public bool IsRequired { get; set; } = true;
     public bool IsEnabled { get; set; } = true;
     public string LaunchArgumentsOverride { get; set; } = string.Empty;
-    public bool UseOutputOverlay { get; set; } = true;
     public Dictionary<string, string> VariableOverrides { get; set; } = new();
     public List<MergedView> MergedViewOverrides { get; set; } = new();
     public List<ModListToolInvocation> Invocations { get; set; } = new();

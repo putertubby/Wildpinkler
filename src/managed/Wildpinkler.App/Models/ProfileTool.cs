@@ -16,11 +16,14 @@ public sealed partial class ProfileTool : ObservableObject
     /// <summary>Id of the profile folder holding this tool's output.</summary>
     public string OutputFolderId { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Per-profile output capture for definition-less tools (manual/discovered). Ignored for
+    /// definition-backed tools, whose definition's <c>ProducesOutput</c> is the single source of truth.
+    /// </summary>
+    public bool CapturesOutput { get; set; }
+
     /// <summary>Version of the tool's current output folder; a run writes to the next one and promotes it when it finishes.</summary>
     public int OutputVersion { get; set; } = 1;
-
-    /// <summary>Whether tool output should be captured into a separate overlay. When enabled, writes go to tools/&lt;toolId&gt;/; when disabled, writes go directly to declared views.</summary>
-    public bool UseOutputOverlay { get; set; } = true;
 
     /// <summary>Applied last, on top of the tool definition's and the profile's own variables.</summary>
     public Dictionary<string, string> VariableOverrides { get; set; } = new();
@@ -35,14 +38,21 @@ public sealed partial class ProfileTool : ObservableObject
     [JsonIgnore]
     public ToolEntry? Tool { get; set; }
 
+    /// <summary>
+    /// The effective "produces output" state for a tool in a profile: definition-backed tools follow
+    /// their shared definition; definition-less tools follow the per-profile capture flag.
+    /// </summary>
+    public static bool EffectiveProducesOutput(ToolEntry tool, ProfileTool? binding)
+        => tool.Definition is { } def ? def.ProducesOutput : binding?.CapturesOutput ?? false;
+
     /// <summary>Copies another load of the same binding's mutable state in place (identity field untouched).</summary>
     public void UpdateFrom(ProfileTool source)
     {
         IsEnabled = source.IsEnabled;
+        CapturesOutput = source.CapturesOutput;
         LaunchArgumentsOverride = source.LaunchArgumentsOverride;
         OutputFolderId = source.OutputFolderId;
         OutputVersion = source.OutputVersion;
-        UseOutputOverlay = source.UseOutputOverlay;
         VariableOverrides = source.VariableOverrides;
         MergedViewOverrides = source.MergedViewOverrides;
     }

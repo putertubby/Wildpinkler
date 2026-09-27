@@ -8,11 +8,11 @@
 - ✓ Deleted `ToolLaunchKind.cs` entirely
 - ✓ Removed `LaunchKind` property from `ToolDefinition.cs`
 - ✓ Removed `LaunchKind` from `Clone()` and `ContentEquals()` methods
-- ✓ Updated `ProfileTool.cs` — added `UseOutputOverlay` boolean property (defaults to true)
+- ✓ Updated `ProfileTool.cs` — the per-profile `UseOutputOverlay` toggle was later removed in favor of the definition-driven `producesOutput` flag
 - ✓ Updated `LaunchTargetResolver.cs`:
   - Removed `GameScoped` and `Standalone` from `LaunchTargetKind` enum, now only `Game` and `Tool`
   - Simplified `ResolveTool()`: `toolViewBaseFolder` always `tool.InstallPath`
-  - Made output overlay conditional on `binding.UseOutputOverlay && definition.ProducesOutput`
+  - Made output overlay conditional on `definition.ProducesOutput` (settings-only tools like LOOT never capture output)
   - Injected `${GameInstallPath}` variable for tool definitions to reference game views
 - ✓ Updated `ToolEntry.cs` — simplified `KindText` to return `"Tool"` or `"Tool · settings only"`
 - ✓ Removed `LaunchKind` check from `ConfigurationOriginResolver.cs`
@@ -22,7 +22,7 @@
   - Removed `"launchKind": "GameScoped"`
   - Incremented version to 2
   - Updated merged view to use `${GameInstallPath}/Data` (absolute path with variable)
-  - Updated description to reflect new output capture toggle behavior
+  - Updated description to explain that capture is automatic for output-producing tools, with no per-profile toggle
   
 - ✓ Updated `bodyslide.wptool.json`:
   - Removed `"launchKind": "GameScoped"`
@@ -47,9 +47,8 @@
   - Fixed event handler structure
 
 - ✓ Updated `ProfilesPage.xaml`:
-  - Added `UseOutputOverlay` toggle to tool configuration UI
-  - Added help text explaining capture behavior
-  - Bind bidirectionally to `ProfileTool.UseOutputOverlay`
+  - Removed the `Capture tool output` ToggleSwitch (the per-profile `UseOutputOverlay` binding is gone)
+  - The output section is shown only when the tool's definition produces output
 
 ### Phase 4: Documentation ✓ COMPLETE
 - ✓ Updated `spec.md`:
@@ -59,7 +58,7 @@
   
 - ✓ Updated `README.md`:
   - Removed LaunchKind table
-  - Simplified tool description to focus on output capture toggle behavior
+  - Simplified tool description to focus on definition-driven output capture
 
 ### Phase 5: Variable Injection ✓ COMPLETE
 - ✓ Modified resolver to inject `${GameInstallPath}` variable in tool definitions
@@ -70,7 +69,7 @@
 ✓ **Build Status**: Full solution builds successfully (Debug|x64)
 ✓ **LaunchKind References**: Zero remaining references in codebase
 ✓ **ToolLaunchKind File**: Deleted completely
-✓ **Backward Compatibility**: Existing profiles with `UseOutputOverlay` default to true (preserves current behavior)
+✓ **Backward Compatibility**: Existing profiles without `UseOutputOverlay` in `profile.json` simply ignore the unknown property on load
 
 ## Remaining Work
 
@@ -80,7 +79,7 @@ None! All implementation is complete.
 Users upgrading from the old version should be aware:
 - Tool definitions with `"launchKind": "GameScoped"` or `"Standalone"` will load but the property is ignored
 - Tool definitions should be re-saved to update their version and remove the obsolete property
-- Users can control output behavior per-tool, per-profile using the new toggle
+- Whether a tool captures output is a property of its definition (`producesOutput`), so all profiles using the same tool behave consistently. Discard a captured output version from the InfoBar without a confirmation prompt.
 - All tool path expressions must now use variables like `${GameInstallPath}` (relative paths no longer supported)
 
 ## Architecture Changes
@@ -98,7 +97,7 @@ Tool paths were implicitly relative to base folder (determined by LaunchKind)
 ```
 All tools are unified as "Tool" type:
 - All paths are explicitly absolute (must use variables like ${GameInstallPath})
-- Output capture is a per-profile toggle, not inherent to tool type
+- Output capture is defined by the tool's `producesOutput` flag, not a per-profile setting
 - Tools can reference game views by using ${GameInstallPath} variable
 - Cleaner, more explicit, fewer hidden behaviors
 
@@ -112,7 +111,7 @@ Variables available in tool definitions:
 
 1. **Unified Model**: Single tool type eliminates confusing type distinction
 2. **Explicit Paths**: All paths use variables, no magic relative-path resolution
-3. **Per-Profile Control**: Output overlay can be toggled per profile, not per definition
-4. **Clearer Semantics**: Tool writes go to declared views; output capture is opt-in
+- **Definition-Driven Capture**: Output capture is inherent to the tool's definition, not a per-profile setting
+- **Cleaner Semantics**: Tool writes go to declared views; output capture is automatic for `producesOutput` tools and absent for settings-only ones
 5. **Reduced Complexity**: Simpler resolver logic, fewer special cases
 6. **Better Flexibility**: Definitions can be specialized at profile level via overrides

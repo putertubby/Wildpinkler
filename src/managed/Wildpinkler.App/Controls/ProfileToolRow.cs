@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -11,8 +12,7 @@ namespace Wildpinkler.App.Controls;
 public sealed partial class ProfileToolRow : ObservableObject
 {
     private bool _isEnabled;
-    private bool _isExpanded;
-    private bool _useOutputOverlay;
+    private bool _capturesOutput;
     private string _launchArgumentsOverride;
     private string _outputFolder = string.Empty;
 
@@ -24,7 +24,7 @@ public sealed partial class ProfileToolRow : ObservableObject
         Tool = tool;
         Binding = binding;
         _isEnabled = binding?.IsEnabled ?? false;
-        _useOutputOverlay = binding?.UseOutputOverlay ?? true;
+        _capturesOutput = binding?.CapturesOutput ?? false;
         _launchArgumentsOverride = binding?.LaunchArgumentsOverride ?? string.Empty;
         OutputFolderId = binding?.OutputFolderId ?? string.Empty;
         OutputVersion = binding?.OutputVersion ?? 1;
@@ -40,7 +40,21 @@ public sealed partial class ProfileToolRow : ObservableObject
 
     public string Name => Tool.Name;
 
-    public string KindText => Tool.KindText;
+    /// <summary>
+    /// The effective kind line: a definition-less tool that captures output for this profile is no
+    /// longer "settings only", so its prefix flips to plain "Tool" (the origin suffix stays).
+    /// </summary>
+    public string KindText
+    {
+        get
+        {
+            const string settingsOnly = "Tool \u00b7 settings only";
+            var kind = Tool.KindText;
+            if (Tool.Definition is null && ProducesOutput && kind.StartsWith(settingsOnly, StringComparison.Ordinal))
+                kind = "Tool" + kind[settingsOnly.Length..];
+            return kind;
+        }
+    }
 
     /// <summary>Where this tool comes from (its origin mod, or its kind); shown as a secondary line.</summary>
     public string OriginText => Tool.OriginText;
@@ -60,9 +74,36 @@ public sealed partial class ProfileToolRow : ObservableObject
     /// <summary>The kind/origin line is replaced by the missing-executable warning.</summary>
     public Visibility KindTextVisibility => ExecutableMissing ? Visibility.Collapsed : Visibility.Visible;
 
-    // A definition-less tool (manual or discovered) does not write tool output, so the output
-    // section is hidden for it; definition-backed tools follow their definition.
-    public bool ProducesOutput => Tool.Definition?.ProducesOutput ?? false;
+    // The effective "produces output" state: definition-backed tools follow their definition,
+    // definition-less tools follow the per-profile capture flag edited below in this row.
+    public bool ProducesOutput => Tool.Definition is { } def ? def.ProducesOutput : _capturesOutput;
+
+    /// <summary>
+    /// The per-profile capture flag. Definition-backed tools report their definition's value and
+    /// ignore writes (the shared definition is the single source of truth); definition-less tools
+    /// read and write their own flag.
+    /// </summary>
+    public bool CapturesOutput
+    {
+        get => ProducesOutput;
+        set
+        {
+            if (Tool.Definition is not null)
+                return;
+            if (SetProperty(ref _capturesOutput, value))
+            {
+                OnPropertyChanged(nameof(OutputSectionVisibility));
+                OnPropertyChanged(nameof(KindText));
+                OnPropertyChanged(nameof(CaptureToggleVisibility));
+                NotifyOutputChanged();
+            }
+        }
+    }
+
+    /// <summary>The capture toggle only makes sense for enabled, definition-less tools.</summary>
+    public Visibility CaptureToggleVisibility => Tool.Definition is null && IsEnabled
+        ? Visibility.Visible
+        : Visibility.Collapsed;
 
     /// <summary>True when the tool lives in the profile itself (discovered in its mod load order) rather than in the global tools list.</summary>
     public bool IsLocal => Tool.IsProfileScoped;
@@ -76,38 +117,17 @@ public sealed partial class ProfileToolRow : ObservableObject
     /// <summary>A <see cref="Visibility"/>, not a bool: this row is bound with classic {Binding}, which has no bool conversion.</summary>
     public Visibility OutputSectionVisibility => ProducesOutput ? Visibility.Visible : Visibility.Collapsed;
 
-    // A local tool's writes go straight to the profile's writable views; it never has its own
-    // output overlay, so the capture toggle is hidden for it.
-    public Visibility OverlaySectionVisibility => IsLocal ? Visibility.Collapsed : Visibility.Visible;
-
     public bool IsEnabled
     {
         get => _isEnabled;
         set
         {
             if (SetProperty(ref _isEnabled, value))
+            {
                 NotifyOutputChanged();
+                OnPropertyChanged(nameof(CaptureToggleVisibility));
+            }
         }
-    }
-
-    /// <summary>
-    /// Whether this tool's writes are captured into its own tools/[toolId] output overlay. Only
-    /// meaningful for tools that produce output; defaults to true (capture on) for a new binding.
-    /// </summary>
-    public bool UseOutputOverlay
-    {
-        get => _useOutputOverlay;
-        set
-        {
-            if (SetProperty(ref _useOutputOverlay, value) && Binding is { } binding)
-                binding.UseOutputOverlay = value;
-        }
-    }
-
-    public bool IsExpanded
-    {
-        get => _isExpanded;
-        set => SetProperty(ref _isExpanded, value);
     }
 
     public string LaunchArgumentsOverride

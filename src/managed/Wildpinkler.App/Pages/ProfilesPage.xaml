@@ -266,8 +266,6 @@
                                                 <Button.Flyout>
                                                     <MenuFlyout Placement="BottomEdgeAlignedRight">
                                                         <MenuFlyoutItem Text="Remove tool" Click="ToolRemove_Click" CommandParameter="{x:Bind}" />
-                                                        <MenuFlyoutSeparator />
-                                                        <MenuFlyoutItem Text="Toggle output capture" Click="ToolOverlay_Click" CommandParameter="{x:Bind}" />
                                                     </MenuFlyout>
                                                 </Button.Flyout>
                                                 <FontIcon Glyph="&#xE70D;" FontSize="12" />
@@ -471,7 +469,7 @@
                         <ScrollViewer x:Name="ToolsSection" VerticalScrollBarVisibility="Auto" Padding="16,16,8,16" Visibility="Collapsed">
                             <StackPanel Spacing="12" Margin="0,0,8,0">
                                 <TextBlock Opacity="0.68" TextWrapping="Wrap"
-                                           Text="An enabled tool becomes a launch target. Executables discovered in the mod load order are added as tools automatically and live in this profile only; the other tools below it come from the global tools list. A tool that produces output also gets its own output folder directly below the profile overlay, and each run writes a new output version that replaces the previous one when the tool finishes; a settings-only tool adds nothing to the profile merged view." />
+                                           Text="An enabled tool becomes a launch target. Executables discovered in the mod load order are added as tools automatically and live in this profile only; the other tools below it come from the global tools list. A tool that produces output also gets its own output folder directly below the profile overlay, and each run writes a new output version that replaces the previous one when the tool finishes; a settings-only tool adds nothing to the profile merged view. A local tool can enable output capture for this profile from its configuration below." />
                                 <Border Style="{StaticResource ContentCardStyle}" Padding="8">
                                     <!-- ItemsControl, not ListView: each row hosts editors that container recycling would tear down. -->
                                     <ItemsControl x:Name="ToolList" IsEnabled="{x:Bind IsSelectedProfileModifiable, Mode=OneWay}">
@@ -532,15 +530,16 @@
                                                                  PlaceholderText="Leave empty to use the tool's own arguments"
                                                                  Text="{Binding LaunchArgumentsOverride, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                                  LostFocus="ToolOverride_LostFocus" />
-                                                        <StackPanel Spacing="2" Visibility="{Binding OverlaySectionVisibility}">
-                                                            <ToggleSwitch Header="Capture tool output" OnContent="Yes" OffContent="No"
-                                                                          IsOn="{Binding UseOutputOverlay, Mode=TwoWay}" Toggled="ToolOverlay_Toggled" />
-                                                            <TextBlock Opacity="0.72" TextWrapping="Wrap"
-                                                                       Text="When enabled, writes to writable views are captured into a separate tools/[toolId]/ folder, giving this tool its own output priority. When disabled, writes go directly to the profile's writable views." />
-                                                        </StackPanel>
                                                         <Border Style="{StaticResource CardSeparatorStyle}" />
-                                                        <TextBlock Opacity="0.72" TextWrapping="Wrap"
-                                                                   Text="When enabled, writes to writable views are captured into a separate tools/[toolId]/ folder, giving this tool its own output priority. When disabled, writes go directly to the profile's writable views." />
+                                                        <StackPanel Spacing="12" Visibility="{Binding CaptureToggleVisibility}">
+                                                            <TextBlock Style="{StaticResource SectionLabelStyle}" Text="OUTPUT CAPTURE" />
+                                                            <ToggleSwitch Header="Capture tool output" OnContent="On" OffContent="Off"
+                                                                          IsEnabled="{Binding ToggleEnabled, Mode=OneWay}"
+                                                                          IsOn="{Binding CapturesOutput, Mode=TwoWay}" Toggled="CaptureOutput_Toggled" />
+                                                            <TextBlock Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.72" TextWrapping="Wrap"
+                                                                       Text="Stores this tool's writes in a separate, versioned folder below the overlay, so its output overrides mod files. Each launch writes a new version; successful runs are kept automatically and can be discarded from the status bar." />
+                                                            <Border Style="{StaticResource CardSeparatorStyle}" />
+                                                        </StackPanel>
                                                         <StackPanel Spacing="12" Visibility="{Binding OutputSectionVisibility}">
                                                             <TextBlock Style="{StaticResource SectionLabelStyle}" Text="OUTPUT" />
                                                             <Grid ColumnSpacing="12">

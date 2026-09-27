@@ -107,6 +107,18 @@ public sealed partial class ProfilesPage
         // Enabling/disabling a folder changes which plugins load, so a sorted order no longer applies.
         profile.PluginListSorted = false;
 
+        // Toggling a local tool's output row is the same act as toggling its capture in the Tools card:
+        // a row with no definition to lean on is only live when it captures.
+        if (folder.Kind == ProfileFolderKind.ToolOutput && folder.ToolEntryId is { Length: > 0 })
+        {
+            var binding = profile.Tools.FirstOrDefault(item => item.ToolEntryId == folder.ToolEntryId);
+            if (binding is not null && binding.CapturesOutput != toggle.IsOn)
+            {
+                binding.CapturesOutput = toggle.IsOn;
+                RefreshTools(profile);
+            }
+        }
+
         RefreshWorkspace();
         Save("Save load order");
         UiTask.Run(() => RefreshDependencyIssuesAsync(profile), nameof(FolderEnabled_Toggled), ShowLoadOrderError);

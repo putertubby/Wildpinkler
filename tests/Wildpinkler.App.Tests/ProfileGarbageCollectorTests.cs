@@ -40,6 +40,39 @@ public sealed class ProfileGarbageCollectorTests : IDisposable
         Assert.True(Directory.Exists(folder));
     }
 
+    [Fact]
+    public async Task CollectAsync_DeletesSupersededAndOrphanedToolOutputVersions_KeepsCurrent()
+    {
+        var folderPath = Path.Combine(_root, "profile");
+        var profile = new Profile
+        {
+            Id = "profile",
+            Name = "Profile",
+            GameId = "game",
+            FolderPath = folderPath,
+            Tools =
+            {
+                new ProfileTool { ToolEntryId = "tool", IsEnabled = true, OutputVersion = 1 }
+            }
+        };
+        Directory.CreateDirectory(folderPath);
+        var v1 = Path.Combine(folderPath, "tool-output", "tool-1");
+        var v2 = Path.Combine(folderPath, "tool-output", "tool-2");
+        var v3 = Path.Combine(folderPath, "tool-output", "tool-3");
+        Directory.CreateDirectory(v1);
+        Directory.CreateDirectory(v2);
+        Directory.CreateDirectory(v3);
+
+        var collector = new ProfileGarbageCollector(new ModInstallationStore(_root), new ActiveRunRegistry());
+        var result = await collector.CollectAsync(new[] { profile });
+
+        Assert.True(Directory.Exists(v1));
+        Assert.False(Directory.Exists(v2));
+        Assert.False(Directory.Exists(v3));
+        Assert.Equal(2, result.ToolOutputFolders);
+        Assert.Equal(2, result.Total);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_root))

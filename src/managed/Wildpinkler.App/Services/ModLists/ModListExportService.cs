@@ -228,8 +228,7 @@ public sealed class ModListExportService
             MinimumDefinitionVersion = Math.Max(1, tool?.DefinitionVersion ?? 1),
             AcquisitionInstructions = $"Install and register {name} before running this profile build.",
             IsEnabled = true,
-            LaunchArgumentsOverride = binding.LaunchArgumentsOverride,
-            UseOutputOverlay = binding.UseOutputOverlay
+            LaunchArgumentsOverride = binding.LaunchArgumentsOverride
         };
 
         foreach (var variable in binding.VariableOverrides.Where(variable => ModListManifestValidator.IsPortableValue(variable.Value)))

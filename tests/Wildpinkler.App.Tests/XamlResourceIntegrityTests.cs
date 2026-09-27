@@ -142,6 +142,31 @@ public sealed class XamlResourceIntegrityTests
             string.Join("\n", failures));
     }
 
+    [Fact]
+    public void ProfilesPage_Does_Not_Expose_Removed_OutputCaptureToggle()
+    {
+        var solutionRoot = FindSolutionRoot();
+        var pagePath = Path.Combine(solutionRoot, "src", "managed", "Wildpinkler.App", "Pages", "ProfilesPage.xaml");
+        Assert.True(File.Exists(pagePath), "ProfilesPage.xaml not found: " + pagePath);
+
+        var forbidden = new[] { "UseOutputOverlay", "Toggle output capture" };
+        var failures = new List<string>();
+        string[] lines = File.ReadAllLines(pagePath);
+        for (var lineIndex = 0; lineIndex < lines.Length; lineIndex++)
+        {
+            foreach (var token in forbidden)
+            {
+                if (lines[lineIndex].Contains(token, StringComparison.Ordinal))
+                {
+                    failures.Add((lineIndex + 1) + ": " + token);
+                }
+            }
+        }
+
+        Assert.True(failures.Count == 0,
+            "Removed output capture toggle still referenced in ProfilesPage.xaml:\n" + string.Join("\n", failures));
+    }
+
     private static string FindSolutionRoot()
     {
         var dir = new DirectoryInfo(Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)!);

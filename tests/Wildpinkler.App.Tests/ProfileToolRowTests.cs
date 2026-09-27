@@ -109,4 +109,110 @@ public sealed class ProfileToolRowTests
         Assert.Same(row.Binding, row.Binding);
         Assert.NotNull(row.Binding);
     }
+
+    [Fact]
+    public void SettingsOnlyTool_OutputSectionHidden()
+    {
+        var tool = CreateTool("tool-h", "C:\\Tools", "run.exe");
+        tool.Definition = new ToolDefinition
+        {
+            DefinitionId = "def-h",
+            ExecutableRelativePath = "run.exe",
+            ProducesOutput = false
+        };
+
+        var row = new ProfileToolRow(tool, null);
+
+        Assert.False(row.ProducesOutput);
+        Assert.Equal(Visibility.Collapsed, row.OutputSectionVisibility);
+    }
+
+    [Fact]
+    public void OutputProducingTool_OutputSectionVisible()
+    {
+        var tool = CreateTool("tool-i", "C:\\Tools", "run.exe");
+        tool.Definition = new ToolDefinition
+        {
+            DefinitionId = "def-i",
+            ExecutableRelativePath = "run.exe"
+        };
+
+        var row = new ProfileToolRow(tool, null);
+
+        Assert.True(row.ProducesOutput);
+        Assert.Equal(Visibility.Visible, row.OutputSectionVisibility);
+    }
+
+    [Fact]
+    public void LocalTool_NoBinding_CapturesOutputDefaultsFalse()
+    {
+        var row = new ProfileToolRow(CreateTool("tool-k", "C:\\Tools", "run.exe"), null);
+
+        Assert.False(row.CapturesOutput);
+        Assert.Equal(Visibility.Collapsed, row.OutputSectionVisibility);
+        Assert.Equal("Tool \u00b7 settings only", row.KindText);
+    }
+
+    [Fact]
+    public void LocalTool_CapturesOutputEnabled_SectionVisibleAndKindUpdates()
+    {
+        var row = new ProfileToolRow(CreateTool("tool-l", "C:\\Tools", "run.exe"), new ProfileTool { CapturesOutput = true });
+
+        Assert.True(row.CapturesOutput);
+        Assert.Equal(Visibility.Visible, row.OutputSectionVisibility);
+        Assert.Equal("Tool", row.KindText);
+    }
+
+    [Fact]
+    public void DefinitionTool_ProducesOutput_FlagCannotBeToggled()
+    {
+        var tool = CreateTool("tool-m", "C:\\Tools", "run.exe");
+        tool.Definition = new ToolDefinition
+        {
+            DefinitionId = "def-m",
+            ExecutableRelativePath = "run.exe",
+            ProducesOutput = true
+        };
+
+        var row = new ProfileToolRow(tool, new ProfileTool());
+
+        Assert.True(row.CapturesOutput);
+        row.CapturesOutput = false;
+
+        Assert.True(row.CapturesOutput);
+    }
+
+    [Fact]
+    public void DefinitionTool_SettingsOnly_FlagCannotBeToggled()
+    {
+        var tool = CreateTool("tool-n", "C:\\Tools", "run.exe");
+        tool.Definition = new ToolDefinition
+        {
+            DefinitionId = "def-n",
+            ExecutableRelativePath = "run.exe",
+            ProducesOutput = false
+        };
+
+        var row = new ProfileToolRow(tool, new ProfileTool { CapturesOutput = true });
+
+        Assert.False(row.CapturesOutput);
+        row.CapturesOutput = true;
+
+        Assert.False(row.CapturesOutput);
+    }
+
+    [Fact]
+    public void SetOutputFolder_UpdatesSummary_AndRaisesPropertyChanged()
+    {
+        var row = new ProfileToolRow(
+            CreateTool("tool-j", "C:\\Tools", "run.exe"),
+            new ProfileTool { IsEnabled = true, OutputVersion = 2 });
+        string? propertyName = null;
+        row.PropertyChanged += (_, e) => propertyName = e.PropertyName;
+
+        row.SetOutputFolder("C:\\profiles\\profile\\tool-output\\tool-j-2");
+
+        Assert.Equal("Version 2 · C:\\profiles\\profile\\tool-output\\tool-j-2", row.OutputSummary);
+        Assert.Equal(nameof(ProfileToolRow.OutputSummary), propertyName);
+    }
 }

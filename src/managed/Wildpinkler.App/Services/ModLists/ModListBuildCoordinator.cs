@@ -459,7 +459,6 @@ public sealed class ModListBuildCoordinator
                 ToolEntryId = tool.Id,
                 IsEnabled = true,
                 LaunchArgumentsOverride = requirement.LaunchArgumentsOverride,
-                UseOutputOverlay = requirement.UseOutputOverlay,
                 VariableOverrides = new Dictionary<string, string>(requirement.VariableOverrides),
                 MergedViewOverrides = requirement.MergedViewOverrides.Select(view => view.Clone()).ToList()
             };
