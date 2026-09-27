@@ -26,7 +26,7 @@
                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8">
             <Grid x:Name="DropTarget" MinHeight="160" AllowDrop="True"
                 DragOver="DropTarget_DragOver" DragLeave="DropTarget_DragLeave" Drop="DropTarget_Drop">
-                <ListView x:Name="ModList" SelectionMode="Extended" SelectionChanged="ModList_SelectionChanged"
+                <ListView x:Name="ModList" MaxHeight="320" SelectionMode="Extended" SelectionChanged="ModList_SelectionChanged"
                           ItemContainerStyle="{StaticResource ListRowContainerStyle}" Padding="0,4,0,4"
                           ScrollViewer.HorizontalScrollMode="Disabled" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
                     <ListView.ItemTemplate>

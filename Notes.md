@@ -87,7 +87,7 @@ git rebase -r 6a8b51fbf9cb1dea6a35cceb5cbb04833c8f86ab --exec 'git commit --amen
 - [ ] Diabling/enabling mods does not remove and bring back tools automatically
 - [ ] "Chose roles" menu item does nothing
 - [ ] Check! Game launcher is mutually exclusive (only one mod at a time (at most) can launch)
-- [ ] No scrollbar in add mods dialog
+- [x] No scrollbar in add mods dialog
 - [ ] Local ollama does not work
 - [ ] Why are there assistant "what can assistant do" settings? dropdown should suffice?
 - [ ] When LOOT is running... Bad message!
