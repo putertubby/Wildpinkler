@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -357,9 +358,11 @@ public sealed partial class ProfilesPage
             return;
 
         SetLoadOrderBusy(true);
+        var cts = new CancellationTokenSource();
+        InstallProgressDialog? installDialog = null;
         try
         {
-            var fomodModule = AppServices.ModInstallService.TryParseFomod(mod);
+            var fomodModule = await AppServices.ModInstallService.TryParseFomodAsync(mod, cts.Token);
             ModInstallation installation;
 
             if (fomodModule is not null)
@@ -369,22 +372,31 @@ public sealed partial class ProfilesPage
                 if (await wizard.ShowAsync() != ContentDialogResult.Primary)
                     return;
 
+                installDialog = new InstallProgressDialog(mod.Name, cts.Cancel) { XamlRoot = XamlRoot };
+                _ = installDialog.ShowAsync();
                 installation = await AppServices.ModInstallService.FindOrCreateFomodInstallationAsync(
-                    mod, wizard.ResolvedFiles, wizard.SelectionSignature, DescribeSelections(wizard.Selections), wizard.Selections);
+                    mod, wizard.ResolvedFiles, wizard.SelectionSignature, DescribeSelections(wizard.Selections), wizard.Selections,
+                    progress: installDialog.Progress, cancellationToken: cts.Token);
             }
             else
             {
-                var layout = AppServices.ModInstallService.InspectLayout(mod);
+                var layout = await AppServices.ModInstallService.InspectLayoutAsync(mod, cts.Token);
                 var destinationDialog = new ModDestinationDialog(layout, mod.LastManualInstallPath) { XamlRoot = XamlRoot };
                 if (await destinationDialog.ShowAsync() != ContentDialogResult.Primary)
                     return;
 
+                installDialog = new InstallProgressDialog(mod.Name, cts.Cancel) { XamlRoot = XamlRoot };
+                _ = installDialog.ShowAsync();
                 installation = await AppServices.ModInstallService.FindOrCreateManualInstallationAsync(
-                    mod, destinationDialog.SourceRootRelativePath, destinationDialog.DestinationRelativePath);
+                    mod, destinationDialog.SourceRootRelativePath, destinationDialog.DestinationRelativePath,
+                    progress: installDialog.Progress, cancellationToken: cts.Token);
 
                 if (destinationDialog.RememberPath)
                     await RememberManualInstallPathAsync(mod.Id, destinationDialog.DestinationRelativePath);
             }
+
+            if (installDialog is not null)
+                await CloseDialogAsync(installDialog, "Installed.");
 
             if (profile.LoadOrder.Any(item => item.ModId == mod.Id))
             {
@@ -432,14 +444,31 @@ public sealed partial class ProfilesPage
 
             await UpdateModAssociationsAsync(profile.Id, new(), new() { mod.Id });
         }
+        catch (OperationCanceledException)
+        {
+            if (installDialog is not null)
+                await CloseDialogAsync(installDialog, "Cancelled.");
+            installDialog = null;
+            ShowLoadOrderError($"Install of '{mod.Name}' was cancelled.");
+        }
         catch (Exception exception)
         {
+            if (installDialog is not null)
+                await CloseDialogAsync(installDialog, "Install failed.");
+            installDialog = null;
             ShowLoadOrderError($"Unable to install '{mod.Name}'. {exception.Message}");
         }
         finally
         {
+            cts.Dispose();
             SetLoadOrderBusy(false);
         }
+    }
+
+    private static async Task CloseDialogAsync(InstallProgressDialog dialog, string statusText)
+    {
+        dialog.MarkFinished(statusText);
+        await dialog.CloseAsync();
     }
 
     // Best-effort: a mod with no fileDependency/plugin-master match to another known mod gets no
@@ -496,8 +525,14 @@ public sealed partial class ProfilesPage
                     .Equals(candidate.ExecutablePath, StringComparison.OrdinalIgnoreCase));
             if (tool is not null)
             {
+                // The snapshot taken when the folder was disabled remembers the enabled flag,
+                // capture flag, and output version; a tool never disabled before falls back to the
+                // pre-existing defaults (enabled, no capture, version 1).
                 choice.Role = ModRole.Tool;
-                choice.IsEnabled = profile.Tools.Any(binding => binding.ToolEntryId == tool.Id);
+                choice.IsEnabled = tool.WasEnabled
+                    || profile.Tools.Any(binding => binding.ToolEntryId == tool.Id);
+                choice.CapturesOutput = tool.CapturesOutput;
+                choice.OutputVersion = tool.OutputVersion;
             }
         }
 
@@ -509,6 +544,31 @@ public sealed partial class ProfilesPage
         var changed = ProfileToolCleanup.ApplyRoles(profile, folder, roles);
         if (roles.Any(role => role.Role == ModRole.Launcher))
             ClearOtherLauncherDesignations(profile, folder.Id);
+
+        // Restored tools (re-enabled after their folder was disabled) get their output branch back,
+        // re-inserted at the remembered load-order position when the snapshot remembers one. This
+        // must happen before RefreshTools/Save so the later EnsureToolOutputRows pass finds the row
+        // already in place and keeps it there.
+        foreach (var choice in roles.Where(role => role.Role == ModRole.Tool && role.IsEnabled).ToList())
+        {
+            var localTool = profile.LocalTools.FirstOrDefault(item =>
+                item.OriginFolderId == folder.Id
+                && System.IO.Path.Combine(item.InstallPath, item.ExecutableRelativePath)
+                    .Equals(choice.ExecutablePath, StringComparison.OrdinalIgnoreCase));
+            if (localTool is null)
+                continue;
+
+            var binding = profile.Tools.FirstOrDefault(item => item.ToolEntryId == localTool.Id);
+            if (binding is null)
+                continue;
+
+            _provisioner.ReEnableTool(profile, binding, localTool.ToToolEntry(profile.Id), localTool.OutputFolderIndex);
+
+            // The snapshot has been consumed: a future disable re-snapshots fresh state.
+            localTool.WasEnabled = false;
+            localTool.OutputFolderId = string.Empty;
+            localTool.OutputFolderIndex = -1;
+        }
 
         profile.NotifySummaryChanged();
         // Re-assigning roles can change which plugins a tool produces, so a sorted order no longer applies.

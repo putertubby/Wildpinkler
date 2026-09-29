@@ -359,7 +359,13 @@ public sealed class ModListBuildCoordinator
         var requirement = GetMod(manifest, task.EntryId!);
         var artifact = build.Artifacts.Single(item => item.EntryId == requirement.EntryId);
         var mod = (await _mods.LoadAsync()).Single(item => item.Id == artifact.ModId);
-        var installation = await _installer.FindOrCreateFromRecipeAsync(mod, requirement.Installation, build.StagedProfile.LoadOrder.ToList());
+        var progress = new Progress<ExtractionProgress>(update =>
+        {
+            if (update.FilesTotal is > 0)
+                task.Progress = (double)update.FilesDone / update.FilesTotal;
+            task.StatusText = update.CurrentEntry.Length > 0 ? update.CurrentEntry : "Extracting archive.";
+        });
+        var installation = await _installer.FindOrCreateFromRecipeAsync(mod, requirement.Installation, build.StagedProfile.LoadOrder.ToList(), progress: progress, cancellationToken: cancellationToken);
         artifact.InstallationId = installation.Id;
         artifact.FolderPath = installation.FolderPath;
         Complete(task, "Installation is ready.");

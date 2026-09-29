@@ -81,6 +81,34 @@ public sealed class ProfileFolderService
     }
 
     /// <summary>
+    /// Enables a tool whose output row was previously dropped (e.g. its mod folder was disabled and
+    /// re-enabled): reuses a live row if one still exists, otherwise recreates it. When a valid
+    /// <paramref name="preferredIndex"/> is remembered from before the row was dropped, the row is
+    /// re-inserted there instead of below the pinned overlay folder, restoring the user's layout.
+    /// </summary>
+    public ProfileFolder ReEnableTool(Profile profile, ProfileTool binding, ToolEntry tool, int preferredIndex = -1)
+    {
+        var existing = profile.LoadOrder.FirstOrDefault(folder => folder.ToolEntryId == tool.Id);
+        if (existing is not null)
+        {
+            Directory.CreateDirectory(existing.Path);
+            binding.OutputFolderId = existing.Id;
+            return existing;
+        }
+
+        var folder = CreateToolOutputRow(profile, binding, tool, isEnabled: true);
+        binding.OutputFolderId = folder.Id;
+
+        if (preferredIndex >= 1 && preferredIndex < profile.LoadOrder.Count)
+        {
+            profile.LoadOrder.Remove(folder);
+            profile.LoadOrder.Insert(Math.Clamp(preferredIndex, 1, profile.LoadOrder.Count - 1), folder);
+        }
+
+        return folder;
+    }
+
+    /// <summary>
     /// Materializes (or finds) the load-order row a tool's output lives in, so the branch is always
     /// visible and reorderable in the load order. A definition-backed settings-only tool owns no
     /// branch and gets no row; a local tool always gets one while it is enabled - disabled until

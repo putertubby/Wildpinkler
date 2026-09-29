@@ -134,6 +134,54 @@ public sealed class ProfileToolCleanupTests
     }
 
     [Fact]
+    public void DisableToolsForFolder_CapturesSnapshotOnLocalTool()
+    {
+        var folder = CreateModFolder("mod-1", "MyMod", "C:\\mods\\MyMod");
+        var game = CreateModFolder("game", "Game", "C:\\game");
+        var profile = CreateProfile(new[] { folder, game });
+
+        var tool = CreateLocalTool("tool-1", "mod-1", "C:\\mods\\MyMod", "bin\\a.exe");
+        profile.LocalTools.Add(tool);
+
+        var binding = CreateBinding("tool-1");
+        binding.CapturesOutput = true;
+        binding.OutputVersion = 2;
+        profile.Tools.Add(binding);
+
+        // Place the output row at a distinctive, non-default position (index 2).
+        profile.LoadOrder.Add(CreateToolOutputFolder("tool-1"));
+
+        var provisioner = new ProfileFolderService("C:\\profiles");
+        ProfileToolCleanup.DisableToolsForFolder(profile, "mod-1", provisioner);
+
+        Assert.True(tool.WasEnabled);
+        Assert.True(tool.CapturesOutput);
+        Assert.Equal(2, tool.OutputVersion);
+        Assert.Equal("output-tool-1", tool.OutputFolderId);
+        Assert.Equal(2, tool.OutputFolderIndex);
+    }
+
+    [Fact]
+    public void DisableToolsForFolder_ToolWithoutOutputRow_SnapshotsNegativeIndex()
+    {
+        var folder = CreateModFolder("mod-1", "MyMod", "C:\\mods\\MyMod");
+        var profile = CreateProfile(new[] { folder });
+
+        var tool = CreateLocalTool("tool-1", "mod-1", "C:\\mods\\MyMod", "bin\\a.exe");
+        profile.LocalTools.Add(tool);
+        profile.Tools.Add(CreateBinding("tool-1"));
+
+        var provisioner = new ProfileFolderService("C:\\profiles");
+        ProfileToolCleanup.DisableToolsForFolder(profile, "mod-1", provisioner);
+
+        Assert.True(tool.WasEnabled);
+        Assert.False(tool.CapturesOutput);
+        Assert.Equal(1, tool.OutputVersion);
+        Assert.Equal(string.Empty, tool.OutputFolderId);
+        Assert.Equal(-1, tool.OutputFolderIndex);
+    }
+
+    [Fact]
     public void DisableToolsForFolder_NoToolsForFolder_ReturnsZero()
     {
         var folder = CreateModFolder("mod-1", "MyMod", "C:\\mods\\MyMod");
@@ -370,6 +418,70 @@ public sealed class ProfileToolCleanupTests
         ProfileToolCleanup.ApplyRoles(profile, folder, new[] { first, second });
 
         Assert.Equal("second.exe", folder.LauncherExecutableRelativePath);
+    }
+
+    [Fact]
+    public void ApplyRoles_NewToolRole_RestoresCapturedOutputStateFromChoice()
+    {
+        var folder = CreateModFolder("mod-1", "MyMod", "C:\\mods\\MyMod");
+        var profile = CreateProfile(new[] { folder });
+
+        // Simulate a re-enable after a prior disable: the local tool carries no binding.
+        var tool = CreateLocalTool("tool-1", "mod-1", "C:\\mods\\MyMod", "bin\\a.exe");
+        tool.WasEnabled = true;
+        tool.CapturesOutput = true;
+        tool.OutputVersion = 3;
+        profile.LocalTools.Add(tool);
+
+        var choice = new ModRoleChoice
+        {
+            ExecutablePath = Path.Combine("C:\\mods\\MyMod", "bin\\a.exe"),
+            RelativePath = "bin/a.exe",
+            SuggestedName = "tool",
+            Role = ModRole.Tool,
+            IsEnabled = true,
+            CapturesOutput = true,
+            OutputVersion = 3
+        };
+
+        ProfileToolCleanup.ApplyRoles(profile, folder, new[] { choice });
+
+        var binding = Assert.Single(profile.Tools);
+        Assert.Equal(tool.Id, binding.ToolEntryId);
+        Assert.True(binding.IsEnabled);
+        Assert.True(binding.CapturesOutput);
+        Assert.Equal(3, binding.OutputVersion);
+    }
+
+    [Fact]
+    public void ApplyRoles_ExistingTool_UpdatesCapturedOutputState()
+    {
+        var folder = CreateModFolder("mod-1", "MyMod", "C:\\mods\\MyMod");
+        var profile = CreateProfile(new[] { folder });
+
+        var tool = CreateLocalTool("tool-1", "mod-1", "C:\\mods\\MyMod", "bin\\a.exe");
+        profile.LocalTools.Add(tool);
+
+        var binding = CreateBinding("tool-1");
+        binding.CapturesOutput = true;
+        binding.OutputVersion = 2;
+        profile.Tools.Add(binding);
+
+        var choice = new ModRoleChoice
+        {
+            ExecutablePath = Path.Combine("C:\\mods\\MyMod", "bin\\a.exe"),
+            RelativePath = "bin/a.exe",
+            SuggestedName = "tool",
+            Role = ModRole.Tool,
+            IsEnabled = true,
+            CapturesOutput = false,
+            OutputVersion = 5
+        };
+
+        ProfileToolCleanup.ApplyRoles(profile, folder, new[] { choice });
+
+        Assert.False(binding.CapturesOutput);
+        Assert.Equal(5, binding.OutputVersion);
     }
 
     [Fact]

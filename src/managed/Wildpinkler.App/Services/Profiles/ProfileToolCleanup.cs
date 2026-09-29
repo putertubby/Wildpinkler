@@ -63,6 +63,24 @@ public static class ProfileToolCleanup
         var disabled = 0;
         foreach (var binding in profile.Tools.Where(bound => toolSet.Contains(bound.ToolEntryId)).ToList())
         {
+            // Snapshot the binding's state on the surviving local tool so a later re-enable of the
+            // folder can offer (and restore) exactly what the user had before: enabled flag,
+            // capture flag, output version, and the row's load-order position.
+            var localTool = profile.LocalTools.FirstOrDefault(tool => tool.Id == binding.ToolEntryId);
+            if (localTool is not null)
+            {
+                // The load-order row (keyed by the tool id) is the authoritative source for the
+                // remembered position; the binding's OutputFolderId may still be empty if the
+                // row was created by a path that did not record it back.
+                var outputFolder = profile.LoadOrder.FirstOrDefault(item =>
+                    item.Kind == ProfileFolderKind.ToolOutput && item.ToolEntryId == binding.ToolEntryId);
+                localTool.WasEnabled = binding.IsEnabled;
+                localTool.CapturesOutput = binding.CapturesOutput;
+                localTool.OutputVersion = binding.OutputVersion;
+                localTool.OutputFolderId = outputFolder is not null ? outputFolder.Id : binding.OutputFolderId;
+                localTool.OutputFolderIndex = outputFolder is not null ? profile.LoadOrder.IndexOf(outputFolder) : -1;
+            }
+
             provisioner.DisableTool(profile, binding);
             profile.Tools.Remove(binding);
             disabled++;
@@ -180,17 +198,27 @@ public static class ProfileToolCleanup
                 var binding = profile.Tools.FirstOrDefault(bound => bound.ToolEntryId == tool.Id);
                 if (binding is null)
                 {
+                    // A restored tool (pre-filled from the LocalTool snapshot taken at disable time)
+                    // gets its capture flag and output version back; a fresh tool starts with the
+                    // defaults (no capture, version 1).
                     binding = new ProfileTool
                     {
                         ToolEntryId = tool.Id,
-                        IsEnabled = choice.IsEnabled
+                        IsEnabled = choice.IsEnabled,
+                        CapturesOutput = choice.CapturesOutput,
+                        OutputVersion = choice.OutputVersion
                     };
                     profile.Tools.Add(binding);
                 }
-                else if (binding.IsEnabled != choice.IsEnabled)
+                else
                 {
-                    binding.IsEnabled = choice.IsEnabled;
-                    changed++;
+                    if (binding.IsEnabled != choice.IsEnabled)
+                    {
+                        binding.IsEnabled = choice.IsEnabled;
+                        changed++;
+                    }
+                    binding.CapturesOutput = choice.CapturesOutput;
+                    binding.OutputVersion = choice.OutputVersion;
                 }
             }
         }
@@ -245,4 +273,13 @@ public sealed class ModRoleChoice
 
     /// <summary>For the Tool role: whether the tool should be enabled on the profile.</summary>
     public bool IsEnabled { get; set; } = true;
+
+    /// <summary>
+    /// Snapshotted capture flag offered alongside a restored tool (pre-filled from the LocalTool
+    /// snapshot taken when the folder was disabled); ignored for fresh tools, which default to off.
+    /// </summary>
+    public bool CapturesOutput { get; set; }
+
+    /// <summary>Snapshotted output version for a restored tool; 1 for fresh tools.</summary>
+    public int OutputVersion { get; set; } = 1;
 }

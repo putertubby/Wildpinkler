@@ -6,11 +6,11 @@ using Xunit;
 namespace Wildpinkler.App.Tests;
 
 /// <summary>
-/// Tests the input-validation edges of <see cref="ToolIconService"/>. The full decode path
-/// (SHGetFileInfo → GDI blit → GDI+ PNG encode → WinUI 3 BitmapImage) is deliberately NOT
-/// exercised here: constructing any WinUI XAML type (e.g. <c>new BitmapImage()</c>) throws
-/// COMException in the test host, so only paths that return before WinUI type construction
-/// are covered.
+/// Tests the input-validation edges of <see cref="ToolIconService"/>. The full icon path
+/// (PrivateExtractIconsW → DrawIconEx onto a 32-bit DIB section → raw BGRA → WinUI 3 SoftwareBitmap/SoftwareBitmapSource)
+/// is deliberately NOT exercised here: constructing any WinUI XAML type (e.g.
+/// <c>new SoftwareBitmapSource()</c>) throws COMException in the test host, so only paths
+/// that return before WinUI type construction are covered.
 /// </summary>
 public sealed class ToolIconServiceTests
 {

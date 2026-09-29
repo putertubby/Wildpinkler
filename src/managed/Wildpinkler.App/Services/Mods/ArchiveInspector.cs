@@ -31,32 +31,44 @@ public sealed class ArchiveInspector : IArchiveInspector
 {
     // Guards against decompression bombs while still covering realistic FOMOD scripts.
     private const int MaxFomodFileBytes = 4 * 1024 * 1024;
+    private const int MaxCacheEntries = 16;
 
-    public FomodState DetectFomod(string path)
-    {
-        try
-        {
-            using var archive = ArchiveFactory.OpenArchive(path);
-            return archive.Entries.Any(entry => !entry.IsDirectory && IsInsideFomodDirectory(entry.Key))
-                ? FomodState.Yes
-                : FomodState.No;
-        }
-        catch (Exception)
-        {
-            // Archives come from untrusted sources; any decode failure just means we cannot tell.
-            return FomodState.Unknown;
-        }
-    }
+    // The inspector is a DI singleton; opening a 7z archive re-reads its end block every time,
+    // so FOMOD state and XML contents are computed once per (path, size, last-write-time) and
+    // served from this small FIFO cache.
+    private readonly object _cacheLock = new();
+    private readonly Dictionary<string, FomodReadInfo> _cache = new();
+    private readonly Queue<string> _cacheOrder = new();
 
-    public IReadOnlyDictionary<string, string> ReadFomodFiles(string path)
+    public FomodState DetectFomod(string path) => GetFomodReadInfo(path).State;
+
+    public IReadOnlyDictionary<string, string> ReadFomodFiles(string path) => GetFomodReadInfo(path).XmlFiles;
+
+    private FomodReadInfo GetFomodReadInfo(string path)
     {
+        var key = GetCacheKey(path);
+        if (key is not null)
+        {
+            lock (_cacheLock)
+            {
+                if (_cache.TryGetValue(key, out var cached))
+                    return cached;
+            }
+        }
+
+        var state = FomodState.Unknown;
         var files = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var decodeFailed = false;
         try
         {
             using var archive = ArchiveFactory.OpenArchive(path);
             foreach (var entry in archive.Entries)
             {
-                if (entry.IsDirectory || !IsInsideFomodDirectory(entry.Key) || entry.Size > MaxFomodFileBytes)
+                if (entry.IsDirectory || !IsInsideFomodDirectory(entry.Key))
+                    continue;
+
+                state = FomodState.Yes;
+                if (!IsFomodXmlFile(entry.Key) || entry.Size > MaxFomodFileBytes)
                     continue;
 
                 var name = Path.GetFileName(Normalize(entry.Key));
@@ -70,11 +82,55 @@ public sealed class ArchiveInspector : IArchiveInspector
         }
         catch (Exception)
         {
-            return files;
+            // Archives come from untrusted sources; any decode failure just means we cannot tell.
+            decodeFailed = true;
         }
 
-        return files;
+        // If we successfully enumerated every entry and none were inside a fomod/ directory,
+        // the state is definitively No. Unknown is reserved for failures.
+        if (!decodeFailed && state == FomodState.Unknown)
+            state = FomodState.No;
+
+        var info = new FomodReadInfo(state, files);
+        if (key is not null && !decodeFailed && state != FomodState.Unknown)
+        {
+            lock (_cacheLock)
+            {
+                if (!_cache.TryGetValue(key, out var value))
+                {
+                    value = info;
+                    _cache[key] = value;
+                    _cacheOrder.Enqueue(key);
+                    while (_cache.Count > MaxCacheEntries)
+                    {
+                        var oldest = _cacheOrder.Dequeue();
+                        _cache.Remove(oldest);
+                    }
+                }
+                return value;
+            }
+        }
+
+        return info;
     }
+
+    private static string? GetCacheKey(string path)
+    {
+        try
+        {
+            var info = new FileInfo(path);
+            if (!info.Exists)
+                return null;
+            return $"{path}|{info.Length}|{info.LastWriteTimeUtc:O}";
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+    }
+
+    private static bool IsFomodXmlFile(string? key) =>
+        Path.GetFileName(Normalize(key)).EndsWith(".xml", StringComparison.OrdinalIgnoreCase);
 
     public ArchiveLayout InspectLayout(string path)
     {
@@ -137,3 +193,6 @@ public sealed class ArchiveInspector : IArchiveInspector
         return roots.Count == 1 ? roots[0] : null;
     }
 }
+
+/// <summary>One-pass FOMOD read result shared by <see cref="DetectFomod"/> and <see cref="ReadFomodFiles"/>.</summary>
+public sealed record FomodReadInfo(FomodState State, IReadOnlyDictionary<string, string> XmlFiles);

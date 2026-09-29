@@ -129,7 +129,8 @@ public sealed class ModStore : IDisposable
 
         entry.ArchivePath = destination;
         entry.Sha256 = await ComputeSha256Async(destination);
-        SetFomodState(entry, destination);
+        // Archive probing decodes the whole archive; keep it off the UI thread.
+        await Task.Run(() => SetFomodState(entry, destination));
         return entry;
     }
 
@@ -152,7 +153,8 @@ public sealed class ModStore : IDisposable
     {
         entry.ArchivePath = archivePath;
         entry.Sha256 = await ComputeSha256Async(archivePath);
-        SetFomodState(entry, archivePath);
+        // Archive probing decodes the whole archive; keep it off the UI thread.
+        await Task.Run(() => SetFomodState(entry, archivePath));
         return entry;
     }
 

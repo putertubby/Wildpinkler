@@ -168,9 +168,9 @@ public sealed partial class ProfilesPage : PageBase
 
         var selected = SelectedProfile;
         CollectionReconciler.Reconcile(_allProfiles, stored, profile => profile.Id, MergeProfileContent);
-        // The stored profiles may already hold tool-output rows; materialize any that are still
-        // missing so externally enabled tools (for example from an agent action) surface their
-        // branch in the load order without waiting for the user to toggle the tool.
+        // Defensive backstop: rows are normally materialized by the edit paths themselves
+        // (ApplyToolBindings, ReEnableTool, ...), so this only fills in what they missed - e.g. a
+        // tool enabled externally by an agent action - and never moves rows that already exist.
         foreach (var profile in _allProfiles)
             _provisioner.EnsureToolOutputRows(profile, ProfileLocalToolMigration.MergedTools(_tools, profile));
         ApplyGameNames();
@@ -663,7 +663,7 @@ public sealed partial class ProfilesPage : PageBase
         }
         catch (Exception exception)
         {
-            // SHGetFileInfo is a native shell call; a fault there must surface as a logged,
+            // PrivateExtractIconsW is a native shell call; a fault there must surface as a logged,
             // dismissible InfoBar rather than taking the whole app down.
             AppDiagnostics.Write(nameof(RefreshTargets), exception);
             ShowInfo($"Unable to load tool icons: {exception.Message}", InfoBarSeverity.Error);

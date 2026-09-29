@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using SharpCompress.Archives;
 using Wildpinkler.App.Models;
@@ -49,6 +50,10 @@ public sealed class ModInstallService
         return files.TryGetValue("ModuleConfig.xml", out var xml) ? _parser.TryParse(xml) : null;
     }
 
+    /// <summary>Like <see cref="TryParseFomod"/>, but runs the archive decode off the caller's thread.</summary>
+    public Task<FomodModule?> TryParseFomodAsync(ModEntry mod, CancellationToken cancellationToken = default) =>
+        Task.Run(() => TryParseFomod(mod), cancellationToken);
+
     public ArchiveLayout InspectLayout(ModEntry mod)
     {
         if (string.IsNullOrWhiteSpace(mod.ArchivePath) || !File.Exists(mod.ArchivePath))
@@ -57,10 +62,16 @@ public sealed class ModInstallService
         return _archiveInspector.InspectLayout(mod.ArchivePath);
     }
 
+    /// <summary>Like <see cref="InspectLayout"/>, but runs the archive scan off the caller's thread.</summary>
+    public Task<ArchiveLayout> InspectLayoutAsync(ModEntry mod, CancellationToken cancellationToken = default) =>
+        Task.Run(() => InspectLayout(mod), cancellationToken);
+
     public async Task<ModInstallation> FindOrCreateFomodInstallationAsync(
         ModEntry mod, IReadOnlyList<FomodFileInstall> resolvedFiles, string signature, string selectionSummary,
-        IReadOnlyList<FomodStepSelection> selections)
+        IReadOnlyList<FomodStepSelection> selections,
+        IProgress<ExtractionProgress>? progress = null, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var archiveSha256 = RequireArchiveSha256(mod);
         var recipe = new FomodInstallationRecipe
         {
@@ -92,18 +103,20 @@ public sealed class ModInstallService
         };
         return await ExtractAndPublishAsync(
             installation,
-            destination => ExtractFomodFiles(mod.ArchivePath, resolvedFiles, destination));
+            (root, token) => Task.Run(() => ExtractFomodFiles(mod.ArchivePath, resolvedFiles, root, progress, token), token),
+            cancellationToken);
     }
 
     public async Task<ModInstallation> FindOrCreateFromRecipeAsync(
-        ModEntry mod, ModInstallationRecipe recipe, IReadOnlyList<ProfileFolder> profileFolders)
+        ModEntry mod, ModInstallationRecipe recipe, IReadOnlyList<ProfileFolder> profileFolders,
+        IProgress<ExtractionProgress>? progress = null, CancellationToken cancellationToken = default)
     {
         if (recipe is ManualInstallationRecipe manual)
-            return await FindOrCreateManualInstallationAsync(mod, manual.SourceRoot, manual.Destination);
+            return await FindOrCreateManualInstallationAsync(mod, manual.SourceRoot, manual.Destination, progress, cancellationToken);
         if (recipe is not FomodInstallationRecipe fomod)
             throw new InvalidOperationException("This installation requires user guidance and cannot be replayed automatically.");
 
-        var module = TryParseFomod(mod)
+        var module = await TryParseFomodAsync(mod, cancellationToken)
             ?? throw new InvalidDataException("The archive no longer contains a readable FOMOD installer.");
         var actualModuleHash = ReadFomodModuleSha256(mod);
         if (!string.Equals(actualModuleHash, fomod.ModuleConfigSha256, StringComparison.OrdinalIgnoreCase))
@@ -149,15 +162,18 @@ public sealed class ModInstallService
 
         var resolvedFiles = engine.ResolveFileInstalls(module, selections, fileState);
         var signature = engine.ComputeSelectionSignature(selections);
-        return await FindOrCreateFomodInstallationAsync(mod, resolvedFiles, signature, DescribeSelections(fomod), selections);
+        return await FindOrCreateFomodInstallationAsync(
+            mod, resolvedFiles, signature, DescribeSelections(fomod), selections, progress, cancellationToken);
     }
 
     private static string DescribeSelections(FomodInstallationRecipe recipe) =>
         string.Join(", ", recipe.Selections.SelectMany(choice => choice.Plugins.Select(plugin => $"{choice.Group}: {plugin}")));
 
     public async Task<ModInstallation> FindOrCreateManualInstallationAsync(
-        ModEntry mod, string sourceRootRelativePath, string destinationRelativePath)
+        ModEntry mod, string sourceRootRelativePath, string destinationRelativePath,
+        IProgress<ExtractionProgress>? progress = null, CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var sourceRoot = NormalizeRelativePath(sourceRootRelativePath);
         var destination = destinationRelativePath?.Trim() ?? string.Empty;
         var archiveSha256 = RequireArchiveSha256(mod);
@@ -182,17 +198,22 @@ public sealed class ModInstallService
             SelectionSignature = signature,
             SelectionSummary = $"{(sourceRoot.Length == 0 ? "Archive root" : sourceRoot)} -> {(destination.Length == 0 ? "Profile root" : destination)}"
         };
-        return await ExtractAndPublishAsync(installation, stagingRoot =>
+        return await ExtractAndPublishAsync(installation, (root, token) => Task.Run(() =>
         {
-            var mountRoot = destination.Length == 0 ? stagingRoot : Path.Combine(stagingRoot, destination);
+            var mountRoot = destination.Length == 0 ? root : Path.Combine(root, destination);
             Directory.CreateDirectory(mountRoot);
-            ExtractWholeArchive(mod.ArchivePath, sourceRoot, mountRoot, _extractionLimits);
-        });
+            ExtractWholeArchive(mod.ArchivePath, sourceRoot, mountRoot, _extractionLimits, progress, token);
+        }, token), cancellationToken);
     }
 
+    /// <summary>
+    /// Unpacks into a hidden staging folder, moves it into place, and publishes the record. The extraction
+    /// and post-extraction work run on worker threads; cancellation tears the staging folder down.
+    /// </summary>
     private async Task<ModInstallation> ExtractAndPublishAsync(
         ModInstallation installation,
-        Action<string> extract)
+        Func<string, CancellationToken, Task> extract,
+        CancellationToken cancellationToken)
     {
         var installParent = Path.Combine(_installsRoot, installation.ModId);
         var stagingPath = Path.Combine(installParent, $".pending-{installation.Id}");
@@ -201,9 +222,12 @@ public sealed class ModInstallService
         try
         {
             Directory.CreateDirectory(stagingPath);
-            extract(stagingPath);
-            Directory.Move(stagingPath, installation.FolderPath);
-            ScanPluginFiles(installation);
+            await extract(stagingPath, cancellationToken);
+            await Task.Run(() =>
+            {
+                Directory.Move(stagingPath, installation.FolderPath);
+                ScanPluginFiles(installation);
+            }, cancellationToken);
             await _store.AddAsync(installation);
             return installation;
         }
@@ -271,12 +295,14 @@ public sealed class ModInstallService
             : throw new InvalidOperationException($"'{mod.Name}' has no archive SHA-256. Re-import or re-download the archive before installing it.");
 
     // Applied in the caller's priority-ascending order, so a later entry legitimately overwrites an earlier one.
-    private void ExtractFomodFiles(string archivePath, IReadOnlyList<FomodFileInstall> installs, string destinationRoot)
+    private void ExtractFomodFiles(
+        string archivePath, IReadOnlyList<FomodFileInstall> installs, string destinationRoot,
+        IProgress<ExtractionProgress>? progress, CancellationToken cancellationToken)
     {
         using var archive = ArchiveFactory.OpenArchive(archivePath);
         var entries = archive.Entries.Where(entry => !entry.IsDirectory).ToList();
-        var budget = new ArchiveExtractionBudget(_extractionLimits);
 
+        var work = new List<(IArchiveEntry Entry, string Destination)>();
         foreach (var install in installs)
         {
             var source = NormalizeKey(install.Source);
@@ -293,7 +319,7 @@ public sealed class ModInstallService
                     if (relative.Length == 0)
                         continue;
 
-                    ExtractEntry(entry, destinationRoot, ResolveSafeDestination(destinationRoot, CombineRelative(install.Destination, relative)), budget);
+                    work.Add((entry, CombineRelative(install.Destination, relative)));
                 }
             }
             else
@@ -302,27 +328,51 @@ public sealed class ModInstallService
                 if (entry is null)
                     continue;
 
-                var destinationRelative = install.Destination.Length > 0 ? install.Destination : Path.GetFileName(source);
-                ExtractEntry(entry, destinationRoot, ResolveSafeDestination(destinationRoot, destinationRelative), budget);
+                work.Add((entry, install.Destination.Length > 0 ? install.Destination : Path.GetFileName(source)));
             }
         }
+
+        var budget = new ArchiveExtractionBudget(_extractionLimits);
+        var reporter = new ExtractionReporter(progress, work.Count);
+        foreach (var (entry, destinationRelative) in work)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var written = ExtractEntry(entry, destinationRoot, ResolveSafeDestination(destinationRoot, destinationRelative), budget);
+            reporter.Report(entry, written);
+        }
+
+        reporter.Finish();
     }
 
     internal static string BuildManualSelectionSignature(string sourceRoot, string destination) =>
         $"source:{sourceRoot.Length}:{sourceRoot};destination:{destination.Length}:{destination}";
 
-    internal static void ExtractWholeArchive(string archivePath, string sourceRoot, string destinationRoot, ArchiveExtractionLimits? limits = null)
+    internal static void ExtractWholeArchive(
+        string archivePath, string sourceRoot, string destinationRoot, ArchiveExtractionLimits? limits = null,
+        IProgress<ExtractionProgress>? progress = null, CancellationToken cancellationToken = default)
     {
         using var archive = ArchiveFactory.OpenArchive(archivePath);
-        var budget = new ArchiveExtractionBudget(limits);
+        var work = new List<(IArchiveEntry Entry, string RelativePath)>();
         foreach (var entry in archive.Entries.Where(item => !item.IsDirectory))
         {
             if (TryGetRelativePathBelowSourceRoot(NormalizeKey(entry.Key), sourceRoot, out var relativePath))
-                ExtractEntry(entry, destinationRoot, ResolveSafeDestination(destinationRoot, relativePath), budget);
+                work.Add((entry, relativePath));
         }
+
+        var budget = new ArchiveExtractionBudget(limits);
+        var reporter = new ExtractionReporter(progress, work.Count);
+        foreach (var (entry, relativePath) in work)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var written = ExtractEntry(entry, destinationRoot, ResolveSafeDestination(destinationRoot, relativePath), budget);
+            reporter.Report(entry, written);
+        }
+
+        reporter.Finish();
     }
 
-    private static void ExtractEntry(IArchiveEntry entry, string destinationRoot, string destinationPath, ArchiveExtractionBudget budget)
+    /// <summary>Unpacks one entry and returns the number of bytes written.</summary>
+    private static long ExtractEntry(IArchiveEntry entry, string destinationRoot, string destinationPath, ArchiveExtractionBudget budget)
     {
         ArchiveExtractionBudget.RejectLinkEntry(entry);
         budget.AccountForEntry(entry);
@@ -343,6 +393,7 @@ public sealed class ModInstallService
 
         budget.AccountForWrittenBytes(entry.Key ?? destinationPath, written);
         ArchiveExtractionBudget.VerifyWrittenFile(destinationPath);
+        return written;
     }
 
     private static void RejectExistingLink(string path)
@@ -401,5 +452,36 @@ public sealed class ModInstallService
             throw new InvalidOperationException($"Archive entry '{relativePath}' escapes the install folder.");
 
         return candidate;
+    }
+}
+
+/// <summary>
+/// Tracks per-entry extraction progress on a single worker thread and forwards updates to
+/// an optional <see cref="IProgress{T}"/> observer. No locking is needed: each extraction
+/// runs on exactly one thread.
+/// </summary>
+internal sealed class ExtractionReporter
+{
+    private readonly IProgress<ExtractionProgress>? _progress;
+    private readonly int _filesTotal;
+    private int _filesDone;
+    private long _bytesWritten;
+
+    public ExtractionReporter(IProgress<ExtractionProgress>? progress, int filesTotal)
+    {
+        _progress = progress;
+        _filesTotal = filesTotal;
+    }
+
+    public void Report(IArchiveEntry entry, long bytesWritten)
+    {
+        _filesDone++;
+        _bytesWritten += bytesWritten;
+        _progress?.Report(new ExtractionProgress(_filesDone, _filesTotal, _bytesWritten, entry.Key ?? string.Empty));
+    }
+
+    public void Finish()
+    {
+        _progress?.Report(new ExtractionProgress(_filesDone, _filesTotal, _bytesWritten, string.Empty));
     }
 }

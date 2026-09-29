@@ -12,9 +12,9 @@ using Xunit;
 
 namespace Wildpinkler.App.Tests;
 
-// Serialized into its own collection: the cancellation path hops across background threads
-// (auth gate -> RunAsync -> State), so running this class concurrently with the rest of the
-// suite can starve those hops and trip the wait below under full-suite load.
+// Serialized into its own collection: the cancellation callback flips the terminal state on
+// the cancelling thread (no starveable threadpool hops), but the class still funnels through
+// shared temp and HTTP state, so it runs alone to keep full-suite load off the waits below.
 [Collection("DownloadQueue")]
 public sealed class DownloadQueueCoordinatorTests : IDisposable
 {

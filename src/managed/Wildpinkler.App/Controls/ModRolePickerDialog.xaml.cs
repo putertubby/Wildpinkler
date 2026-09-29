@@ -4,7 +4,7 @@ using System.ComponentModel;
 using System.Linq;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Media.Imaging;
+using Microsoft.UI.Xaml.Media;
 using Wildpinkler.App.Services;
 using Wildpinkler.App.Services.Games;
 using Wildpinkler.App.Services.Profiles;
@@ -36,7 +36,7 @@ public sealed partial class ModRolePickerDialog : ContentDialog
         var iconService = AppHost.Get<ToolIconService>();
         foreach (var choice in roles)
         {
-            BitmapSource? icon = null;
+            ImageSource? icon = null;
             try
             {
                 icon = iconService.TryGetIcon(choice.ExecutablePath);
@@ -77,7 +77,7 @@ public sealed partial class ModRolePickerDialog : ContentDialog
     {
         public event PropertyChangedEventHandler? PropertyChanged;
 
-        public RoleRow(ModRoleChoice choice, BitmapSource? icon)
+        public RoleRow(ModRoleChoice choice, ImageSource? icon)
         {
             Choice = choice;
             Icon = icon;
@@ -85,7 +85,7 @@ public sealed partial class ModRolePickerDialog : ContentDialog
 
         public ModRoleChoice Choice { get; }
 
-        public BitmapSource? Icon { get; }
+        public ImageSource? Icon { get; }
 
         public ModRole[] RoleOptions => AllRoles;
 

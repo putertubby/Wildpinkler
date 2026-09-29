@@ -90,8 +90,8 @@ public sealed partial class ProfilesPage
         }
         catch (Exception exception)
         {
-            // Icon extraction goes through the shell (SHGetFileInfo); a fault there must surface as a
-            // logged, dismissible InfoBar rather than taking the whole app down.
+            // Icon extraction goes through a native shell call (PrivateExtractIconsW); a fault
+            // there must surface as a logged, dismissible InfoBar rather than taking the whole app down.
             AppDiagnostics.Write(nameof(RefreshTools), exception);
             ShowInfo($"Unable to load tool icons: {exception.Message}", InfoBarSeverity.Error);
         }

@@ -229,6 +229,15 @@ public sealed class DownloadQueueCoordinator
 
     private async Task RunAsync(DownloadJob job)
     {
+        // Cancel() fires registered callbacks synchronously on the cancelling thread (the UI
+        // thread in the app), so the terminal state flips there with no starveable threadpool
+        // hop. Finishing also drops the job from _inFlight in the same mutation, so a re-Enqueue
+        // of a cancelled link creates a fresh job instead of reviving this one.
+        using var cancellationRegistration = job.Cancellation.Token.Register(() =>
+        {
+            if (job.IsActive)
+                FinishJob(job, item => item.State = DownloadJobState.Cancelled);
+        });
         try
         {
             var progress = new Progress<RemoteAcquisitionProgress>(update => Set(job, () =>
@@ -253,37 +262,46 @@ public sealed class DownloadQueueCoordinator
             }));
             var result = await _acquisition.AcquireAsync(job.Link, confirmedGameIds: job.ConfirmedGameIds, progress: progress, cancellationToken: job.Cancellation.Token);
 
-            Set(job, () =>
+            FinishJob(job, item =>
             {
-                job.Entry = result.Entry;
-                job.BytesDownloaded = result.File.SizeInBytes ?? job.BytesDownloaded;
-                job.State = DownloadJobState.Completed;
+                if (!item.IsActive)
+                    return;
+                item.Entry = result.Entry;
+                item.BytesDownloaded = result.File.SizeInBytes ?? item.BytesDownloaded;
+                item.State = DownloadJobState.Completed;
                 EntryUpdated?.Invoke(this, result.Entry);
             });
         }
         catch (OperationCanceledException)
         {
-            Set(job, () => job.State = DownloadJobState.Cancelled);
+            // Fallback: the registration above has normally already flipped the state.
+            FinishJob(job, item =>
+            {
+                if (item.IsActive)
+                    item.State = DownloadJobState.Cancelled;
+            });
         }
         catch (RemoteSiteException exception)
         {
-            Set(job, () =>
+            FinishJob(job, item =>
             {
-                job.Error = exception.Message;
-                job.Remedy = exception.Remedy;
-                job.State = DownloadJobState.Failed;
+                item.Error = exception.Message;
+                item.Remedy = exception.Remedy;
+                item.State = DownloadJobState.Failed;
             });
         }
         catch (Exception exception)
         {
-            Set(job, () =>
+            FinishJob(job, item =>
             {
-                job.Error = exception.Message;
-                job.State = DownloadJobState.Failed;
+                item.Error = exception.Message;
+                item.State = DownloadJobState.Failed;
             });
         }
         finally
         {
+            // Idempotent: FinishJob already dropped the job when it reached a terminal state;
+            // this covers any escape that reached none of the handlers above.
             lock (_inFlightGate)
                 _inFlight.Remove(job);
         }
@@ -291,6 +309,21 @@ public sealed class DownloadQueueCoordinator
 
     private static bool IsSameDownload(RemoteLink left, RemoteLink right) =>
         left.ToRef().IsSameFile(right.ToRef());
+
+    /// <summary>
+    /// Flips a job to a terminal state and drops it from <see cref="_inFlight"/> in the same
+    /// mutation, so the state flip and the in-flight removal are atomic. Re-Enqueuing a link
+    /// whose job has finished therefore always creates a new job.
+    /// </summary>
+    private void FinishJob(DownloadJob job, Action<DownloadJob> mutate)
+    {
+        Post(() =>
+        {
+            mutate(job);
+            lock (_inFlightGate)
+                _inFlight.Remove(job);
+        });
+    }
 
     private void Set(DownloadJob job, Action mutate) => Post(mutate);
 

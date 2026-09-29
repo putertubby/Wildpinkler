@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using Microsoft.UI.Xaml.Media.Imaging;
+using Microsoft.UI.Xaml.Media;
 using Wildpinkler.App.Models;
 
 namespace Wildpinkler.App.Services;
@@ -35,7 +35,7 @@ public sealed class LaunchTarget
         string configFileName,
         bool producesOutput,
         string steamGameId,
-        BitmapSource? icon,
+        ImageSource? icon,
         string originFolderId,
         string originModName)
     {
@@ -74,7 +74,7 @@ public sealed class LaunchTarget
     public string SteamGameId { get; set; }
 
     /// <summary>The executable's embedded icon, or <c>null</c> when it has none; the UI falls back to a glyph.</summary>
-    public BitmapSource? Icon { get; set; }
+    public ImageSource? Icon { get; set; }
 
     /// <summary>For tool targets originating from a discovered mod folder: the id of that load-order folder.</summary>
     public string OriginFolderId { get; set; }

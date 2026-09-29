@@ -91,6 +91,92 @@ public sealed class ProfileFolderServiceTests : IDisposable
     }
 
     [Fact]
+    public void ReEnableTool_CreatesRowBelowOverlayWhenNoPreferredIndex()
+    {
+        var (profile, binding, tool, service) = CreateProvisionedProfile();
+        binding.OutputFolderId = string.Empty;
+
+        var folder = service.ReEnableTool(profile, binding, tool);
+
+        Assert.Equal(1, profile.LoadOrder.IndexOf(folder));
+        Assert.Equal(ProfileFolderKind.Overlay, profile.LoadOrder[0].Kind);
+        Assert.Equal(ProfileFolderKind.ToolOutput, folder.Kind);
+        Assert.Equal("tool", folder.ToolEntryId);
+        Assert.True(Directory.Exists(folder.Path));
+        Assert.Equal(folder.Id, binding.OutputFolderId);
+    }
+
+    [Fact]
+    public void ReEnableTool_InsertsRowAtRememberedIndex()
+    {
+        var (profile, binding, tool, service) = CreateProvisionedProfile();
+        binding.OutputFolderId = string.Empty;
+
+        // Load order: [overlay, mod-a, mod-b, game].
+        var modA = new ProfileFolder { Id = "mod-a", Name = "A", Path = Path.Combine(_root, "a"), Kind = ProfileFolderKind.Mod, IsEnabled = true };
+        var modB = new ProfileFolder { Id = "mod-b", Name = "B", Path = Path.Combine(_root, "b"), Kind = ProfileFolderKind.Mod, IsEnabled = true };
+        profile.LoadOrder.Insert(1, modA);
+        profile.LoadOrder.Insert(2, modB);
+
+        var folder = service.ReEnableTool(profile, binding, tool, preferredIndex: 2);
+
+        Assert.Equal(2, profile.LoadOrder.IndexOf(folder));
+        Assert.Equal(folder.Id, binding.OutputFolderId);
+        Assert.Equal(ProfileFolderKind.Mod, profile.LoadOrder[1].Kind);
+        Assert.Equal(ProfileFolderKind.Mod, profile.LoadOrder[3].Kind);
+    }
+
+    [Fact]
+    public void ReEnableTool_FallsBackToOverlayPlusOneWhenPreferredIndexOutOfRange()
+    {
+        var (profile, binding, tool, service) = CreateProvisionedProfile();
+        binding.OutputFolderId = string.Empty;
+
+        var modA = new ProfileFolder { Id = "mod-a", Name = "A", Path = Path.Combine(_root, "a"), Kind = ProfileFolderKind.Mod, IsEnabled = true };
+        var modB = new ProfileFolder { Id = "mod-b", Name = "B", Path = Path.Combine(_root, "b"), Kind = ProfileFolderKind.Mod, IsEnabled = true };
+        profile.LoadOrder.Insert(1, modA);
+        profile.LoadOrder.Insert(2, modB);
+
+        // The remembered index no longer fits the (shrunk) load order, so the row
+        // keeps its default position below the overlay.
+        var folder = service.ReEnableTool(profile, binding, tool, preferredIndex: 99);
+
+        Assert.Equal(1, profile.LoadOrder.IndexOf(folder));
+        Assert.Equal(folder.Id, binding.OutputFolderId);
+    }
+
+    [Fact]
+    public void ReEnableTool_PrefersOverlayPlusOneWhenPreferredIndexInvalid()
+    {
+        var (profile, binding, tool, service) = CreateProvisionedProfile();
+        binding.OutputFolderId = string.Empty;
+
+        var modA = new ProfileFolder { Id = "mod-a", Name = "A", Path = Path.Combine(_root, "a"), Kind = ProfileFolderKind.Mod, IsEnabled = true };
+        profile.LoadOrder.Insert(1, modA);
+
+        // Index 0 is the pinned overlay row, so the row falls back to overlay+1.
+        var folder = service.ReEnableTool(profile, binding, tool, preferredIndex: 0);
+
+        Assert.Equal(1, profile.LoadOrder.IndexOf(folder));
+        Assert.Equal(folder.Id, binding.OutputFolderId);
+    }
+
+    [Fact]
+    public void ReEnableTool_ReusesExistingRowInsteadOfCreatingAnother()
+    {
+        var (profile, binding, tool, service) = CreateProvisionedProfile();
+
+        var first = service.ReEnableTool(profile, binding, tool);
+        var second = service.ReEnableTool(profile, binding, tool, preferredIndex: 3);
+
+        Assert.Same(first, second);
+        Assert.Single(profile.LoadOrder, item => item.Kind == ProfileFolderKind.ToolOutput);
+        Assert.Equal(first.Id, binding.OutputFolderId);
+        // A second call never moves or duplicates the existing row.
+        Assert.Equal(1, profile.LoadOrder.IndexOf(first));
+    }
+
+    [Fact]
     public void BeginToolRun_CreatesNextVersionFolder()
     {
         var (profile, binding, tool, service) = CreateProvisionedProfile();

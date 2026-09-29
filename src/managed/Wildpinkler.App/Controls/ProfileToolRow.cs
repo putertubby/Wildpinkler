@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Microsoft.UI.Xaml;
-using Microsoft.UI.Xaml.Media.Imaging;
+using Microsoft.UI.Xaml.Media;
 using Wildpinkler.App.Models;
 
 namespace Wildpinkler.App.Controls;
@@ -60,7 +60,7 @@ public sealed partial class ProfileToolRow : ObservableObject
     public string OriginText => Tool.OriginText;
 
     /// <summary>The executable's embedded icon, resolved on the UI thread; null when it cannot be read.</summary>
-    public BitmapSource? Icon { get; set; }
+    public ImageSource? Icon { get; set; }
 
     /// <summary>True when the tool's executable no longer exists on disk; the enable toggle is disabled in that case.</summary>
     public bool ExecutableMissing => Tool.ExecutableMissing;

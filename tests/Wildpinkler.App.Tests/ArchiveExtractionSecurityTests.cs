@@ -27,7 +27,7 @@ public sealed class ArchiveExtractionSecurityTests : IDisposable
         var destination = Path.Combine(_root, "install");
 
         Assert.Throws<InvalidOperationException>(
-            () => ModInstallService.ExtractWholeArchive(archive, string.Empty, destination));
+            () => ModInstallService.ExtractWholeArchive(archive, string.Empty, destination, cancellationToken: TestContext.Current.CancellationToken));
 
         Assert.False(File.Exists(Path.Combine(_root, "escaped.txt")));
     }
@@ -39,7 +39,7 @@ public sealed class ArchiveExtractionSecurityTests : IDisposable
         var archive = CreateArchive(("/rooted.txt", "payload"));
         var destination = Path.Combine(_root, "install");
 
-        ModInstallService.ExtractWholeArchive(archive, string.Empty, destination);
+        ModInstallService.ExtractWholeArchive(archive, string.Empty, destination, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.True(File.Exists(Path.Combine(destination, "rooted.txt")));
     }
@@ -55,7 +55,7 @@ public sealed class ArchiveExtractionSecurityTests : IDisposable
         var limits = ArchiveExtractionLimits.Default with { MaxEntryCount = 3 };
 
         Assert.Throws<ArchiveExtractionLimitExceededException>(
-            () => ModInstallService.ExtractWholeArchive(archive, string.Empty, Path.Combine(_root, "install"), limits));
+            () => ModInstallService.ExtractWholeArchive(archive, string.Empty, Path.Combine(_root, "install"), limits, cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -65,7 +65,7 @@ public sealed class ArchiveExtractionSecurityTests : IDisposable
         var limits = ArchiveExtractionLimits.Default with { MaxEntryBytes = 1024 };
 
         Assert.Throws<ArchiveExtractionLimitExceededException>(
-            () => ModInstallService.ExtractWholeArchive(archive, string.Empty, Path.Combine(_root, "install"), limits));
+            () => ModInstallService.ExtractWholeArchive(archive, string.Empty, Path.Combine(_root, "install"), limits, cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -78,7 +78,7 @@ public sealed class ArchiveExtractionSecurityTests : IDisposable
         var limits = ArchiveExtractionLimits.Default with { MaxTotalBytes = 12 * 1024 };
 
         Assert.Throws<ArchiveExtractionLimitExceededException>(
-            () => ModInstallService.ExtractWholeArchive(archive, string.Empty, Path.Combine(_root, "install"), limits));
+            () => ModInstallService.ExtractWholeArchive(archive, string.Empty, Path.Combine(_root, "install"), limits, cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -89,7 +89,7 @@ public sealed class ArchiveExtractionSecurityTests : IDisposable
         var limits = ArchiveExtractionLimits.Default with { MaxCompressionRatio = 10 };
 
         Assert.Throws<ArchiveExtractionLimitExceededException>(
-            () => ModInstallService.ExtractWholeArchive(archive, string.Empty, Path.Combine(_root, "install"), limits));
+            () => ModInstallService.ExtractWholeArchive(archive, string.Empty, Path.Combine(_root, "install"), limits, cancellationToken: TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -113,7 +113,7 @@ public sealed class ArchiveExtractionSecurityTests : IDisposable
         var archive = CreateArchive(("Data/payload.txt", "payload"));
 
         Assert.Throws<ArchiveEntryRejectedException>(
-            () => ModInstallService.ExtractWholeArchive(archive, string.Empty, destination));
+            () => ModInstallService.ExtractWholeArchive(archive, string.Empty, destination, cancellationToken: TestContext.Current.CancellationToken));
 
         Assert.False(File.Exists(Path.Combine(outside, "payload.txt")));
     }
@@ -138,7 +138,7 @@ public sealed class ArchiveExtractionSecurityTests : IDisposable
         var archive = CreateArchive(("payload.txt", "replacement"));
 
         Assert.Throws<ArchiveEntryRejectedException>(
-            () => ModInstallService.ExtractWholeArchive(archive, string.Empty, destination));
+            () => ModInstallService.ExtractWholeArchive(archive, string.Empty, destination, cancellationToken: TestContext.Current.CancellationToken));
 
         Assert.Equal("original", File.ReadAllText(outside));
     }
@@ -149,7 +149,7 @@ public sealed class ArchiveExtractionSecurityTests : IDisposable
         var archive = CreateArchive(("wrapper/Data/test.txt", "content"));
         var destination = Path.Combine(_root, "install");
 
-        ModInstallService.ExtractWholeArchive(archive, "wrapper", destination);
+        ModInstallService.ExtractWholeArchive(archive, "wrapper", destination, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal("content", File.ReadAllText(Path.Combine(destination, "Data", "test.txt")));
     }

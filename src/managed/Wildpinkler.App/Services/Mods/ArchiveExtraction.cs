@@ -34,6 +34,9 @@ public sealed class ArchiveExtractionLimitExceededException : Exception
     }
 }
 
+/// <summary>Per-entry extraction progress surfaced to the UI while an install is unpacking.</summary>
+public sealed record ExtractionProgress(int FilesDone, int FilesTotal, long BytesWritten, string CurrentEntry);
+
 /// <summary>Raised when an archive entry would create or traverse a link, which could redirect writes outside the install folder.</summary>
 public sealed class ArchiveEntryRejectedException : Exception
 {

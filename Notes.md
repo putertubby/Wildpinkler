@@ -82,11 +82,19 @@ git rebase -r 6a8b51fbf9cb1dea6a35cceb5cbb04833c8f86ab --exec 'git commit --amen
 
 - [x] Enable/disable mod does not trigger regereration of profile.json and Plugins.txt. Must restart Wildpinkler to make profile.json update properly
 - [x] Restore "HKCU:\Software\Microsoft\Windows\Windows Error Reporting\LocalDumps" after debugging
-- [ ] Toolbutton menus does nothing
-- [x] Overlay for tools doesn't work. Overlay branch should be added to view automatically.
-- [ ] Diabling/enabling mods does not remove and bring back tools automatically
+- [ ] What does "remove tool" do? How are global tools added? Automatically for associated games??
+- [ ] Mod install
+   - [ ] Long delay between clicking add mod on large archive (BHUNP) and dialog shows up with just spinning donut as indicator. Improve/cancel?
+   - [ ] Installing fomod files from large archive (BHUNP) takes a very long time!
+   - [ ] Cancel fomod installation of large archive (BHUNP) does not close the dialog (or maybe after a long time?)
+- [ ] Tool output overlay should be visible in the load order only when:
+      1. The tool is added to the profile
+      2. The tool has the "capture tool output" setting enabled
+      Regardless of whether the tool is enabled in the tools pane list or not. For as long as the tool is added to the profile the output overlay shall retain its place in the load order and can be enabled/disabled independently from the tool. If the tool is removed from the profile the user shall be asked whether to keep the tool output overlay or not. If the "capture tool output" is turned off the output overlay shall be removed. (Hidden)?
+- [ ] Diabling/enabling mods with tools does not remove and bring back tools or overlays correctly.
 - [ ] "Chose roles" menu item does nothing
-- [ ] Check! Game launcher is mutually exclusive (only one mod at a time (at most) can launch)
+- [ ] Toolbutton menus in profile page does nothing
+- [x] Overlay for tools doesn't work. Overlay branch should be added to view automatically.
 - [x] No scrollbar in add mods dialog
 - [ ] Local ollama does not work
 - [ ] Why are there assistant "what can assistant do" settings? dropdown should suffice?
@@ -94,6 +102,7 @@ git rebase -r 6a8b51fbf9cb1dea6a35cceb5cbb04833c8f86ab --exec 'git commit --amen
 - [ ] Renaming a mod drops dependencies (only when depending??)
 - [ ] Download does not resume automatically after restarting wildpinkler (or ui not updated)
 - [ ] Status in mod list not properly updated when mod finished download.
+- [ ] Check! Game launcher is mutually exclusive (only one mod at a time (at most) can launch)
 
 ## Refactoring
 
@@ -104,11 +113,12 @@ git rebase -r 6a8b51fbf9cb1dea6a35cceb5cbb04833c8f86ab --exec 'git commit --amen
 ## Features
 
 - [ ] Tool icon: Excluded: cache-policy changes, DPI scaling, per-tool custom icons, logging beyond the existing InfoBar pattern.
-- [ ] Bodyslide, FNIS and others - not a tool and not a game! Make all executables visible as toolbuttons using their icons (mutually exclusive launchable, including actual game)
+- [x] Bodyslide, FNIS and others - not a tool and not a game! Make all executables visible as toolbuttons using their icons
+- [ ] Tools shall be mutually exclusive launchable, including actual game
 - [ ] Add mod definitions like game and tool definitions.
 - [ ] Icon
 - [ ] LOOT and/or manual load order editing. Offer LOOT execution in warning dialog.
-- [ ] Show archive tree in the "choose destination" dialog when installing mods
+- [ ] Show archive tree in the "choose destination" dialog when installing mods (done?)
 - [ ] Reveal folder for installed mod
 - [ ] Dependencies (general + version-specific) editing in better graph. Tree view is probably better...
 - [ ] Data pre-filled in the "add mod" dialog (is there a setting in the game definition?)
@@ -117,4 +127,6 @@ git rebase -r 6a8b51fbf9cb1dea6a35cceb5cbb04833c8f86ab --exec 'git commit --amen
 - [ ] Remove all migration code and make all current schemas version 1
 - [ ] Dead code, vulnerabilities, code smells, optimizations, adherence to design reference ...
 
-Bathsheba Body?
+## Mods
+
+- [ ] Bathsheba Body?
