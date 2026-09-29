@@ -41,6 +41,7 @@ public static class AppServices
     public static ModListPreflightService ModListPreflightService => AppHost.Get<ModListPreflightService>();
     public static ProfileGarbageCollector ProfileGarbageCollector => AppHost.Get<ProfileGarbageCollector>();
     public static ModInstallService ModInstallService => AppHost.Get<ModInstallService>();
+    public static ModInstallQueue ModInstallQueue => AppHost.Get<ModInstallQueue>();
     public static DependencyExtractionService DependencyExtractionService => AppHost.Get<DependencyExtractionService>();
     public static DependencyGraphService DependencyGraphService => AppHost.Get<DependencyGraphService>();
     public static DependencySubgraphService DependencySubgraphService => AppHost.Get<DependencySubgraphService>();

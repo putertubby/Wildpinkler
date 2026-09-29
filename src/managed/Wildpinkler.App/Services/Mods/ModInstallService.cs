@@ -1,5 +1,7 @@
 using System;
+using System.Buffers;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
@@ -39,32 +41,32 @@ public sealed class ModInstallService
     }
 
     /// <summary>Parses the mod's ModuleConfig.xml, or returns null if it is not a FOMOD / cannot be read.</summary>
-    public FomodModule? TryParseFomod(ModEntry mod)
+    public FomodModule? TryParseFomod(ModEntry mod, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(mod.ArchivePath) || !File.Exists(mod.ArchivePath))
             return null;
-        if (_archiveInspector.DetectFomod(mod.ArchivePath) != FomodState.Yes)
+        if (_archiveInspector.DetectFomod(mod.ArchivePath, cancellationToken) != FomodState.Yes)
             return null;
 
-        var files = _archiveInspector.ReadFomodFiles(mod.ArchivePath);
+        var files = _archiveInspector.ReadFomodFiles(mod.ArchivePath, cancellationToken);
         return files.TryGetValue("ModuleConfig.xml", out var xml) ? _parser.TryParse(xml) : null;
     }
 
     /// <summary>Like <see cref="TryParseFomod"/>, but runs the archive decode off the caller's thread.</summary>
     public Task<FomodModule?> TryParseFomodAsync(ModEntry mod, CancellationToken cancellationToken = default) =>
-        Task.Run(() => TryParseFomod(mod), cancellationToken);
+        Task.Run(() => TryParseFomod(mod, cancellationToken), cancellationToken);
 
-    public ArchiveLayout InspectLayout(ModEntry mod)
+    public ArchiveLayout InspectLayout(ModEntry mod, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(mod.ArchivePath) || !File.Exists(mod.ArchivePath))
             return new ArchiveLayout(Array.Empty<string>(), null, false);
 
-        return _archiveInspector.InspectLayout(mod.ArchivePath);
+        return _archiveInspector.InspectLayout(mod.ArchivePath, cancellationToken);
     }
 
     /// <summary>Like <see cref="InspectLayout"/>, but runs the archive scan off the caller's thread.</summary>
     public Task<ArchiveLayout> InspectLayoutAsync(ModEntry mod, CancellationToken cancellationToken = default) =>
-        Task.Run(() => InspectLayout(mod), cancellationToken);
+        Task.Run(() => InspectLayout(mod, cancellationToken), cancellationToken);
 
     public async Task<ModInstallation> FindOrCreateFomodInstallationAsync(
         ModEntry mod, IReadOnlyList<FomodFileInstall> resolvedFiles, string signature, string selectionSummary,
@@ -72,7 +74,8 @@ public sealed class ModInstallService
         IProgress<ExtractionProgress>? progress = null, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var archiveSha256 = RequireArchiveSha256(mod);
+        var archiveSha256 = await EnsureArchiveSha256Async(mod, progress, cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
         var recipe = new FomodInstallationRecipe
         {
             ModuleConfigSha256 = ReadFomodModuleSha256(mod),
@@ -176,7 +179,7 @@ public sealed class ModInstallService
         cancellationToken.ThrowIfCancellationRequested();
         var sourceRoot = NormalizeRelativePath(sourceRootRelativePath);
         var destination = destinationRelativePath?.Trim() ?? string.Empty;
-        var archiveSha256 = RequireArchiveSha256(mod);
+        var archiveSha256 = await EnsureArchiveSha256Async(mod, progress, cancellationToken);
         if (sourceRoot.Length > 0 && !DefinitionValidation.IsSafeRelativePath(sourceRoot))
             throw new ArgumentException("Source root must be empty or a safe archive-relative path.", nameof(sourceRootRelativePath));
         if (destination.Length > 0 && !DefinitionValidation.IsSafeRelativePath(destination))
@@ -233,8 +236,11 @@ public sealed class ModInstallService
         }
         catch
         {
-            DeleteDirectoryIfPresent(stagingPath);
-            DeleteDirectoryIfPresent(installation.FolderPath);
+            // A cancelled or failed extraction can leave a multi-gigabyte staging tree; remove it off
+            // the UI thread so cleanup never freezes the app. Cleanup deliberately ignores the
+            // (possibly cancelled) token so partial files are still removed.
+            await Task.Run(() => DeleteDirectoryIfPresent(stagingPath), CancellationToken.None);
+            await Task.Run(() => DeleteDirectoryIfPresent(installation.FolderPath), CancellationToken.None);
             throw;
         }
     }
@@ -254,7 +260,8 @@ public sealed class ModInstallService
         plugins.Clear();
         try
         {
-            foreach (var filePath in Directory.EnumerateFiles(folderPath, "*", SearchOption.AllDirectories)
+            foreach (var filePath in Directory.EnumerateFiles(
+                folderPath, "*", SearchOption.AllDirectories)
                 .Where(PluginMasterInspector.IsPluginFile))
             {
                 var relativePath = Path.GetRelativePath(folderPath, filePath).Replace('\\', '/');
@@ -289,10 +296,48 @@ public sealed class ModInstallService
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(xml)));
     }
 
-    private static string RequireArchiveSha256(ModEntry mod) =>
-        !string.IsNullOrWhiteSpace(mod.Sha256)
-            ? mod.Sha256
-            : throw new InvalidOperationException($"'{mod.Name}' has no archive SHA-256. Re-import or re-download the archive before installing it.");
+    /// <summary>
+    /// Returns the mod's archive SHA-256, computing it (and persisting it on the entry) on first
+    /// use. The digest is intentionally lazy: large archives are not hashed at import time, only
+    /// when an install actually needs it, and the result is cached on the <see cref="ModEntry"/>
+    /// so it is computed at most once.
+    /// </summary>
+    public async Task<string> EnsureArchiveSha256Async(
+        ModEntry mod, IProgress<ExtractionProgress>? progress = null, CancellationToken cancellationToken = default)
+    {
+        if (!string.IsNullOrWhiteSpace(mod.Sha256))
+            return mod.Sha256!;
+        if (string.IsNullOrWhiteSpace(mod.ArchivePath) || !File.Exists(mod.ArchivePath))
+            throw new InvalidOperationException($"'{mod.Name}' has no archive to hash. Re-import or re-download the archive before installing it.");
+
+        var path = mod.ArchivePath;
+        using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        using var hasher = SHA256.Create();
+        var buffer = ArrayPool<byte>.Shared.Rent(4 * 1024 * 1024);
+        var bytesWritten = 0L;
+        var digestBytes = Array.Empty<byte>();
+        try
+        {
+            int read;
+            while ((read = await stream.ReadAsync(buffer.AsMemory(), cancellationToken)) > 0)
+            {
+                hasher.TransformBlock(buffer, 0, read, buffer, 0);
+                bytesWritten += read;
+                cancellationToken.ThrowIfCancellationRequested();
+                progress?.Report(new ExtractionProgress(0, 0, bytesWritten, 0, $"Hashing {Path.GetFileName(path)}"));
+            }
+            hasher.TransformFinalBlock(buffer, 0, 0);
+            digestBytes = (byte[])hasher.Hash!;
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+
+        var digest = Convert.ToHexString(digestBytes);
+        mod.Sha256 = digest;
+        return digest;
+    }
 
     // Applied in the caller's priority-ascending order, so a later entry legitimately overwrites an earlier one.
     private void ExtractFomodFiles(
@@ -302,6 +347,14 @@ public sealed class ModInstallService
         using var archive = ArchiveFactory.OpenArchive(archivePath);
         var entries = archive.Entries.Where(entry => !entry.IsDirectory).ToList();
 
+        // A normalized-key index sorted case-insensitively lets each install's file set be found
+        // by binary search instead of a linear O(entries) scan per install (FOMOD archives can
+        // declare hundreds of installs against tens of thousands of files).
+        var index = new List<(IArchiveEntry Entry, string Key)>(entries.Count);
+        foreach (var entry in entries)
+            index.Add((entry, NormalizeKey(entry.Key)));
+        index.Sort((a, b) => string.Compare(a.Key, b.Key, StringComparison.OrdinalIgnoreCase));
+
         var work = new List<(IArchiveEntry Entry, string Destination)>();
         foreach (var install in installs)
         {
@@ -309,35 +362,34 @@ public sealed class ModInstallService
             if (install.IsFolder)
             {
                 var prefix = source.Length == 0 ? string.Empty : source + "/";
-                foreach (var entry in entries)
+                for (var i = FindKeyStart(index, prefix);
+                    i < index.Count && index[i].Key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
+                    i++)
                 {
-                    var key = NormalizeKey(entry.Key);
-                    if (prefix.Length > 0 && !key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-                        continue;
-
-                    var relative = key[prefix.Length..];
+                    var relative = index[i].Key[prefix.Length..];
                     if (relative.Length == 0)
                         continue;
 
-                    work.Add((entry, CombineRelative(install.Destination, relative)));
+                    work.Add((index[i].Entry, CombineRelative(install.Destination, relative)));
                 }
             }
             else
             {
-                var entry = entries.FirstOrDefault(item => NormalizeKey(item.Key).Equals(source, StringComparison.OrdinalIgnoreCase));
-                if (entry is null)
-                    continue;
-
-                work.Add((entry, install.Destination.Length > 0 ? install.Destination : Path.GetFileName(source)));
+                var i = FindKeyStart(index, source);
+                if (i < index.Count && index[i].Key.Equals(source, StringComparison.OrdinalIgnoreCase))
+                    work.Add((index[i].Entry, install.Destination.Length > 0 ? install.Destination : Path.GetFileName(source)));
             }
         }
 
         var budget = new ArchiveExtractionBudget(_extractionLimits);
-        var reporter = new ExtractionReporter(progress, work.Count);
+        var verifiedDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var reporter = new ExtractionReporter(progress, work.Count, work.Sum(item => item.Entry.Size), "Extracting");
         foreach (var (entry, destinationRelative) in work)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var written = ExtractEntry(entry, destinationRoot, ResolveSafeDestination(destinationRoot, destinationRelative), budget);
+            var written = ExtractEntry(
+                entry, destinationRoot, ResolveSafeDestination(destinationRoot, destinationRelative),
+                budget, verifiedDirectories, cancellationToken);
             reporter.Report(entry, written);
         }
 
@@ -360,41 +412,112 @@ public sealed class ModInstallService
         }
 
         var budget = new ArchiveExtractionBudget(limits);
-        var reporter = new ExtractionReporter(progress, work.Count);
+        var verifiedDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var reporter = new ExtractionReporter(progress, work.Count, work.Sum(item => item.Entry.Size), "Extracting");
         foreach (var (entry, relativePath) in work)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var written = ExtractEntry(entry, destinationRoot, ResolveSafeDestination(destinationRoot, relativePath), budget);
+            var written = ExtractEntry(
+                entry, destinationRoot, ResolveSafeDestination(destinationRoot, relativePath),
+                budget, verifiedDirectories, cancellationToken);
             reporter.Report(entry, written);
         }
 
         reporter.Finish();
     }
 
-    /// <summary>Unpacks one entry and returns the number of bytes written.</summary>
-    private static long ExtractEntry(IArchiveEntry entry, string destinationRoot, string destinationPath, ArchiveExtractionBudget budget)
+    /// <summary>
+    /// Unpacks one entry and returns the number of bytes written. <paramref name="verifiedDirectories"/>
+    /// is a run-scoped memo of directories already verified (created or checked for a reparse point)
+    /// during this extraction, so a directory tree shared by many entries is walked once.
+    /// </summary>
+    private static long ExtractEntry(
+        IArchiveEntry entry, string destinationRoot, string destinationPath,
+        ArchiveExtractionBudget budget, HashSet<string>? verifiedDirectories, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         ArchiveExtractionBudget.RejectLinkEntry(entry);
         budget.AccountForEntry(entry);
 
         var directory = Path.GetDirectoryName(destinationPath);
         if (!string.IsNullOrEmpty(directory))
-            ArchiveExtractionBudget.CreateDirectoryWithoutLinks(destinationRoot, directory);
+            ArchiveExtractionBudget.CreateDirectoryWithoutLinks(destinationRoot, directory, verifiedDirectories);
 
         RejectExistingLink(destinationPath);
 
-        long written;
-        using (var source = entry.OpenEntryStream())
-        using (var target = new FileStream(destinationPath, FileMode.Create, FileAccess.Write, FileShare.None))
+        long written = 0;
+        var canceled = false;
+        try
         {
-            source.CopyTo(target);
-            written = target.Length;
+            using (var source = entry.OpenEntryStream())
+            using (var target = new FileStream(destinationPath, FileMode.Create, FileAccess.Write, FileShare.None))
+            {
+                written = CopyWithCancellation(source, target, cancellationToken);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            canceled = true;
+            throw;
+        }
+        finally
+        {
+            if (canceled)
+            {
+                // Remove the partially written file so a cancelled install leaves no partial data behind.
+                try { File.Delete(destinationPath); }
+                catch
+                {
+                    // Best effort: cleanup failures must not mask the cancellation.
+                }
+            }
         }
 
         budget.AccountForWrittenBytes(entry.Key ?? destinationPath, written);
         ArchiveExtractionBudget.VerifyWrittenFile(destinationPath);
         return written;
     }
+
+    /// <summary>
+    /// Copies <paramref name="source"/> into <paramref name="target"/> using a pooled buffer,
+    /// checking for cancellation every few chunks so a mid-file cancel is honored promptly and the
+    /// partially written file can be deleted by the caller.
+    /// </summary>
+    private static long CopyWithCancellation(Stream source, Stream target, CancellationToken cancellationToken)
+    {
+        var buffer = ArrayPool<byte>.Shared.Rent(CopyChunkSize);
+        try
+        {
+            long total = 0;
+            var chunksSinceCheck = 0;
+            int read;
+            while ((read = source.Read(buffer, 0, buffer.Length)) > 0)
+            {
+                target.Write(buffer, 0, read);
+                total += read;
+
+                // Check for cancellation between read bursts so a 10 GB entry can be cancelled
+                // without draining the entire stream first.
+                if (Interlocked.Increment(ref chunksSinceCheck) >= ChunksBetweenCancellationChecks)
+                {
+                    chunksSinceCheck = 0;
+                    if (cancellationToken.IsCancellationRequested)
+                        throw new OperationCanceledException("Entry copy cancelled.", cancellationToken);
+                }
+            }
+
+            return total;
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+    }
+
+    private const int CopyChunkSize = 4 * 1024 * 1024;
+
+    /// <summary>Number of 4 MB chunks copied between cancellation checks (~128 MB of work per check).</summary>
+    private const int ChunksBetweenCancellationChecks = 32;
 
     private static void RejectExistingLink(string path)
     {
@@ -419,6 +542,26 @@ public sealed class ModInstallService
 
     private static string NormalizeRelativePath(string? path) =>
         NormalizeKey(path).TrimEnd('/');
+
+    /// <summary>
+    /// Returns the first index in a key-sorted entry index whose key compares >= <paramref name="key"/>
+    /// (case-insensitive), or the index count when none do. Binary search keeps each install's lookup
+    /// O(log n) even when a FOMOD declares many installs against tens of thousands of files.
+    /// </summary>
+    private static int FindKeyStart(List<(IArchiveEntry Entry, string Key)> index, string key)
+    {
+        var low = 0;
+        var high = index.Count;
+        while (low < high)
+        {
+            var mid = low + ((high - low) / 2);
+            if (string.Compare(index[mid].Key, key, StringComparison.OrdinalIgnoreCase) < 0)
+                low = mid + 1;
+            else
+                high = mid;
+        }
+        return low;
+    }
 
     private static bool TryGetRelativePathBelowSourceRoot(string entryPath, string sourceRoot, out string relativePath)
     {
@@ -456,32 +599,79 @@ public sealed class ModInstallService
 }
 
 /// <summary>
-/// Tracks per-entry extraction progress on a single worker thread and forwards updates to
-/// an optional <see cref="IProgress{T}"/> observer. No locking is needed: each extraction
-/// runs on exactly one thread.
+/// Tracks per-entry extraction progress on a single worker thread and forwards updates to an optional
+/// <see cref="IProgress{T}"/> observer. Updates are coalesced so a FOMOD with tens of thousands of small
+/// files does not marshal a storm of callbacks to the UI thread: at most one update is forwarded per
+/// <see cref="CoalesceWindow"/>, an update is forced when a very large entry finishes (no other per-file
+/// update would arrive until it completes), and a final update is always sent from <see cref="Finish"/>
+/// so observers reliably see the terminal state. No locking is needed because each extraction runs on
+/// exactly one thread.
 /// </summary>
 internal sealed class ExtractionReporter
 {
+    /// <summary>Minimum time between two forwarded updates (at most ~10 updates per second).</summary>
+    private static readonly TimeSpan CoalesceWindow = TimeSpan.FromMilliseconds(100);
+
+    /// <summary>
+    /// A single entry at or above this size forces an immediate update, since no other per-file update
+    /// will arrive until this (possibly multi-gigabyte) entry has fully completed.
+    /// </summary>
+    private static readonly long LargeEntryThresholdBytes = 256L * 1024 * 1024;
+
     private readonly IProgress<ExtractionProgress>? _progress;
     private readonly int _filesTotal;
+    private readonly long _bytesTotal;
+    private readonly string _stage;
+    private readonly Func<TimeSpan> _elapsed;
     private int _filesDone;
     private long _bytesWritten;
+    private bool _hasReported;
+    private TimeSpan _lastReportedAt;
 
-    public ExtractionReporter(IProgress<ExtractionProgress>? progress, int filesTotal)
+    public ExtractionReporter(
+        IProgress<ExtractionProgress>? progress, int filesTotal, long bytesTotal,
+        string stage = "", Func<TimeSpan>? clock = null)
     {
         _progress = progress;
         _filesTotal = filesTotal;
+        _bytesTotal = bytesTotal;
+        _stage = stage;
+        if (clock is null)
+        {
+            var stopwatch = Stopwatch.StartNew();
+            _elapsed = () => stopwatch.Elapsed;
+        }
+        else
+        {
+            _elapsed = clock;
+        }
     }
 
     public void Report(IArchiveEntry entry, long bytesWritten)
     {
         _filesDone++;
         _bytesWritten += bytesWritten;
-        _progress?.Report(new ExtractionProgress(_filesDone, _filesTotal, _bytesWritten, entry.Key ?? string.Empty));
+        if (_progress is null)
+            return;
+
+        var now = _elapsed();
+        var dueByTime = !_hasReported || now - _lastReportedAt >= CoalesceWindow;
+        var largeEntry = entry.Size >= LargeEntryThresholdBytes;
+        if (!dueByTime && !largeEntry)
+            return;
+
+        _hasReported = true;
+        _lastReportedAt = now;
+        ReportUpdate($"{_stage} {entry.Key ?? string.Empty}");
     }
 
     public void Finish()
     {
-        _progress?.Report(new ExtractionProgress(_filesDone, _filesTotal, _bytesWritten, string.Empty));
+        ReportUpdate(_stage);
+    }
+
+    private void ReportUpdate(string detail)
+    {
+        _progress?.Report(new ExtractionProgress(_filesDone, _filesTotal, _bytesWritten, _bytesTotal, detail));
     }
 }

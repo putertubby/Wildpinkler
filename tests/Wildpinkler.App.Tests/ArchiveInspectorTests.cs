@@ -18,9 +18,9 @@ public sealed class ArchiveInspectorTests
 
         var inspector = new ArchiveInspector();
 
-        var files = inspector.ReadFomodFiles(archive.Path);
+        var files = inspector.ReadFomodFiles(archive.Path, TestContext.Current.CancellationToken);
 
-        Assert.Equal(FomodState.Yes, inspector.DetectFomod(archive.Path));
+        Assert.Equal(FomodState.Yes, inspector.DetectFomod(archive.Path, TestContext.Current.CancellationToken));
         Assert.Equal(2, files.Count);
         Assert.Equal("<xml>module</xml>", files["ModuleConfig.xml"]);
         Assert.Equal("<xml>install</xml>", files["ModInstall.xml"]);
@@ -32,7 +32,7 @@ public sealed class ArchiveInspectorTests
     {
         using var archive = new TemporaryZip(("fomod/README.txt", "fomod notes"));
 
-        Assert.Equal(FomodState.Yes, new ArchiveInspector().DetectFomod(archive.Path));
+        Assert.Equal(FomodState.Yes, new ArchiveInspector().DetectFomod(archive.Path, TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -42,7 +42,7 @@ public sealed class ArchiveInspectorTests
             ("wrapper/Data/example.esp", string.Empty),
             ("readme.txt", string.Empty));
 
-        Assert.Equal(FomodState.No, new ArchiveInspector().DetectFomod(archive.Path));
+        Assert.Equal(FomodState.No, new ArchiveInspector().DetectFomod(archive.Path, TestContext.Current.CancellationToken));
     }
 
     [Fact]
@@ -53,8 +53,8 @@ public sealed class ArchiveInspectorTests
             ("fomod/plugin.png", "binary-image-bytes"));
         var inspector = new ArchiveInspector();
 
-        var first = inspector.ReadFomodFiles(archive.Path);
-        var second = inspector.ReadFomodFiles(archive.Path);
+        var first = inspector.ReadFomodFiles(archive.Path, TestContext.Current.CancellationToken);
+        var second = inspector.ReadFomodFiles(archive.Path, TestContext.Current.CancellationToken);
 
         var single = Assert.Single(first);
         Assert.Equal("ModuleConfig.xml", single.Key);
@@ -70,12 +70,12 @@ public sealed class ArchiveInspectorTests
             ("fomod/extra.txt", "extra"));
         var inspector = new ArchiveInspector();
 
-        var initial = Assert.Single(inspector.ReadFomodFiles(archive.Path));
+        var initial = Assert.Single(inspector.ReadFomodFiles(archive.Path, TestContext.Current.CancellationToken));
         Assert.Equal("<xml>module</xml>", initial.Value);
 
         AppendBytesToArchive(archive.Path, ("fomod/Plugin.xml", "<xml>plugin</xml>"));
 
-        var updated = inspector.ReadFomodFiles(archive.Path);
+        var updated = inspector.ReadFomodFiles(archive.Path, TestContext.Current.CancellationToken);
 
         Assert.Equal(2, updated.Count);
         Assert.Equal("<xml>plugin</xml>", updated["Plugin.xml"]);
@@ -95,7 +95,7 @@ public sealed class ArchiveInspectorTests
     {
         using var archive = new TemporaryZip(("skse64_2_02_06/Data/SKSE/Plugins/example.dll", string.Empty));
 
-        var layout = new ArchiveInspector().InspectLayout(archive.Path);
+        var layout = new ArchiveInspector().InspectLayout(archive.Path, TestContext.Current.CancellationToken);
 
         Assert.True(layout.IsAvailable);
         Assert.Equal("skse64_2_02_06", layout.SuggestedSourceRoot);
@@ -109,7 +109,7 @@ public sealed class ArchiveInspectorTests
             ("wrapper/Data/example.esp", string.Empty),
             ("readme.txt", string.Empty));
 
-        var layout = new ArchiveInspector().InspectLayout(archive.Path);
+        var layout = new ArchiveInspector().InspectLayout(archive.Path, TestContext.Current.CancellationToken);
 
         Assert.True(layout.IsAvailable);
         Assert.Null(layout.SuggestedSourceRoot);
@@ -122,7 +122,7 @@ public sealed class ArchiveInspectorTests
             ("wrapper/Data/example.esp", string.Empty),
             ("__MACOSX/wrapper/._example.esp", string.Empty));
 
-        var layout = new ArchiveInspector().InspectLayout(archive.Path);
+        var layout = new ArchiveInspector().InspectLayout(archive.Path, TestContext.Current.CancellationToken);
 
         Assert.Equal("wrapper", layout.SuggestedSourceRoot);
     }
@@ -134,7 +134,7 @@ public sealed class ArchiveInspectorTests
             ("first/Data/first.esp", string.Empty),
             ("second/Data/second.esp", string.Empty));
 
-        var layout = new ArchiveInspector().InspectLayout(archive.Path);
+        var layout = new ArchiveInspector().InspectLayout(archive.Path, TestContext.Current.CancellationToken);
 
         Assert.Null(layout.SuggestedSourceRoot);
     }

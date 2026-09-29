@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Threading.Tasks;
 using Wildpinkler.App.Models;
 using Wildpinkler.App.Services;
 using Xunit;
@@ -13,7 +14,7 @@ public sealed class ModListPreflightServiceTests : IDisposable
     public ModListPreflightServiceTests() => Directory.CreateDirectory(_root);
 
     [Fact]
-    public void Evaluate_ReusesMatchingArchiveAndInstallation()
+    public async Task Evaluate_ReusesMatchingArchiveAndInstallation()
     {
         var archive = Path.Combine(_root, "mod.zip");
         var folder = Path.Combine(_root, "install");
@@ -30,8 +31,9 @@ public sealed class ModListPreflightServiceTests : IDisposable
             Recipe = new ManualInstallationRecipe { SourceRoot = "wrapper", Destination = "Data" }
         };
 
-        var result = new ModListPreflightService().Evaluate(
-            manifest, CreateGame(), new[] { mod }, new[] { installation }, Array.Empty<ToolEntry>());
+        var result = await CreatePreflight().EvaluateAsync(
+            manifest, CreateGame(), new[] { mod }, new[] { installation }, Array.Empty<ToolEntry>(),
+            TestContext.Current.CancellationToken);
 
         Assert.True(result.CanStart);
         Assert.Equal(ModListBuildTaskState.Completed, result.Tasks[0].State);
@@ -40,7 +42,7 @@ public sealed class ModListPreflightServiceTests : IDisposable
     }
 
     [Fact]
-    public void Evaluate_MarksPrivateArchiveAndGuidedInstallAsUserActions()
+    public async Task Evaluate_MarksPrivateArchiveAndGuidedInstallAsUserActions()
     {
         var manifest = CreateManifest();
         var requirement = Assert.IsType<ModListModEntry>(Assert.Single(manifest.Content));
@@ -48,8 +50,9 @@ public sealed class ModListPreflightServiceTests : IDisposable
         requirement.AcquisitionInstructions = "Choose the archive.";
         requirement.Installation = new GuidedInstallationRecipe { Instructions = "Choose options." };
 
-        var result = new ModListPreflightService().Evaluate(
-            manifest, CreateGame(), Array.Empty<ModEntry>(), Array.Empty<ModInstallation>(), Array.Empty<ToolEntry>());
+        var result = await CreatePreflight().EvaluateAsync(
+            manifest, CreateGame(), Array.Empty<ModEntry>(), Array.Empty<ModInstallation>(), Array.Empty<ToolEntry>(),
+            TestContext.Current.CancellationToken);
 
         Assert.True(result.CanStart);
         Assert.Equal(ModListBuildTaskState.NeedsUser, result.Tasks[0].State);
@@ -57,17 +60,22 @@ public sealed class ModListPreflightServiceTests : IDisposable
     }
 
     [Fact]
-    public void Evaluate_BlocksWrongGameDefinition()
+    public async Task Evaluate_BlocksWrongGameDefinition()
     {
         var game = CreateGame();
         game.DefinitionId = "fallout4";
 
-        var result = new ModListPreflightService().Evaluate(
-            CreateManifest(), game, Array.Empty<ModEntry>(), Array.Empty<ModInstallation>(), Array.Empty<ToolEntry>());
+        var result = await CreatePreflight().EvaluateAsync(
+            CreateManifest(), game, Array.Empty<ModEntry>(), Array.Empty<ModInstallation>(), Array.Empty<ToolEntry>(),
+            TestContext.Current.CancellationToken);
 
         Assert.False(result.CanStart);
         Assert.Contains(result.BlockingIssues, issue => issue.Contains("does not use definition", StringComparison.Ordinal));
     }
+
+    private ModListPreflightService CreatePreflight() =>
+        new(new ModInstallService(new ModInstallationStore(_root), new ArchiveInspector(), new FomodInstallerParser(),
+            Path.Combine(_root, "installs")), new ModStore(_root));
 
     private static ModListManifest CreateManifest() => new()
     {

@@ -28,6 +28,7 @@ Choose the smallest familiar pattern that supports the user task. Keep top-level
 | Explain a transient feature or control | `TeachingTip` | A blocking dialog for nonessential instruction |
 | Notify about ongoing page/app state | `InfoBar` | A modal dialog or fleeting toast for persistent state |
 | Confirm a consequential action | `ContentDialog` | A confirmation for every routine, reversible action |
+| Collect input across a few dependent steps | One `ContentDialog` re-rendered per step with a model-owned draft | A chain of separate dialogs, or reading selection state back out of the visual tree |
 
 ## UI-Only Refactor Playbook
 
@@ -98,6 +99,28 @@ Use `VisualStateManager` for broad structural changes such as side-by-side to st
 - Use `GridView` or `ItemsView` grid layouts for image- or visual-card-led browsing, not dense textual records that users read top-to-bottom. Use `ItemsRepeater` only when the required layout/interaction cannot be built from the feature-complete collection controls and the team is prepared to implement missing selection, focus, automation, and interaction behavior.
 - Use one selection model consistently. `Single` is the default for list/details; `Extended` is appropriate only when users need range/additive desktop selection and the UI exposes batch actions and selected count. Do not combine row activation with selection unless the activation order and its keyboard equivalent are intentional and tested.
 - Keeping the default virtualizing panel means containers are recycled and reused for different items as the user scrolls. Any state that matters must therefore live on the item, not on the container. See "Controlled State and Non-Destructive Data Updates".
+
+## Long-running operations, progress, and cancellation
+
+Multi-minute work must never surface as a bare spinner with no name, no phase, and no way out. Apply the following rules to every long-running operation:
+
+- **Name the work and show its phase.** Every multi-minute operation needs a named, phase-labeled, cancellable surface: an `InfoBar` for state that continues while the user works, or a dialog when the operation is modal. Phase labels are specific ("Analyzing 'BHUNP'…", "Extracting…", "Scanning plugins…", "Cancelling — removing partial files…"), not "Working…". A spinner-only indicator is the failure case these rules exist to eliminate.
+- **Determinate vs indeterminate.** Use determinate progress when the total amount of work is known; otherwise use an indeterminate bar and never fake a percentage. For file work, progress is byte-based: sum the declared sizes up front (`BytesTotal`); when sizes are unknown (streamed or uncompressed entries), report 0 and fall back to indeterminate.
+- **Coalesce reporting (~10 Hz).** Background workers must not marshal to the UI thread per item. Coalesce: report at most roughly every 100 ms, or on the final item, plus a forced intermediate report after a single very large item completes so the bar never appears stuck. Debouncing applies to the report, not to the work.
+- **No silent gaps between phases.** One dialog transitions through its phases (hashing → extracting → scanning → checking) instead of chaining separate dialogs, each of which closes and reopens. The operation surface stays open from start to finish and closes exactly once, from exactly one owner.
+- **Cancel is acknowledged immediately.** A cancel click must produce visible state within moments (button disabled, "Cancelling…" status); the token must be threaded to every phase, including mid-file work (check the token inside copy loops, not only between items). Cleanup after cancel — deleting partial files — runs off the UI thread and is visible ("Cancelling — removing partial files…"); the UI thread is never blocked deleting gigabytes.
+- **One owner closes the dialog.** The operation's orchestration closes its progress surface on every exit path (success, cancel, failure). Event handlers such as the cancel button only request cancellation; they never race a fire-and-forget close.
+
+### Wizards
+
+A wizard is a small modal workflow that collects input across a few dependent steps before a consequential commit.
+
+- **One `ContentDialog` instance for all steps.** Do not close and reopen a dialog per step; re-render the content of the single dialog as the user moves through steps.
+- **Model-owned per-step drafts.** Each step edits a draft object on the model (selections, options, text). Next/Back commit and restore the draft; state is never read back out of the visual tree (radio buttons, checkboxes, list containers). Back re-renders from the draft, so the user's place and choices always survive.
+- **Virtualized option lists.** Steps that present large selectable sets use a `ListView` (default virtualizing panel), never an imperatively built `StackPanel` that materializes every row.
+- **Summary step before a consequential commit.** The final step recaps what will happen; the commit maps onto the "Confirm a consequential action → ContentDialog" pattern.
+- **Step header for orientation.** Show "Step N of M: <name>" (`SubtitleTextBlockStyle`) so the user always knows where they are in the flow.
+- **Cancellation is a first-class result.** Dismissing or cancelling a wizard step yields an explicit cancelled outcome that the caller handles; it is not an exception or a silent no-op.
 
 ## Controlled State and Non-Destructive Data Updates
 

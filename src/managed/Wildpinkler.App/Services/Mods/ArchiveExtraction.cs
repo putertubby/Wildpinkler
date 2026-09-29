@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using SharpCompress.Archives;
 
@@ -34,8 +35,26 @@ public sealed class ArchiveExtractionLimitExceededException : Exception
     }
 }
 
-/// <summary>Per-entry extraction progress surfaced to the UI while an install is unpacking.</summary>
-public sealed record ExtractionProgress(int FilesDone, int FilesTotal, long BytesWritten, string CurrentEntry);
+/// <summary>
+/// Per-entry extraction progress surfaced to the UI while an install is unpacking.
+/// <see cref="BytesTotal"/> is an estimate (declared sizes) and is 0 when indeterminate.
+/// </summary>
+public sealed record ExtractionProgress(int FilesDone, int FilesTotal, long BytesWritten, long BytesTotal, string CurrentEntry);
+
+/// <summary>
+/// The coarse phases of an install surfaced to the user through <see cref="ExtractionProgress"/>.
+/// Phases that have a byte budget (<see cref="Extracting"/>) drive a determinate progress bar;
+/// the others show an indeterminate bar with a status line.
+/// </summary>
+public enum InstallPhase
+{
+    Hashing,
+    Extracting,
+    ScanningPlugins,
+    CheckingDependencies,
+    Cancelling,
+    Done,
+}
 
 /// <summary>Raised when an archive entry would create or traverse a link, which could redirect writes outside the install folder.</summary>
 public sealed class ArchiveEntryRejectedException : Exception
@@ -122,7 +141,11 @@ internal sealed class ArchiveExtractionBudget
     /// Creates every folder between <paramref name="root"/> and <paramref name="directory"/>, refusing to
     /// descend through a reparse point so a pre-existing junction cannot redirect the install.
     /// </summary>
-    public static void CreateDirectoryWithoutLinks(string root, string directory)
+    /// <param name="verifiedDirectories">
+    /// Optional run-scoped memo of directories already verified (created or checked for a reparse
+    /// point) during this extraction, so a directory tree shared by many entries is walked once.
+    /// </param>
+    public static void CreateDirectoryWithoutLinks(string root, string directory, HashSet<string>? verifiedDirectories = null)
     {
         var rootFull = Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
         var target = Path.TrimEndingDirectorySeparator(Path.GetFullPath(directory));
@@ -139,16 +162,22 @@ internal sealed class ArchiveExtractionBudget
         foreach (var segment in relative.Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries))
         {
             current = Path.Combine(current, segment);
+            if (verifiedDirectories is { } verified && verified.Contains(current))
+                continue;
+
             var info = new DirectoryInfo(current);
             if (info.Exists)
             {
                 if (info.Attributes.HasFlag(FileAttributes.ReparsePoint))
                     throw new ArchiveEntryRejectedException(
                         $"'{current}' is a link, so Wildpinkler will not write the install through it.");
-                continue;
+            }
+            else
+            {
+                info.Create();
             }
 
-            info.Create();
+            verifiedDirectories?.Add(current);
         }
     }
 

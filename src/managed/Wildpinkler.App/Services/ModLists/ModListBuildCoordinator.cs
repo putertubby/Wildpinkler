@@ -67,7 +67,7 @@ public sealed class ModListBuildCoordinator
     {
         var mods = await _mods.LoadAsync();
         var installations = await _installations.LoadAsync();
-        var plan = _preflight.Evaluate(manifest, game, mods, installations, tools);
+        var plan = await _preflight.EvaluateAsync(manifest, game, mods, installations, tools, cancellationToken);
         var profile = new Profile
         {
             Id = Guid.NewGuid().ToString("N"),

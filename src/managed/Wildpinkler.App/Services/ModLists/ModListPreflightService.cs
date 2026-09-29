@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using Wildpinkler.App.Models;
 
 namespace Wildpinkler.App.Services;
@@ -16,12 +18,22 @@ public sealed record ModListPreflightResult(
 
 public sealed class ModListPreflightService
 {
-    public ModListPreflightResult Evaluate(
+    private readonly ModInstallService _installer;
+    private readonly ModStore _store;
+
+    public ModListPreflightService(ModInstallService installer, ModStore store)
+    {
+        _installer = installer;
+        _store = store;
+    }
+
+    public async Task<ModListPreflightResult> EvaluateAsync(
         ModListManifest manifest,
         GameEntry game,
         IReadOnlyList<ModEntry> mods,
         IReadOnlyList<ModInstallation> installations,
-        IReadOnlyList<ToolEntry> tools)
+        IReadOnlyList<ToolEntry> tools,
+        CancellationToken cancellationToken = default)
     {
         ModListManifestValidator.EnsureValid(manifest);
         var tasks = new List<ModListBuildTask>();
@@ -48,6 +60,22 @@ public sealed class ModListPreflightService
             var local = mods.FirstOrDefault(candidate =>
                 !string.IsNullOrWhiteSpace(mod.Archive.Sha256) &&
                 string.Equals(candidate.Sha256, mod.Archive.Sha256, StringComparison.OrdinalIgnoreCase));
+            if (local is null && !string.IsNullOrWhiteSpace(mod.Archive.Sha256))
+            {
+                // SHA-256 is computed lazily, so locally imported mods may not have it yet. Resolve
+                // it for any candidate whose archive file exists; the digest is cached on the entry.
+                foreach (var candidate in mods.Where(candidate =>
+                             string.IsNullOrWhiteSpace(candidate.Sha256) &&
+                             File.Exists(candidate.ArchivePath)))
+                {
+                    var resolved = await VerifyLocalSha256Async(candidate, cancellationToken);
+                    if (resolved is not null && string.Equals(resolved, mod.Archive.Sha256, StringComparison.OrdinalIgnoreCase))
+                    {
+                        local = candidate;
+                        break;
+                    }
+                }
+            }
             var artifact = new ModListBuildArtifact
             {
                 EntryId = mod.EntryId,
@@ -114,6 +142,7 @@ public sealed class ModListPreflightService
         if (invocationCount > 0)
             tasks.Add(Task("tools:consent", ModListBuildTaskKind.ToolConsent, null, "Approve tool invocations",
                 ModListBuildTaskState.NeedsUser, $"Review and approve {invocationCount} tool invocation(s)."));
+
         foreach (var tool in manifest.Tools)
         foreach (var invocation in tool.Invocations)
             tasks.Add(Task($"invoke:{tool.RequirementId}:{invocation.InvocationId}", ModListBuildTaskKind.ToolInvocation,
@@ -122,6 +151,28 @@ public sealed class ModListPreflightService
         tasks.Add(Task("validate", ModListBuildTaskKind.Validate, null, "Validate profile", ModListBuildTaskState.Pending, "Waiting for required tasks."));
         tasks.Add(Task("commit", ModListBuildTaskKind.Commit, null, "Publish profile", ModListBuildTaskState.Pending, "Waiting for validation."));
         return new ModListPreflightResult(tasks, artifacts, blockers);
+    }
+
+    private async Task<string?> VerifyLocalSha256Async(ModEntry candidate, CancellationToken cancellationToken)
+    {
+        if (!string.IsNullOrWhiteSpace(candidate.Sha256))
+            return candidate.Sha256;
+        if (string.IsNullOrWhiteSpace(candidate.ArchivePath) || !File.Exists(candidate.ArchivePath))
+            return null;
+        try
+        {
+            var digest = await _installer.EnsureArchiveSha256Async(candidate, cancellationToken: cancellationToken);
+            await _store.UpsertAsync(candidate);
+            return digest;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            return null;
+        }
     }
 
     private static ModListBuildTask Task(string id, ModListBuildTaskKind kind, string? entryId, string name,

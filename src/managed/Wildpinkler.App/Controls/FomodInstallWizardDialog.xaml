@@ -16,16 +16,28 @@
         <InfoBar x:Name="WarningsBar" Severity="Warning" IsOpen="False" IsClosable="True"
                  Title="Some install rules could not be fully understood" />
 
-        <TextBlock x:Name="StepTitle" Style="{StaticResource SubtitleTextBlockStyle}" TextWrapping="Wrap" />
+        <TextBlock x:Name="StepHeader" Style="{StaticResource SubtitleTextBlockStyle}" TextWrapping="Wrap" />
 
-        <ScrollViewer x:Name="StepScroller" MaxHeight="420" VerticalScrollBarVisibility="Auto" Padding="0,0,16,0">
-            <StackPanel x:Name="GroupsHost" Spacing="16" />
-        </ScrollViewer>
+        <!-- One row per install step, plus a final summary row. The ListView virtualizes its
+             rows, so mods with hundreds of steps stay responsive. -->
+        <ListView x:Name="StepList" SelectionMode="Single"
+                  SelectionChanged="StepList_SelectionChanged"
+                  MaxHeight="420" IsItemClickEnabled="True">
+            <ListView.ItemTemplate>
+                <DataTemplate>
+                    <StackPanel Margin="0,6,16,6">
+                        <TextBlock Text="{Binding Title}" FontSize="15"
+                                   FontWeight="SemiBold" TextWrapping="Wrap" />
+                        <TextBlock Text="{Binding Subtitle}" Opacity="0.72" TextWrapping="Wrap" />
+                        <TextBlock Text="{Binding SelectionSummary}" Opacity="0.55"
+                                   TextWrapping="Wrap" />
+                    </StackPanel>
+                </DataTemplate>
+            </ListView.ItemTemplate>
+        </ListView>
 
-        <StackPanel x:Name="SummaryHost" Spacing="8" Visibility="Collapsed">
-            <TextBlock Style="{StaticResource SubtitleTextBlockStyle}" Text="Ready to install" />
-            <TextBlock x:Name="SummaryText" TextWrapping="Wrap" Opacity="0.72" />
-        </StackPanel>
+        <!-- Interactive editor for the active step: one section per group, written straight into the step draft. -->
+        <StackPanel x:Name="EditorHost" Spacing="10" />
 
         <TextBlock x:Name="ErrorText" Foreground="{ThemeResource SystemFillColorCriticalBrush}"
                    TextWrapping="Wrap" Visibility="Collapsed" />

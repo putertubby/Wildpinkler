@@ -107,16 +107,17 @@ public class ModStoreSchemaTests : IDisposable
     }
 
     [Fact]
-    public async Task AddArchiveAsync_ComputesSha256()
+    public async Task AddArchiveAsync_DefersSha256UntilInstall()
     {
         var source = Path.Combine(_root, "source.zip");
         await File.WriteAllTextAsync(source, "archive content", TestContext.Current.CancellationToken);
-        var expected = Convert.ToHexString(SHA256.HashData(await File.ReadAllBytesAsync(source, TestContext.Current.CancellationToken)));
         var entry = new ModEntry { Id = "abc", Name = "Test mod" };
 
         await CreateStore().AddArchiveAsync(entry, source);
 
-        Assert.Equal(expected, entry.Sha256);
+        Assert.Equal(Path.Combine(_root, "archives", "abc.zip"), entry.ArchivePath);
+        Assert.True(string.IsNullOrEmpty(entry.Sha256),
+            "Import must not hash the archive; SHA-256 is computed lazily at install time.");
     }
 
     [Fact]

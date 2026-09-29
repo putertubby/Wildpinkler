@@ -83,10 +83,10 @@ git rebase -r 6a8b51fbf9cb1dea6a35cceb5cbb04833c8f86ab --exec 'git commit --amen
 - [x] Enable/disable mod does not trigger regereration of profile.json and Plugins.txt. Must restart Wildpinkler to make profile.json update properly
 - [x] Restore "HKCU:\Software\Microsoft\Windows\Windows Error Reporting\LocalDumps" after debugging
 - [ ] What does "remove tool" do? How are global tools added? Automatically for associated games??
-- [ ] Mod install
-   - [ ] Long delay between clicking add mod on large archive (BHUNP) and dialog shows up with just spinning donut as indicator. Improve/cancel?
-   - [ ] Installing fomod files from large archive (BHUNP) takes a very long time!
-   - [ ] Cancel fomod installation of large archive (BHUNP) does not close the dialog (or maybe after a long time?)
+- [x] Mod install
+   - [x] Long delay between clicking add mod on large archive (BHUNP) and dialog shows up with just spinning donut as indicator. Improve/cancel?
+   - [x] Installing fomod files from large archive (BHUNP) takes a very long time!
+   - [x] Cancel fomod installation of large archive (BHUNP) does not close the dialog (or maybe after a long time?)
 - [ ] Tool output overlay should be visible in the load order only when:
       1. The tool is added to the profile
       2. The tool has the "capture tool output" setting enabled
@@ -97,7 +97,7 @@ git rebase -r 6a8b51fbf9cb1dea6a35cceb5cbb04833c8f86ab --exec 'git commit --amen
 - [x] Overlay for tools doesn't work. Overlay branch should be added to view automatically.
 - [x] No scrollbar in add mods dialog
 - [ ] Local ollama does not work
-- [ ] Why are there assistant "what can assistant do" settings? dropdown should suffice?
+- [ ] Why are there assistant "what can assistant do" settings? Dropdown in assistant pane should suffice?
 - [ ] When LOOT is running... Bad message!
 - [ ] Renaming a mod drops dependencies (only when depending??)
 - [ ] Download does not resume automatically after restarting wildpinkler (or ui not updated)
@@ -112,6 +112,7 @@ git rebase -r 6a8b51fbf9cb1dea6a35cceb5cbb04833c8f86ab --exec 'git commit --amen
 
 ## Features
 
+- [ ] Excluded: dependency-extraction internals, download resume, other backlog items, persistence/recipe schema changes, spec.md updates.
 - [ ] Tool icon: Excluded: cache-policy changes, DPI scaling, per-tool custom icons, logging beyond the existing InfoBar pattern.
 - [x] Bodyslide, FNIS and others - not a tool and not a game! Make all executables visible as toolbuttons using their icons
 - [ ] Tools shall be mutually exclusive launchable, including actual game

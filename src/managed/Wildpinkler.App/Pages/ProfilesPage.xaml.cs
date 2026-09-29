@@ -122,7 +122,35 @@ public sealed partial class ProfilesPage : PageBase
         _launchService.LaunchCompleted += LaunchService_LaunchCompleted;
         _activeRuns.RunStarted += ActiveRuns_Changed;
         _activeRuns.RunEnded += ActiveRuns_Changed;
+        // The install queue runs this page's interactive installer per job and reports state back
+        // on the UI thread; the InfoBar and per-row status chips are refreshed from JobChanged.
+        var installQueue = AppServices.ModInstallQueue;
+        installQueue.AttachDispatcher(DispatcherQueue);
+        installQueue.SetInstaller(RunQueueInstallAsync);
+        installQueue.JobChanged += InstallQueue_JobChanged;
         _ = LoadAsync();
+    }
+
+    private void InstallQueue_JobChanged(object? sender, ModInstallJob job) => DispatcherQueue.TryEnqueue(() =>
+    {
+        UpdateInstallQueueStatus();
+        UpdateModInstallStatusChips();
+    });
+
+    // The row status chip shows while a job is queued or installing; finished jobs clear it.
+    // Only the currently selected profile's rows carry chips (other profiles' rows are not bound).
+    private void UpdateModInstallStatusChips()
+    {
+        var profile = SelectedProfile;
+        if (profile is null)
+            return;
+        foreach (var job in AppServices.ModInstallQueue.Jobs)
+        {
+            var row = profile.LoadOrder.FirstOrDefault(item => item.ModId == job.ModId);
+            if (row is null)
+                continue;
+            row.InstallStatusText = job.IsActive ? job.StateText : null;
+        }
     }
 
     private void ActiveRuns_Changed(object? sender, ActiveRun run) => DispatcherQueue.TryEnqueue(() =>

@@ -39,10 +39,16 @@ public sealed partial class ProfilesPage
             var added = await ModImportService.ProcessCandidateArchivesAsync(
                 dialog.ImportedArchives, _games, XamlRoot, _modStore, Enqueue, DispatcherQueue, _allMods,
                 () => { }, ShowInfo, awaitArchiveCopy: true);
-            foreach (var mod in added)
+            if (added.Count == 1)
             {
-                mod.GameNamesText = DescribeGames(mod.GameIds);
-                await InstallModAsync(profile, mod);
+                added[0].GameNamesText = DescribeGames(added[0].GameIds);
+                await InstallModAsync(profile, added[0]);
+            }
+            else
+            {
+                foreach (var mod in added)
+                    mod.GameNamesText = DescribeGames(mod.GameIds);
+                StartQueueInstall(profile, added);
             }
             return;
         }
@@ -64,7 +70,25 @@ public sealed partial class ProfilesPage
             await _modStore.UpsertAsync(mod);
         }
 
-        foreach (var mod in selected)
-            await InstallModAsync(profile, mod);
+        if (selected.Count == 1)
+        {
+            await InstallModAsync(profile, selected[0]);
+        }
+        else
+        {
+            StartQueueInstall(profile, selected);
+        }
+    }
+
+    // Hands a multi-mod batch to the background install queue: the InfoBar reports progress and
+    // per-row chips mark each mod's state while the queue runs one install at a time. A transient
+    // placeholder row appears in the load order for each mod so it is visible before its install
+    // finishes; the installer replaces it in place on success or removes it otherwise.
+    private void StartQueueInstall(Profile profile, System.Collections.Generic.IReadOnlyList<ModEntry> mods)
+    {
+        foreach (var mod in mods)
+            AddInstallPlaceholder(profile, mod);
+        AppServices.ModInstallQueue.Enqueue(profile, mods);
+        ShowInfo($"Adding {mods.Count} mods — installs continue in the background.", InfoBarSeverity.Informational);
     }
 }

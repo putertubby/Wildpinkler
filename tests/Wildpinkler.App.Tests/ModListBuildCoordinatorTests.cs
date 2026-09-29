@@ -41,7 +41,7 @@ public sealed class ModListBuildCoordinatorTests : IDisposable
                     Order = 1,
                     Name = "Test mod",
                     AcquisitionInstructions = "Provide the archive.",
-                    Archive = new ModListArchiveRequirement { FileName = "source.zip", Sha256 = localMod.Sha256! },
+                    Archive = new ModListArchiveRequirement { FileName = "source.zip", Sha256 = await ComputeSha256Async(source) },
                     Installation = new ManualInstallationRecipe { SourceRoot = "wrapper", Destination = "" }
                 }
             }
@@ -78,8 +78,8 @@ public sealed class ModListBuildCoordinatorTests : IDisposable
     public async Task ResumeAsync_RebuildsTheDependencyEdgesDeclaredByTheManifest()
     {
         var modStore = new ModStore(_root);
-        var baseMod = await SeedModAsync(modStore, "base-mod", "Base mod", "base.zip", "base");
-        var dependentMod = await SeedModAsync(modStore, "dependent-mod", "Dependent mod", "dependent.zip", "dependent");
+        await SeedModAsync(modStore, "base-mod", "Base mod", "base.zip", "base");
+        await SeedModAsync(modStore, "dependent-mod", "Dependent mod", "dependent.zip", "dependent");
 
         var manifest = new ModListManifest
         {
@@ -88,8 +88,8 @@ public sealed class ModListBuildCoordinatorTests : IDisposable
             Game = new ModListGameRequirement { DefinitionId = "skyrim-se" },
             Content =
             {
-                ModEntryFor("base-entry", 1, "Base mod", "base.zip", baseMod.Sha256!),
-                ModEntryFor("dependent-entry", 2, "Dependent mod", "dependent.zip", dependentMod.Sha256!)
+                ModEntryFor("base-entry", 1, "Base mod", "base.zip", await ComputeSha256Async(Path.Combine(_root, "base.zip"))),
+                ModEntryFor("dependent-entry", 2, "Dependent mod", "dependent.zip", await ComputeSha256Async(Path.Combine(_root, "dependent.zip")))
             },
             Dependencies =
             {
@@ -142,6 +142,12 @@ public sealed class ModListBuildCoordinatorTests : IDisposable
         return mod;
     }
 
+    private static async Task<string> ComputeSha256Async(string path)
+    {
+        using var stream = File.OpenRead(path);
+        return Convert.ToHexString(await System.Security.Cryptography.SHA256.HashDataAsync(stream, TestContext.Current.CancellationToken));
+    }
+
     private GameEntry CreateGame()
     {
         var gamePath = Path.Combine(_root, "game");
@@ -168,9 +174,10 @@ public sealed class ModListBuildCoordinatorTests : IDisposable
             new ArchiveDownloadService(),
             modStore);
         var launcher = new LaunchService(new ProfileConfigExporter(), provisioner, new ActiveRunRegistry(), new NeverProcessLauncher(), Path.Combine(_root, "loader.exe"));
+        var installer = new ModInstallService(installationStore, new ArchiveInspector(), new FomodInstallerParser(), Path.Combine(_root, "installs"));
         return new ModListBuildCoordinator(
-            new ModListBuildStore(_root), new ModListPreflightService(), provisioner, acquisition,
-            new ModInstallService(installationStore, new ArchiveInspector(), new FomodInstallerParser(), Path.Combine(_root, "installs")),
+            new ModListBuildStore(_root), new ModListPreflightService(installer, modStore), provisioner, acquisition,
+            installer,
             modStore, installationStore, profileStore, new ToolStore(), new LaunchTargetResolver(), launcher,
             new DependencyGraphService(), new ModListDependencyMapper());
     }

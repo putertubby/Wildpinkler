@@ -30,6 +30,7 @@ public sealed partial class ProfileFolder : ObservableObject
     private int _order;
     private bool _isEnabled = true;
     private string? _launcherExecutableRelativePath;
+    private string? _installStatusText;
 
     public string Id { get; set; } = string.Empty;
     public string Name { get => _name; set => SetProperty(ref _name, value); }
@@ -80,6 +81,11 @@ public sealed partial class ProfileFolder : ObservableObject
     // Not persisted: 1-based display position, rewritten whenever the load order changes.
     [JsonIgnore]
     public int Order { get => _order; set => SetProperty(ref _order, value); }
+
+    // Not persisted: transient status shown in the row (e.g. "Installing") while this mod is being
+    // added by the install queue; null when idle.
+    [JsonIgnore]
+    public string? InstallStatusText { get => _installStatusText; set => SetProperty(ref _installStatusText, value); }
 
     [JsonIgnore]
     public bool IsModBranch => Kind == ProfileFolderKind.Mod;

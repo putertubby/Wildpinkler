@@ -94,6 +94,7 @@ public static class ServiceRegistration
         services.AddSingleton<ModStore>();
         services.AddSingleton<ModInstallationStore>();
         services.AddSingleton<ModInstallService>();
+        services.AddSingleton<ModInstallQueue>();
         services.AddSingleton<DependencyExtractionService>();
         services.AddSingleton<DependencyGraphService>();
         services.AddSingleton<DependencySubgraphService>();

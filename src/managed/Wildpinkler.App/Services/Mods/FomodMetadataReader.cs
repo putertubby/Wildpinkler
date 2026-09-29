@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Xml;
 using System.Xml.Linq;
@@ -25,16 +26,17 @@ public sealed class FomodMetadataReader
 
     public FomodMetadataReader(IArchiveInspector archiveInspector) => _archiveInspector = archiveInspector;
 
-    public Task<FomodMetadata> ReadAsync(string archivePath) => Task.Run(() => Read(archivePath));
+    public Task<FomodMetadata> ReadAsync(string archivePath, CancellationToken cancellationToken = default) =>
+        Task.Run(() => Read(archivePath, cancellationToken));
 
-    private FomodMetadata Read(string archivePath)
+    private FomodMetadata Read(string archivePath, CancellationToken cancellationToken)
     {
         var fallbackName = Path.GetFileNameWithoutExtension(archivePath);
-        var state = _archiveInspector.DetectFomod(archivePath);
+        var state = _archiveInspector.DetectFomod(archivePath, cancellationToken);
         if (state != FomodState.Yes)
             return new FomodMetadata(fallbackName, null, GuessVersion(fallbackName), null, null, Array.Empty<string>(), null, Array.Empty<string>(), state);
 
-        var files = _archiveInspector.ReadFomodFiles(archivePath);
+        var files = _archiveInspector.ReadFomodFiles(archivePath, cancellationToken);
         var info = files.TryGetValue("info.xml", out var infoText) ? Parse(infoText) : null;
         var config = files.TryGetValue("ModuleConfig.xml", out var configText) ? Parse(configText) : null;
 

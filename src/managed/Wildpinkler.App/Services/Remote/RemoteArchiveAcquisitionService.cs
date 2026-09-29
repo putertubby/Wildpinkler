@@ -132,6 +132,7 @@ public sealed class RemoteArchiveAcquisitionService : IDisposable
                 throw new InvalidDataException("The downloaded archive did not match the SHA-256 required by the mod list.");
             }
 
+            entry.Sha256 = actualSha256;
             await _store.AttachDownloadedArchiveAsync(entry, destination);
             entry.Status = "Available";
             await _store.UpsertAsync(entry);

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -19,6 +20,10 @@ namespace Wildpinkler.App.Pages;
 public sealed partial class ProfilesPage
 {
     private Profile? _loadOrderSubscribedProfile;
+
+    // The cancellation source for the in-flight install, if any. Exposed to the busy InfoBar's
+    // Cancel button so a long archive analysis can be torn down before a dialog is even shown.
+    private CancellationTokenSource? _activeInstallCts;
 
     private void AttachLoadOrder(Profile profile)
     {
@@ -357,11 +362,51 @@ public sealed partial class ProfilesPage
         if (!_runAccess.CanModify(profile))
             return;
 
-        SetLoadOrderBusy(true);
         var cts = new CancellationTokenSource();
+        _activeInstallCts = cts;
+        try
+        {
+            await RunInstallAsync(profile, mod, cts);
+        }
+        finally
+        {
+            if (ReferenceEquals(_activeInstallCts, cts))
+                _activeInstallCts = null;
+            cts.Dispose();
+            SetLoadOrderBusy(false);
+        }
+    }
+
+    // The interactive installer the install queue runs per job. It receives the job's own
+    // cancellation source and wires it to _activeInstallCts, so the InfoBar's Cancel button
+    // tears down the running install exactly like a single interactive install. The placeholder
+    // row inserted by StartQueueInstall is replaced in place on success and dropped otherwise,
+    // so a finished install keeps its queued position and a failed one leaves no empty row.
+    private async Task<InstallOutcome> RunQueueInstallAsync(Profile profile, ModEntry mod, CancellationTokenSource cts)
+    {
+        _activeInstallCts = cts;
+        var outcome = InstallOutcome.Failed;
+        try
+        {
+            outcome = await RunInstallAsync(profile, mod, cts);
+        }
+        finally
+        {
+            if (ReferenceEquals(_activeInstallCts, cts))
+                _activeInstallCts = null;
+            if (outcome is not InstallOutcome.Done)
+                RemoveInstallPlaceholder(profile, mod.Id);
+            UpdateInstallQueueStatus();
+        }
+        return outcome;
+    }
+
+    private async Task<InstallOutcome> RunInstallAsync(Profile profile, ModEntry mod, CancellationTokenSource cts)
+    {
         InstallProgressDialog? installDialog = null;
         try
         {
+            SetLoadOrderBusy(true, $"Analyzing '{mod.Name}' — large archives can take a while.");
             var fomodModule = await AppServices.ModInstallService.TryParseFomodAsync(mod, cts.Token);
             ModInstallation installation;
 
@@ -370,23 +415,28 @@ public sealed partial class ProfilesPage
                 var fileState = new ProfileFileStateProvider(profile.LoadOrder);
                 var wizard = new FomodInstallWizardDialog(fomodModule, fileState) { XamlRoot = XamlRoot };
                 if (await wizard.ShowAsync() != ContentDialogResult.Primary)
-                    return;
+                    return InstallOutcome.Cancelled;
 
                 installDialog = new InstallProgressDialog(mod.Name, cts.Cancel) { XamlRoot = XamlRoot };
+                installDialog.SetPhase(InstallPhase.Hashing, "Hashing archive…");
                 _ = installDialog.ShowAsync();
+                SetLoadOrderBusy(false);
                 installation = await AppServices.ModInstallService.FindOrCreateFomodInstallationAsync(
                     mod, wizard.ResolvedFiles, wizard.SelectionSignature, DescribeSelections(wizard.Selections), wizard.Selections,
                     progress: installDialog.Progress, cancellationToken: cts.Token);
             }
             else
             {
+                SetLoadOrderBusy(true, $"Analyzing '{mod.Name}' — large archives can take a while.");
                 var layout = await AppServices.ModInstallService.InspectLayoutAsync(mod, cts.Token);
                 var destinationDialog = new ModDestinationDialog(layout, mod.LastManualInstallPath) { XamlRoot = XamlRoot };
                 if (await destinationDialog.ShowAsync() != ContentDialogResult.Primary)
-                    return;
+                    return InstallOutcome.Cancelled;
 
                 installDialog = new InstallProgressDialog(mod.Name, cts.Cancel) { XamlRoot = XamlRoot };
+                installDialog.SetPhase(InstallPhase.Hashing, "Hashing archive…");
                 _ = installDialog.ShowAsync();
+                SetLoadOrderBusy(false);
                 installation = await AppServices.ModInstallService.FindOrCreateManualInstallationAsync(
                     mod, destinationDialog.SourceRootRelativePath, destinationDialog.DestinationRelativePath,
                     progress: installDialog.Progress, cancellationToken: cts.Token);
@@ -396,18 +446,31 @@ public sealed partial class ProfilesPage
             }
 
             if (installDialog is not null)
-                await CloseDialogAsync(installDialog, "Installed.");
+                installDialog.SetPhase(InstallPhase.ScanningPlugins, "Scanning plugins…");
 
-            if (profile.LoadOrder.Any(item => item.ModId == mod.Id))
+            // The empty-path placeholder row (queue installs) does not count as an existing install.
+            if (profile.LoadOrder.Any(item => item.ModId == mod.Id && item.Path.Length > 0))
             {
+                if (installDialog is not null)
+                    await CloseDialogAsync(installDialog, InstallPhase.Done, "Installed.");
                 ShowLoadOrderError($"'{mod.Name}' is already in this profile's load order.");
-                return;
+                return InstallOutcome.Failed;
             }
 
             if (!_runAccess.CanModify(profile))
-                return;
+            {
+                if (installDialog is not null)
+                    await CloseDialogAsync(installDialog, InstallPhase.Done, "Installed.");
+                return InstallOutcome.Failed;
+            }
+
+            if (installDialog is not null)
+                installDialog.SetPhase(InstallPhase.CheckingDependencies, "Checking dependencies…");
 
             await ExtractAndSaveDependenciesAsync(mod, fomodModule, installation.FolderPath);
+
+            if (installDialog is not null)
+                await CloseDialogAsync(installDialog, InstallPhase.Done, "Installed.");
 
             var newFolder = new ProfileFolder
             {
@@ -436,38 +499,47 @@ public sealed partial class ProfilesPage
                 }
             }
 
-            var overlayIndex = profile.LoadOrder.ToList().FindIndex(item => item.Kind == ProfileFolderKind.Overlay);
-            profile.LoadOrder.Insert(overlayIndex + 1, newFolder);
+            // Queue installs replace their transient placeholder row in place so the mod keeps its
+            // queued position; single interactive installs insert after the overlay branch.
+            var placeholder = FindInstallPlaceholder(profile, mod.Id);
+            if (placeholder is not null)
+                profile.LoadOrder[profile.LoadOrder.IndexOf(placeholder)] = newFolder;
+            else
+            {
+                var overlayIndex = profile.LoadOrder.ToList().FindIndex(item => item.Kind == ProfileFolderKind.Overlay);
+                profile.LoadOrder.Insert(overlayIndex + 1, newFolder);
+            }
 
             if (roles is not null)
                 ApplyModRoles(profile, newFolder, roles);
 
             await UpdateModAssociationsAsync(profile.Id, new(), new() { mod.Id });
+            return InstallOutcome.Done;
         }
         catch (OperationCanceledException)
         {
             if (installDialog is not null)
-                await CloseDialogAsync(installDialog, "Cancelled.");
-            installDialog = null;
+            {
+                // Staging cleanup happens in ExtractAndPublishAsync before this point, so the
+                // dialog stays open (owned by this method) while partial files are removed.
+                installDialog.SetPhase(InstallPhase.Cancelling, "Cancelling — removing partial files…");
+                await CloseDialogAsync(installDialog, InstallPhase.Cancelling, "Cancelled.");
+            }
             ShowLoadOrderError($"Install of '{mod.Name}' was cancelled.");
+            return InstallOutcome.Cancelled;
         }
         catch (Exception exception)
         {
             if (installDialog is not null)
-                await CloseDialogAsync(installDialog, "Install failed.");
-            installDialog = null;
+                await CloseDialogAsync(installDialog, InstallPhase.Done, "Install failed.");
             ShowLoadOrderError($"Unable to install '{mod.Name}'. {exception.Message}");
-        }
-        finally
-        {
-            cts.Dispose();
-            SetLoadOrderBusy(false);
+            return InstallOutcome.Failed;
         }
     }
 
-    private static async Task CloseDialogAsync(InstallProgressDialog dialog, string statusText)
+    private static async Task CloseDialogAsync(InstallProgressDialog dialog, InstallPhase phase, string statusText)
     {
-        dialog.MarkFinished(statusText);
+        dialog.SetPhase(phase, statusText);
         await dialog.CloseAsync();
     }
 
@@ -638,9 +710,69 @@ public sealed partial class ProfilesPage
 
     private void SetLoadOrderBusy(bool isBusy)
     {
-        LoadOrderBusyRing.IsActive = isBusy;
-        LoadOrderBusyRing.Visibility = isBusy ? Visibility.Visible : Visibility.Collapsed;
+        SetLoadOrderBusy(isBusy, isBusy ? "Working…" : string.Empty);
+    }
+
+    private void SetLoadOrderBusy(bool isBusy, string message)
+    {
         AddFolderButton.IsEnabled = !isBusy;
+        LoadOrderBusyInfoBar.IsOpen = isBusy;
+        if (isBusy)
+        {
+            LoadOrderBusyMessage.Text = message;
+            LoadOrderBusyCancelButton.Visibility = Visibility.Visible;
+        }
+        else
+        {
+            LoadOrderBusyCancelButton.Visibility = Visibility.Collapsed;
+        }
+    }
+
+    // Refreshes the shared InfoBar from the install queue: names the active job (or how many are
+    // waiting) and shows the Cancel button while any job is running or queued.
+    private void UpdateInstallQueueStatus()
+    {
+        var queue = AppServices.ModInstallQueue;
+        SetLoadOrderBusy(queue.IsBusy, queue.StatusText);
+    }
+
+    // Inserts a transient empty-path row so a queued mod is visible in the load order (with its
+    // status chip) before its install actually produces a folder. The empty path is ignored by
+    // every consumer that walks load-order folders (file-state provider, plugin merge, garbage
+    // collection, launch targets, tool discovery), and the row is replaced in place on success
+    // or removed on failure/cancellation by RunQueueInstallAsync.
+    private void AddInstallPlaceholder(Profile profile, ModEntry mod)
+    {
+        if (profile.LoadOrder.Any(item => item.ModId == mod.Id))
+            return;
+
+        var placeholder = new ProfileFolder
+        {
+            Id = Guid.NewGuid().ToString("N"),
+            Name = mod.Name,
+            Kind = ProfileFolderKind.Mod,
+            ModId = mod.Id,
+            InstallStatusText = "Queued"
+        };
+        var overlayIndex = profile.LoadOrder.ToList().FindIndex(item => item.Kind == ProfileFolderKind.Overlay);
+        profile.LoadOrder.Insert(overlayIndex + 1, placeholder);
+    }
+
+    private static ProfileFolder? FindInstallPlaceholder(Profile profile, string modId) =>
+        profile.LoadOrder.FirstOrDefault(item => item.ModId == modId && item.Path.Length == 0);
+
+    private void RemoveInstallPlaceholder(Profile profile, string modId)
+    {
+        var placeholder = FindInstallPlaceholder(profile, modId);
+        if (placeholder is not null)
+            profile.LoadOrder.Remove(placeholder);
+    }
+
+    private void LoadOrderBusyCancel_Click(object sender, RoutedEventArgs args)
+    {
+        // Cancelling mid-analysis (before any progress dialog is up) or mid-install: the active
+        // install loop observes OperationCanceledException and reports the outcome itself.
+        _activeInstallCts?.Cancel();
     }
 
     private void UpdateProfileViewBranchCount(Profile profile) =>

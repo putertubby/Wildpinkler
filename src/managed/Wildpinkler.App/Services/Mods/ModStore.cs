@@ -4,7 +4,6 @@ using System.Globalization;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
-using System.Security.Cryptography;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -128,8 +127,9 @@ public sealed class ModStore : IDisposable
             await source.CopyToAsync(target);
 
         entry.ArchivePath = destination;
-        entry.Sha256 = await ComputeSha256Async(destination);
         // Archive probing decodes the whole archive; keep it off the UI thread.
+        // The archive SHA-256 is computed lazily at install time (see ModInstallService),
+        // so large imports stay snappy.
         await Task.Run(() => SetFomodState(entry, destination));
         return entry;
     }
@@ -152,17 +152,13 @@ public sealed class ModStore : IDisposable
     public async Task<ModEntry> AttachDownloadedArchiveAsync(ModEntry entry, string archivePath)
     {
         entry.ArchivePath = archivePath;
-        entry.Sha256 = await ComputeSha256Async(archivePath);
+        // The caller is expected to have computed entry.Sha256 while verifying the
+        // download; re-hashing here would double the work on large archives.
         // Archive probing decodes the whole archive; keep it off the UI thread.
         await Task.Run(() => SetFomodState(entry, archivePath));
         return entry;
     }
 
-    private static async Task<string> ComputeSha256Async(string path)
-    {
-        await using var stream = File.OpenRead(path);
-        return Convert.ToHexString(await SHA256.HashDataAsync(stream));
-    }
 
     private void SetFomodState(ModEntry entry, string path)
     {

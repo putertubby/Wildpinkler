@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using SharpCompress.Archives;
 
 namespace Wildpinkler.App.Services;
@@ -20,11 +21,11 @@ public sealed record ArchiveLayout(
 
 public interface IArchiveInspector
 {
-    FomodState DetectFomod(string path);
+    FomodState DetectFomod(string path, CancellationToken cancellationToken = default);
 
-    IReadOnlyDictionary<string, string> ReadFomodFiles(string path);
+    IReadOnlyDictionary<string, string> ReadFomodFiles(string path, CancellationToken cancellationToken = default);
 
-    ArchiveLayout InspectLayout(string path);
+    ArchiveLayout InspectLayout(string path, CancellationToken cancellationToken = default);
 }
 
 public sealed class ArchiveInspector : IArchiveInspector
@@ -40,11 +41,13 @@ public sealed class ArchiveInspector : IArchiveInspector
     private readonly Dictionary<string, FomodReadInfo> _cache = new();
     private readonly Queue<string> _cacheOrder = new();
 
-    public FomodState DetectFomod(string path) => GetFomodReadInfo(path).State;
+    public FomodState DetectFomod(string path, CancellationToken cancellationToken = default) =>
+        GetFomodReadInfo(path, cancellationToken).State;
 
-    public IReadOnlyDictionary<string, string> ReadFomodFiles(string path) => GetFomodReadInfo(path).XmlFiles;
+    public IReadOnlyDictionary<string, string> ReadFomodFiles(string path, CancellationToken cancellationToken = default) =>
+        GetFomodReadInfo(path, cancellationToken).XmlFiles;
 
-    private FomodReadInfo GetFomodReadInfo(string path)
+    private FomodReadInfo GetFomodReadInfo(string path, CancellationToken cancellationToken)
     {
         var key = GetCacheKey(path);
         if (key is not null)
@@ -62,8 +65,16 @@ public sealed class ArchiveInspector : IArchiveInspector
         try
         {
             using var archive = ArchiveFactory.OpenArchive(path);
+            var entryIndex = 0;
             foreach (var entry in archive.Entries)
             {
+                // Entry enumeration on a large archive is the long pole, so cooperate with
+                // cancellation every 64 entries. Let OperationCanceledException propagate (it is
+                // rethrown below) rather than being swallowed as a decode failure or cached.
+                if ((entryIndex & 63) == 0)
+                    cancellationToken.ThrowIfCancellationRequested();
+                entryIndex++;
+
                 if (entry.IsDirectory || !IsInsideFomodDirectory(entry.Key))
                     continue;
 
@@ -79,6 +90,10 @@ public sealed class ArchiveInspector : IArchiveInspector
                 using var reader = new StreamReader(stream, detectEncodingFromByteOrderMarks: true);
                 files[name] = reader.ReadToEnd();
             }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception)
         {
@@ -132,16 +147,26 @@ public sealed class ArchiveInspector : IArchiveInspector
     private static bool IsFomodXmlFile(string? key) =>
         Path.GetFileName(Normalize(key)).EndsWith(".xml", StringComparison.OrdinalIgnoreCase);
 
-    public ArchiveLayout InspectLayout(string path)
+    public ArchiveLayout InspectLayout(string path, CancellationToken cancellationToken = default)
     {
         try
         {
             using var archive = ArchiveFactory.OpenArchive(path);
-            var filePaths = archive.Entries
-                .Where(entry => !entry.IsDirectory)
-                .Select(entry => Normalize(entry.Key).TrimStart('/'))
-                .Where(entry => entry.Length > 0)
-                .ToList();
+            var filePaths = new List<string>();
+            var entryIndex = 0;
+            foreach (var entry in archive.Entries)
+            {
+                if ((entryIndex & 63) == 0)
+                    cancellationToken.ThrowIfCancellationRequested();
+                entryIndex++;
+
+                if (entry.IsDirectory)
+                    continue;
+
+                var normalized = Normalize(entry.Key).TrimStart('/');
+                if (normalized.Length > 0)
+                    filePaths.Add(normalized);
+            }
 
             var directories = filePaths
                 .SelectMany(GetContainingDirectories)
@@ -151,6 +176,10 @@ public sealed class ArchiveInspector : IArchiveInspector
 
             var meaningfulPaths = filePaths.Where(path => !IsPackagingNoise(path)).ToList();
             return new ArchiveLayout(directories, SuggestSourceRoot(meaningfulPaths), true);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
         }
         catch (Exception)
         {
