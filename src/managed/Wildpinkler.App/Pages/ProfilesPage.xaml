@@ -204,8 +204,6 @@
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" MinWidth="160" />
                                 <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="Auto" />
-                                <ColumnDefinition Width="Auto" />
                             </Grid.ColumnDefinitions>
                             <Button x:Name="LaunchGameButton" HorizontalAlignment="Stretch" Style="{StaticResource AccentButtonStyle}"
                                     Command="{x:Bind LaunchGameCommand}"
@@ -217,21 +215,22 @@
                             </Button>
                             <Button Grid.Column="1" x:Name="RevealFolderButton" VerticalAlignment="Bottom"
                                     Command="{x:Bind RevealFolderCommand}" Content="Reveal folder" />
-                            <!-- Busy indicator for a long-running load-order operation. It doubles as the
-                                 cancellation affordance: while the archive is being analysed the message
-                                 names the mod and the Cancel button tears it down (see LoadOrder). -->
-                            <InfoBar Grid.Column="2" x:Name="LoadOrderBusyInfoBar" Severity="Informational"
-                                     IsOpen="False" IsClosable="False" VerticalAlignment="Bottom"
-                                     Margin="0,0,0,6">
-                                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                    <TextBlock x:Name="LoadOrderBusyMessage" TextWrapping="Wrap"
-                                               MaxWidth="280" VerticalAlignment="Center" />
-                                    <Button x:Name="LoadOrderBusyCancelButton" Content="Cancel"
-                                            Click="LoadOrderBusyCancel_Click" VerticalAlignment="Center"
-                                            MinWidth="72" />
-                                </StackPanel>
-                            </InfoBar>
                         </Grid>
+                        <!-- Busy indicator for a long-running load-order operation. It doubles as the
+                             cancellation affordance: while the archive is being analysed the message
+                             names the mod and the Cancel button tears it down (see LoadOrder). It sits
+                             on its own full-width row so it never squeezes the launch buttons. -->
+                        <InfoBar x:Name="LoadOrderBusyInfoBar" Severity="Informational"
+                                 IsOpen="False" IsClosable="False"
+                                 Margin="0,6,0,0">
+                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                <TextBlock x:Name="LoadOrderBusyMessage" TextWrapping="Wrap"
+                                           VerticalAlignment="Center" />
+                                <Button x:Name="LoadOrderBusyCancelButton" Content="Cancel"
+                                        Click="LoadOrderBusyCancel_Click" VerticalAlignment="Center"
+                                        MinWidth="72" HorizontalAlignment="Right" />
+                            </StackPanel>
+                        </InfoBar>
                         <!-- One split button per enabled tool target: the main area launches the tool;
                              the chevron opens the per-tool actions menu. -->
                         <ItemsControl x:Name="ToolToolbar" HorizontalAlignment="Left"

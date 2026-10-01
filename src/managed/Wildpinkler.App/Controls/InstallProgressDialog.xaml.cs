@@ -20,7 +20,8 @@ public sealed partial class InstallProgressDialog : ContentDialog
 {
     private readonly Action _requestCancellation;
     private readonly Stopwatch _elapsed;
-    private Task<ContentDialogResult>? _showTask;
+    private DispatcherTimer? _analyzingTimer;
+    private AnalysisProgressReport? _analysisReport;
     private InstallPhase _phase;
 
     public InstallProgressDialog(string modName, Action requestCancellation)
@@ -30,13 +31,22 @@ public sealed partial class InstallProgressDialog : ContentDialog
         Style = (Style)Application.Current.Resources["DefaultContentDialogStyle"];
         _requestCancellation = requestCancellation;
         _elapsed = Stopwatch.StartNew();
+        _analyzingTimer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(250),
+        };
+        _analyzingTimer.Tick += (sender, _) => RenderAnalyzingStatus();
         Title = $"Installing '{modName}'";
         StatusText.Text = "Reading archive…";
         Progress = new Progress<ExtractionProgress>(UpdateProgress);
+        AnalysisProgress = new Progress<AnalysisProgressReport>(ReportAnalysisProgress);
     }
 
     /// <summary>Feed extraction updates to this dialog from the install operation's progress callback.</summary>
     public Progress<ExtractionProgress> Progress { get; }
+
+    /// <summary>Feed analyzing-phase progress reports to this dialog from the archive analysis.</summary>
+    public Progress<AnalysisProgressReport> AnalysisProgress { get; }
 
     /// <summary>
     /// Moves the dialog into <paramref name="phase"/> and shows <paramref name="status"/>. Phases that
@@ -52,15 +62,89 @@ public sealed partial class InstallProgressDialog : ContentDialog
         CancelButton.IsEnabled = !isFinal;
         if (phase != InstallPhase.Extracting)
             ProgressBar.IsIndeterminate = true;
+        if (phase == InstallPhase.Analyzing)
+        {
+            _analysisReport = null;
+            _analyzingTimer!.Start();
+        }
+        else
+            _analyzingTimer!.Stop();
     }
 
-    /// <summary>Closes the dialog, awaiting its show task if it is still open.</summary>
-    public async Task CloseAsync()
+    /// <summary>
+    /// Records the latest analyzing-phase report. The status line and bar are refreshed by a
+    /// short timer (see <see cref="RenderAnalyzingStatus"/>), so the display keeps moving even
+    /// when the inspector is silent (e.g. while large FOMOD metadata files are being read).
+    /// </summary>
+    public void ReportAnalysisProgress(AnalysisProgressReport report)
     {
-        var showTask = _showTask;
-        _showTask = null;
-        if (showTask is not null)
-            await showTask;
+        if (_phase is not InstallPhase.Analyzing)
+            return;
+        _analysisReport = report;
+    }
+
+    // Reports arrive in bursts (zipping's central directory is read in milliseconds) and
+    // then pause for seconds while metadata contents are read, so rendering on every report
+    // would leave the UI frozen. A 250 ms timer keeps the elapsed time ticking and picks up
+    // the latest report as reports arrive. The analyzing phase owns the whole bar: the entry
+    // scan maps to 0–50% and the metadata file reads map to 50–100%.
+    private void RenderAnalyzingStatus()
+    {
+        if (_phase is not InstallPhase.Analyzing)
+            return;
+        var elapsed = _elapsed.Elapsed.ToString(@"m\:ss", CultureInfo.InvariantCulture);
+        var report = _analysisReport;
+        if (report is null)
+        {
+            StatusText.Text = $"Analyzing… · {elapsed}";
+            return;
+        }
+
+        if (report.MetadataFilesDone is null)
+        {
+            // Phase 1: entry scan → 0–50% of the bar.
+            if (report.TotalEntries is int totalEntries && totalEntries > 0)
+            {
+                ProgressBar.IsIndeterminate = false;
+                ProgressBar.Value = 50.0 * report.EntriesScanned / totalEntries;
+            }
+            else
+            {
+                ProgressBar.IsIndeterminate = true;
+            }
+
+            var total = report.TotalEntries is int
+                ? $" of {report.TotalEntries.Value:N0}"
+                : string.Empty;
+            StatusText.Text = $"Analyzing… {report.EntriesScanned:N0}{total} entries scanned · {elapsed}";
+            return;
+        }
+
+        // Phase 2: metadata file reads → 50–100% of the bar.
+        if (report.MetadataFilesTotal is int metadataTotal && metadataTotal > 0)
+        {
+            ProgressBar.IsIndeterminate = false;
+            ProgressBar.Value = 50.0 + 50.0 * report.MetadataFilesDone.Value / metadataTotal;
+        }
+        else
+        {
+            // No metadata files to read (or total unknown): the phase is effectively over.
+            ProgressBar.IsIndeterminate = false;
+            ProgressBar.Value = 100;
+        }
+
+        StatusText.Text = $"Reading FOMOD metadata… {report.MetadataFilesDone:N0} of {report.MetadataFilesTotal:N0} files · {elapsed}";
+    }
+
+    /// <summary>
+    /// Closes the dialog. WinUI 3 dismisses a <see cref="ContentDialog"/> through the synchronous
+    /// <see cref="ContentDialog.Hide"/> (WinUI 3 has no async hide and no <c>IsOpen</c> state); safe to
+    /// call more than once.
+    /// </summary>
+    public Task CloseAsync()
+    {
+        Hide();
+        return Task.CompletedTask;
     }
 
     // Cancelling only signals the install task; the owning page closes the dialog once the

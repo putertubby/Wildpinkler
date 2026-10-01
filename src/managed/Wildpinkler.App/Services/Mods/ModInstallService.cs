@@ -41,32 +41,33 @@ public sealed class ModInstallService
     }
 
     /// <summary>Parses the mod's ModuleConfig.xml, or returns null if it is not a FOMOD / cannot be read.</summary>
-    public FomodModule? TryParseFomod(ModEntry mod, CancellationToken cancellationToken = default)
+    /// <param name="analysisProgress">Reports entry-scan and FOMOD-metadata-file progress, so the UI can show real progress during analysis.</param>
+    public FomodModule? TryParseFomod(ModEntry mod, IProgress<AnalysisProgressReport>? analysisProgress = null, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(mod.ArchivePath) || !File.Exists(mod.ArchivePath))
             return null;
-        if (_archiveInspector.DetectFomod(mod.ArchivePath, cancellationToken) != FomodState.Yes)
+        if (_archiveInspector.DetectFomod(mod.ArchivePath, analysisProgress, cancellationToken) != FomodState.Yes)
             return null;
 
-        var files = _archiveInspector.ReadFomodFiles(mod.ArchivePath, cancellationToken);
+        var files = _archiveInspector.ReadFomodFiles(mod.ArchivePath, analysisProgress, cancellationToken);
         return files.TryGetValue("ModuleConfig.xml", out var xml) ? _parser.TryParse(xml) : null;
     }
 
     /// <summary>Like <see cref="TryParseFomod"/>, but runs the archive decode off the caller's thread.</summary>
-    public Task<FomodModule?> TryParseFomodAsync(ModEntry mod, CancellationToken cancellationToken = default) =>
-        Task.Run(() => TryParseFomod(mod, cancellationToken), cancellationToken);
+    public Task<FomodModule?> TryParseFomodAsync(ModEntry mod, IProgress<AnalysisProgressReport>? analysisProgress = null, CancellationToken cancellationToken = default) =>
+        Task.Run(() => TryParseFomod(mod, analysisProgress, cancellationToken), cancellationToken);
 
-    public ArchiveLayout InspectLayout(ModEntry mod, CancellationToken cancellationToken = default)
+    public ArchiveLayout InspectLayout(ModEntry mod, IProgress<AnalysisProgressReport>? analysisProgress = null, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(mod.ArchivePath) || !File.Exists(mod.ArchivePath))
             return new ArchiveLayout(Array.Empty<string>(), null, false);
 
-        return _archiveInspector.InspectLayout(mod.ArchivePath, cancellationToken);
+        return _archiveInspector.InspectLayout(mod.ArchivePath, analysisProgress, cancellationToken);
     }
 
     /// <summary>Like <see cref="InspectLayout"/>, but runs the archive scan off the caller's thread.</summary>
-    public Task<ArchiveLayout> InspectLayoutAsync(ModEntry mod, CancellationToken cancellationToken = default) =>
-        Task.Run(() => InspectLayout(mod, cancellationToken), cancellationToken);
+    public Task<ArchiveLayout> InspectLayoutAsync(ModEntry mod, IProgress<AnalysisProgressReport>? analysisProgress = null, CancellationToken cancellationToken = default) =>
+        Task.Run(() => InspectLayout(mod, analysisProgress, cancellationToken), cancellationToken);
 
     public async Task<ModInstallation> FindOrCreateFomodInstallationAsync(
         ModEntry mod, IReadOnlyList<FomodFileInstall> resolvedFiles, string signature, string selectionSummary,
@@ -119,7 +120,7 @@ public sealed class ModInstallService
         if (recipe is not FomodInstallationRecipe fomod)
             throw new InvalidOperationException("This installation requires user guidance and cannot be replayed automatically.");
 
-        var module = await TryParseFomodAsync(mod, cancellationToken)
+        var module = await TryParseFomodAsync(mod, cancellationToken: cancellationToken)
             ?? throw new InvalidDataException("The archive no longer contains a readable FOMOD installer.");
         var actualModuleHash = ReadFomodModuleSha256(mod);
         if (!string.Equals(actualModuleHash, fomod.ModuleConfigSha256, StringComparison.OrdinalIgnoreCase))
@@ -311,9 +312,12 @@ public sealed class ModInstallService
             throw new InvalidOperationException($"'{mod.Name}' has no archive to hash. Re-import or re-download the archive before installing it.");
 
         var path = mod.ArchivePath;
+        var bytesTotal = new FileInfo(path).Length;
         using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
         using var hasher = SHA256.Create();
         var buffer = ArrayPool<byte>.Shared.Rent(4 * 1024 * 1024);
+        var entryLabel = $"Hashing {Path.GetFileName(path)}";
+        var reporter = new ExtractionReporter(progress, 1, bytesTotal, entryLabel);
         var bytesWritten = 0L;
         var digestBytes = Array.Empty<byte>();
         try
@@ -323,8 +327,7 @@ public sealed class ModInstallService
             {
                 hasher.TransformBlock(buffer, 0, read, buffer, 0);
                 bytesWritten += read;
-                cancellationToken.ThrowIfCancellationRequested();
-                progress?.Report(new ExtractionProgress(0, 0, bytesWritten, 0, $"Hashing {Path.GetFileName(path)}"));
+                reporter.Report(0, 1, bytesWritten, bytesTotal, entryLabel);
             }
             hasher.TransformFinalBlock(buffer, 0, 0);
             digestBytes = (byte[])hasher.Hash!;
@@ -332,6 +335,7 @@ public sealed class ModInstallService
         finally
         {
             ArrayPool<byte>.Shared.Return(buffer);
+            reporter.Finish(1, 1, bytesWritten, bytesTotal, entryLabel);
         }
 
         var digest = Convert.ToHexString(digestBytes);
@@ -449,11 +453,45 @@ public sealed class ModInstallService
         var canceled = false;
         try
         {
-            using (var source = entry.OpenEntryStream())
-            using (var target = new FileStream(destinationPath, FileMode.Create, FileAccess.Write, FileShare.None))
+            using var source = entry.OpenEntryStream();
+            using var target = new FileStream(destinationPath, FileMode.Create, FileAccess.Write, FileShare.None);
+
+            // Pre-allocate the destination when the archive declares a reliable size, so the disk
+            // reserves the space up front instead of growing the file in increments as data lands.
+            var declaredSize = entry.Size;
+            if (declaredSize > 0)
             {
-                written = CopyWithCancellation(source, target, cancellationToken);
+                // SetLength repositions the stream to the new end, so rewind before writing data
+                // at the start of the file.
+                target.SetLength(declaredSize);
+                target.Seek(0, SeekOrigin.Begin);
             }
+
+            var buffer = ArrayPool<byte>.Shared.Rent(CopyChunkSize);
+            try
+            {
+                int read;
+                while ((read = source.Read(buffer, 0, buffer.Length)) > 0)
+                {
+                    target.Write(buffer, 0, read);
+                    written += read;
+
+                    // Check cancellation every 4 MB chunk so a multi-gigabyte entry can be cancelled
+                    // promptly without draining the whole stream first.
+                    if (cancellationToken.IsCancellationRequested)
+                        throw new OperationCanceledException("Entry copy cancelled.", cancellationToken);
+                }
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
+            }
+
+            // The declared size is a hint, not a guarantee: trim any pre-allocated padding so the
+            // file is exactly the number of bytes the stream actually produced (no trailing zeros
+            // if the stream ended short, and no over-short truncation if it was truncated).
+            if (declaredSize > 0 && written != declaredSize)
+                target.SetLength(written);
         }
         catch (OperationCanceledException)
         {
@@ -478,46 +516,7 @@ public sealed class ModInstallService
         return written;
     }
 
-    /// <summary>
-    /// Copies <paramref name="source"/> into <paramref name="target"/> using a pooled buffer,
-    /// checking for cancellation every few chunks so a mid-file cancel is honored promptly and the
-    /// partially written file can be deleted by the caller.
-    /// </summary>
-    private static long CopyWithCancellation(Stream source, Stream target, CancellationToken cancellationToken)
-    {
-        var buffer = ArrayPool<byte>.Shared.Rent(CopyChunkSize);
-        try
-        {
-            long total = 0;
-            var chunksSinceCheck = 0;
-            int read;
-            while ((read = source.Read(buffer, 0, buffer.Length)) > 0)
-            {
-                target.Write(buffer, 0, read);
-                total += read;
-
-                // Check for cancellation between read bursts so a 10 GB entry can be cancelled
-                // without draining the entire stream first.
-                if (Interlocked.Increment(ref chunksSinceCheck) >= ChunksBetweenCancellationChecks)
-                {
-                    chunksSinceCheck = 0;
-                    if (cancellationToken.IsCancellationRequested)
-                        throw new OperationCanceledException("Entry copy cancelled.", cancellationToken);
-                }
-            }
-
-            return total;
-        }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(buffer);
-        }
-    }
-
     private const int CopyChunkSize = 4 * 1024 * 1024;
-
-    /// <summary>Number of 4 MB chunks copied between cancellation checks (~128 MB of work per check).</summary>
-    private const int ChunksBetweenCancellationChecks = 32;
 
     private static void RejectExistingLink(string path)
     {
@@ -665,9 +664,41 @@ internal sealed class ExtractionReporter
         ReportUpdate($"{_stage} {entry.Key ?? string.Empty}");
     }
 
+    /// <summary>
+    /// Reports cumulative progress for work that is not organized per-entry (e.g. hashing a single
+    /// archive). The caller owns <paramref name="filesDone"/>/<paramref name="filesTotal"/>/
+    /// <paramref name="bytesWritten"/> and the <paramref name="label"/> shown to the user. The same
+    /// coalesce window applies: at most one update is forwarded per <see cref="CoalesceWindow"/>.
+    /// </summary>
+    public void Report(int filesDone, int filesTotal, long bytesWritten, long bytesTotal, string label)
+    {
+        _filesDone = filesDone;
+        _bytesWritten = bytesWritten;
+        if (_progress is null)
+            return;
+
+        var now = _elapsed();
+        if (_hasReported && now - _lastReportedAt < CoalesceWindow)
+            return;
+
+        _hasReported = true;
+        _lastReportedAt = now;
+        _progress.Report(new ExtractionProgress(filesDone, filesTotal, bytesWritten, bytesTotal, label));
+    }
+
     public void Finish()
     {
         ReportUpdate(_stage);
+    }
+
+    /// <summary>
+    /// Emits the terminal state for work that is not organized per-entry (e.g. hashing). Unlike
+    /// <see cref="Report(int, int, long, long, string)"/> this always forwards, so observers reliably
+    /// see the completed state even if it falls inside the coalesce window.
+    /// </summary>
+    public void Finish(int filesDone, int filesTotal, long bytesWritten, long bytesTotal, string label)
+    {
+        _progress?.Report(new ExtractionProgress(filesDone, filesTotal, bytesWritten, bytesTotal, label));
     }
 
     private void ReportUpdate(string detail)

@@ -82,18 +82,22 @@ git rebase -r 6a8b51fbf9cb1dea6a35cceb5cbb04833c8f86ab --exec 'git commit --amen
 
 - [x] Enable/disable mod does not trigger regereration of profile.json and Plugins.txt. Must restart Wildpinkler to make profile.json update properly
 - [x] Restore "HKCU:\Software\Microsoft\Windows\Windows Error Reporting\LocalDumps" after debugging
-- [ ] What does "remove tool" do? How are global tools added? Automatically for associated games??
 - [x] Mod install
    - [x] Long delay between clicking add mod on large archive (BHUNP) and dialog shows up with just spinning donut as indicator. Improve/cancel?
    - [x] Installing fomod files from large archive (BHUNP) takes a very long time!
    - [x] Cancel fomod installation of large archive (BHUNP) does not close the dialog (or maybe after a long time?)
-- [ ] Tool output overlay should be visible in the load order only when:
-      1. The tool is added to the profile
-      2. The tool has the "capture tool output" setting enabled
-      Regardless of whether the tool is enabled in the tools pane list or not. For as long as the tool is added to the profile the output overlay shall retain its place in the load order and can be enabled/disabled independently from the tool. If the tool is removed from the profile the user shall be asked whether to keep the tool output overlay or not. If the "capture tool output" is turned off the output overlay shall be removed. (Hidden)?
-- [ ] Diabling/enabling mods with tools does not remove and bring back tools or overlays correctly.
-- [ ] "Chose roles" menu item does nothing
+   - [x] Infobar for text and cancel button appears in very strange place (right of "reveal folder" button), mangling the UI layout.
+   - [ ] 500ms timer + scanning archive is instantaneous - only make the extract (and analysis) of each file part of progress
+   - [ ] Install mod dialog have tiny space for selectable options. Dialog overall also seems very small for the amount of information it handles.
+   - [ ] Installing files, unpacking the files after "hashing archive" phase, is very slow. Example 83kB in 41 seconds. This must be improved!
+   - [x] After "cancelling" phase the dialog shows the text "canceled." but the dialog never closes and the app is stuck in a modal dialog that cant be closed. 
+- [ ] Tool output overlay shall be added to the load order only when: The tool is added to the profile and the tool has the "capture tool output" setting enabled while there is no output overlay branch in the load order (first time and after manually removing the output overlay branch). When the output overlay branch is added it shall be enabled in the load order.
+       Once the output overlay is added to the load order it stays until manually removed, at which point the tool "capture tool output" setting shall automatically be disabled.
+       For as long as the output overlay branch is part of the profile it shall retain its place in the load order and can be enabled/disabled independently from the tool. If the tool is removed from the profile or the "capture tool output" is turned off, the user shall be asked whether to keep the tool output overlay in the load order or not. Disabling the tool does not affect the status of the output overlay branch at all.
+- [ ] Diabling/enabling mods with tools does not remove and bring back tools or overlays correctly. (see above)
 - [ ] Toolbutton menus in profile page does nothing
+- [ ] "Chose roles" menu item does nothing
+- [ ] What does "remove tool" do? How are global tools added? Automatically for associated games??
 - [x] Overlay for tools doesn't work. Overlay branch should be added to view automatically.
 - [x] No scrollbar in add mods dialog
 - [ ] Local ollama does not work

@@ -21,11 +21,11 @@ public sealed record ArchiveLayout(
 
 public interface IArchiveInspector
 {
-    FomodState DetectFomod(string path, CancellationToken cancellationToken = default);
+    FomodState DetectFomod(string path, IProgress<AnalysisProgressReport>? analysisProgress = null, CancellationToken cancellationToken = default);
 
-    IReadOnlyDictionary<string, string> ReadFomodFiles(string path, CancellationToken cancellationToken = default);
+    IReadOnlyDictionary<string, string> ReadFomodFiles(string path, IProgress<AnalysisProgressReport>? analysisProgress = null, CancellationToken cancellationToken = default);
 
-    ArchiveLayout InspectLayout(string path, CancellationToken cancellationToken = default);
+    ArchiveLayout InspectLayout(string path, IProgress<AnalysisProgressReport>? analysisProgress = null, CancellationToken cancellationToken = default);
 }
 
 public sealed class ArchiveInspector : IArchiveInspector
@@ -41,13 +41,13 @@ public sealed class ArchiveInspector : IArchiveInspector
     private readonly Dictionary<string, FomodReadInfo> _cache = new();
     private readonly Queue<string> _cacheOrder = new();
 
-    public FomodState DetectFomod(string path, CancellationToken cancellationToken = default) =>
-        GetFomodReadInfo(path, cancellationToken).State;
+    public FomodState DetectFomod(string path, IProgress<AnalysisProgressReport>? analysisProgress = null, CancellationToken cancellationToken = default) =>
+        GetFomodReadInfo(path, analysisProgress, cancellationToken).State;
 
-    public IReadOnlyDictionary<string, string> ReadFomodFiles(string path, CancellationToken cancellationToken = default) =>
-        GetFomodReadInfo(path, cancellationToken).XmlFiles;
+    public IReadOnlyDictionary<string, string> ReadFomodFiles(string path, IProgress<AnalysisProgressReport>? analysisProgress = null, CancellationToken cancellationToken = default) =>
+        GetFomodReadInfo(path, analysisProgress, cancellationToken).XmlFiles;
 
-    private FomodReadInfo GetFomodReadInfo(string path, CancellationToken cancellationToken)
+    private FomodReadInfo GetFomodReadInfo(string path, IProgress<AnalysisProgressReport>? analysisProgress, CancellationToken cancellationToken)
     {
         var key = GetCacheKey(path);
         if (key is not null)
@@ -65,8 +65,18 @@ public sealed class ArchiveInspector : IArchiveInspector
         try
         {
             using var archive = ArchiveFactory.OpenArchive(path);
+            // Materializing the index is cheap: SharpCompress builds it when the archive opens,
+            // and the count gives the UI a deterministic Phase-1 denominator.
+            var entries = archive.Entries.ToList();
+            var totalEntries = (int?)entries.Count;
             var entryIndex = 0;
-            foreach (var entry in archive.Entries)
+            var metadataEntries = new List<IArchiveEntry>();
+            var seenNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            // Pass 1: enumerate the entry list, reporting every entry, and collect the FOMOD
+            // metadata entries. Enumeration reads only the archive index, so it is fast; the
+            // slow work (decompressing the metadata contents) is deferred to pass 2.
+            foreach (var entry in entries)
             {
                 // Entry enumeration on a large archive is the long pole, so cooperate with
                 // cancellation every 64 entries. Let OperationCanceledException propagate (it is
@@ -74,6 +84,7 @@ public sealed class ArchiveInspector : IArchiveInspector
                 if ((entryIndex & 63) == 0)
                     cancellationToken.ThrowIfCancellationRequested();
                 entryIndex++;
+                analysisProgress?.Report(new AnalysisProgressReport(entryIndex, totalEntries, null, null));
 
                 if (entry.IsDirectory || !IsInsideFomodDirectory(entry.Key))
                     continue;
@@ -83,12 +94,28 @@ public sealed class ArchiveInspector : IArchiveInspector
                     continue;
 
                 var name = Path.GetFileName(Normalize(entry.Key));
-                if (name.Length == 0 || files.ContainsKey(name))
+                if (name.Length == 0 || !seenNames.Add(name))
                     continue;
 
+                metadataEntries.Add(entry);
+            }
+
+            // Pass 2: decompress each metadata file, reporting progress per file so the UI
+            // keeps moving while these reads run.
+            var metadataTotal = metadataEntries.Count;
+            analysisProgress?.Report(new AnalysisProgressReport(entryIndex, totalEntries, 0, metadataTotal));
+            var metadataDone = 0;
+            foreach (var entry in metadataEntries)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                metadataDone++;
+
+                var name = Path.GetFileName(Normalize(entry.Key));
                 using var stream = entry.OpenEntryStream();
                 using var reader = new StreamReader(stream, detectEncodingFromByteOrderMarks: true);
                 files[name] = reader.ReadToEnd();
+
+                analysisProgress?.Report(new AnalysisProgressReport(entryIndex, totalEntries, metadataDone, metadataTotal));
             }
         }
         catch (OperationCanceledException)
@@ -147,18 +174,21 @@ public sealed class ArchiveInspector : IArchiveInspector
     private static bool IsFomodXmlFile(string? key) =>
         Path.GetFileName(Normalize(key)).EndsWith(".xml", StringComparison.OrdinalIgnoreCase);
 
-    public ArchiveLayout InspectLayout(string path, CancellationToken cancellationToken = default)
+    public ArchiveLayout InspectLayout(string path, IProgress<AnalysisProgressReport>? analysisProgress = null, CancellationToken cancellationToken = default)
     {
         try
         {
             using var archive = ArchiveFactory.OpenArchive(path);
+            var entries = archive.Entries.ToList();
+            var totalEntries = (int?)entries.Count;
             var filePaths = new List<string>();
             var entryIndex = 0;
-            foreach (var entry in archive.Entries)
+            foreach (var entry in entries)
             {
                 if ((entryIndex & 63) == 0)
                     cancellationToken.ThrowIfCancellationRequested();
                 entryIndex++;
+                analysisProgress?.Report(new AnalysisProgressReport(entryIndex, totalEntries, null, null));
 
                 if (entry.IsDirectory)
                     continue;

@@ -48,7 +48,7 @@ public class ArchiveInspectorCancelTests : IDisposable
         cancelled.Cancel();
 
         Assert.Throws<OperationCanceledException>(
-            () => inspector.DetectFomod(archivePath, cancelled.Token));
+            () => inspector.DetectFomod(archivePath, cancellationToken: cancelled.Token));
     }
 
     [Fact]
@@ -61,7 +61,7 @@ public class ArchiveInspectorCancelTests : IDisposable
         cancelled.Cancel();
 
         Assert.Throws<OperationCanceledException>(
-            () => inspector.ReadFomodFiles(archivePath, cancelled.Token));
+            () => inspector.ReadFomodFiles(archivePath, cancellationToken: cancelled.Token));
     }
 
     [Fact]
@@ -75,12 +75,12 @@ public class ArchiveInspectorCancelTests : IDisposable
 
         // The cancelled read throws and must not leave a negative/Unknown cache entry behind.
         Assert.Throws<OperationCanceledException>(
-            () => inspector.DetectFomod(archivePath, cancelled.Token));
+            () => inspector.DetectFomod(archivePath, cancellationToken: cancelled.Token));
 
         // A live read of the same unchanged archive must still succeed and report the
         // correct FOMOD state, proving the cancellation was not cached.
-        Assert.Equal(FomodState.Yes, inspector.DetectFomod(archivePath, CancellationToken.None));
-        var files = inspector.ReadFomodFiles(archivePath, CancellationToken.None);
+        Assert.Equal(FomodState.Yes, inspector.DetectFomod(archivePath, cancellationToken: CancellationToken.None));
+        var files = inspector.ReadFomodFiles(archivePath, cancellationToken: CancellationToken.None);
         Assert.True(files.ContainsKey("ModuleConfig.xml"));
     }
 

@@ -32,11 +32,11 @@ public sealed class FomodMetadataReader
     private FomodMetadata Read(string archivePath, CancellationToken cancellationToken)
     {
         var fallbackName = Path.GetFileNameWithoutExtension(archivePath);
-        var state = _archiveInspector.DetectFomod(archivePath, cancellationToken);
+        var state = _archiveInspector.DetectFomod(archivePath, cancellationToken: cancellationToken);
         if (state != FomodState.Yes)
             return new FomodMetadata(fallbackName, null, GuessVersion(fallbackName), null, null, Array.Empty<string>(), null, Array.Empty<string>(), state);
 
-        var files = _archiveInspector.ReadFomodFiles(archivePath, cancellationToken);
+        var files = _archiveInspector.ReadFomodFiles(archivePath, cancellationToken: cancellationToken);
         var info = files.TryGetValue("info.xml", out var infoText) ? Parse(infoText) : null;
         var config = files.TryGetValue("ModuleConfig.xml", out var configText) ? Parse(configText) : null;
 

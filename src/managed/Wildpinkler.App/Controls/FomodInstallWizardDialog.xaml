@@ -10,6 +10,7 @@
     DefaultButton="Primary"
     PrimaryButtonClick="ContentDialog_PrimaryButtonClick"
     SecondaryButtonClick="ContentDialog_SecondaryButtonClick"
+    MinWidth="560"
     Style="{StaticResource DefaultContentDialogStyle}">
 
     <StackPanel Spacing="12">
@@ -36,8 +37,14 @@
             </ListView.ItemTemplate>
         </ListView>
 
-        <!-- Interactive editor for the active step: one section per group, written straight into the step draft. -->
-        <StackPanel x:Name="EditorHost" Spacing="10" />
+        <!-- Interactive editor for the active step: one section per group, written straight into the
+             step draft. The ScrollViewer bounds the editor so dense steps (many groups or plugins)
+             get a scrollbar instead of squeezing the dialog's buttons out of view. -->
+        <ScrollViewer MaxHeight="360"
+                      VerticalScrollBarVisibility="Auto"
+                      HorizontalScrollBarVisibility="Disabled">
+            <StackPanel x:Name="EditorHost" Spacing="10" />
+        </ScrollViewer>
 
         <TextBlock x:Name="ErrorText" Foreground="{ThemeResource SystemFillColorCriticalBrush}"
                    TextWrapping="Wrap" Visibility="Collapsed" />

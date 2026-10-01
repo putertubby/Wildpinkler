@@ -42,12 +42,21 @@ public sealed class ArchiveExtractionLimitExceededException : Exception
 public sealed record ExtractionProgress(int FilesDone, int FilesTotal, long BytesWritten, long BytesTotal, string CurrentEntry);
 
 /// <summary>
+/// Progress report for the analyzing phase, which has two serial sub-phases: scanning the
+/// archive's entry list, then reading the FOMOD metadata files out of the archive.
+/// <see cref="MetadataFilesDone"/> being non-null marks the start of the metadata sub-phase.
+/// <see cref="TotalEntries"/>/totals are null when the archive format does not expose them.
+/// </summary>
+public sealed record AnalysisProgressReport(int EntriesScanned, int? TotalEntries, int? MetadataFilesDone, int? MetadataFilesTotal);
+
+/// <summary>
 /// The coarse phases of an install surfaced to the user through <see cref="ExtractionProgress"/>.
 /// Phases that have a byte budget (<see cref="Extracting"/>) drive a determinate progress bar;
 /// the others show an indeterminate bar with a status line.
 /// </summary>
 public enum InstallPhase
 {
+    Analyzing,
     Hashing,
     Extracting,
     ScanningPlugins,

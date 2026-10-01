@@ -140,6 +140,73 @@ public class ExtractionCoalescingTests : IDisposable
         Assert.Equal(5L, last.BytesTotal);
     }
 
+    [Fact]
+    public void Report_ValueOverload_CoalescesRapidReports()
+    {
+        var progress = new ProgressRecorder();
+        var clock = new FakeClock(TimeSpan.FromMilliseconds(5));
+        var reporter = new ExtractionReporter(progress, filesTotal: 1, bytesTotal: 1, "Hashing", clock: clock.Advance);
+
+        for (var i = 0; i < 100; i++)
+        {
+            reporter.Report(0, 1, i, 1, "Hashing archive.zip");
+        }
+        reporter.Finish(1, 1, 100, 1, "Hashing archive.zip");
+
+        Assert.True(progress.Reports.Count < 100, $"Expected coalesced reports, got {progress.Reports.Count}");
+        // The terminal Finish always forwards the final snapshot.
+        Assert.Equal(100L, progress.Reports[^1].BytesWritten);
+        Assert.Equal(1, progress.Reports[^1].FilesDone);
+        Assert.Equal(1, progress.Reports[^1].FilesTotal);
+        Assert.Equal("Hashing archive.zip", progress.Reports[^1].CurrentEntry);
+    }
+
+    [Fact]
+    public void Report_ValueOverload_EmitsFirstReportImmediately()
+    {
+        var progress = new ProgressRecorder();
+        var clock = new FakeClock(TimeSpan.Zero);
+        var reporter = new ExtractionReporter(progress, filesTotal: 1, bytesTotal: 1, "Hashing", clock: clock.Advance);
+
+        reporter.Report(0, 1, 42, 1000, "Hashing archive.zip");
+
+        Assert.Single(progress.Reports);
+        Assert.Equal(42L, progress.Reports[0].BytesWritten);
+        Assert.Equal(1000L, progress.Reports[0].BytesTotal);
+        Assert.Equal("Hashing archive.zip", progress.Reports[0].CurrentEntry);
+    }
+
+    [Fact]
+    public void Report_ValueOverload_SuppressedWhenNoProgress()
+    {
+        var progress = new ProgressRecorder();
+        var reporter = new ExtractionReporter(null, filesTotal: 1, bytesTotal: 1, "Hashing");
+
+        reporter.Report(0, 1, 10, 100, "Hashing archive.zip");
+        reporter.Finish(1, 1, 100, 100, "Hashing archive.zip");
+
+        Assert.Empty(progress.Reports);
+    }
+
+    [Fact]
+    public void Finish_ValueOverload_AlwaysForwardsEvenInsideWindow()
+    {
+        var progress = new ProgressRecorder();
+        var clock = new FakeClock(TimeSpan.FromMilliseconds(1));
+        var reporter = new ExtractionReporter(progress, filesTotal: 1, bytesTotal: 1000, "Hashing", clock: clock.Advance);
+
+        // One report lands; the very next Finish is inside the 100 ms window and must still
+        // forward the terminal state.
+        reporter.Report(0, 1, 10, 1000, "Hashing archive.zip");
+        reporter.Finish(1, 1, 1000, 1000, "Hashing archive.zip");
+
+        Assert.Equal(2, progress.Reports.Count);
+        var last = progress.Reports[^1];
+        Assert.Equal(1000L, last.BytesWritten);
+        Assert.Equal(1000L, last.BytesTotal);
+        Assert.Equal(1, last.FilesDone);
+    }
+
     private sealed class ProgressRecorder : IProgress<ExtractionProgress>
     {
         private readonly object _gate = new();

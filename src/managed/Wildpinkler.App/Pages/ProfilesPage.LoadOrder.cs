@@ -403,40 +403,48 @@ public sealed partial class ProfilesPage
 
     private async Task<InstallOutcome> RunInstallAsync(Profile profile, ModEntry mod, CancellationTokenSource cts)
     {
-        InstallProgressDialog? installDialog = null;
+        // The progress dialog is opened once for the whole install and drives every phase:
+        // analyzing, hashing, extracting, scanning, and dependencies. WinUI 3 allows only one
+        // modal per XamlRoot, so it is closed (Hide) before the wizard or destination dialog
+        // opens and reopened when the user accepts.
+        InstallProgressDialog installDialog = new(mod.Name, cts.Cancel) { XamlRoot = XamlRoot };
         try
         {
-            SetLoadOrderBusy(true, $"Analyzing '{mod.Name}' — large archives can take a while.");
-            var fomodModule = await AppServices.ModInstallService.TryParseFomodAsync(mod, cts.Token);
+            installDialog.SetPhase(InstallPhase.Analyzing, $"Analyzing '{mod.Name}'…");
+            _ = installDialog.ShowAsync();
+            SetLoadOrderBusy(false);
+            var fomodModule = await AppServices.ModInstallService.TryParseFomodAsync(
+                mod, installDialog.AnalysisProgress, cts.Token);
             ModInstallation installation;
 
             if (fomodModule is not null)
             {
+                // Close the progress dialog so the wizard can take its place on the XamlRoot.
+                installDialog.CloseAsync().GetAwaiter().GetResult();
+
                 var fileState = new ProfileFileStateProvider(profile.LoadOrder);
                 var wizard = new FomodInstallWizardDialog(fomodModule, fileState) { XamlRoot = XamlRoot };
                 if (await wizard.ShowAsync() != ContentDialogResult.Primary)
                     return InstallOutcome.Cancelled;
 
-                installDialog = new InstallProgressDialog(mod.Name, cts.Cancel) { XamlRoot = XamlRoot };
                 installDialog.SetPhase(InstallPhase.Hashing, "Hashing archive…");
                 _ = installDialog.ShowAsync();
-                SetLoadOrderBusy(false);
                 installation = await AppServices.ModInstallService.FindOrCreateFomodInstallationAsync(
                     mod, wizard.ResolvedFiles, wizard.SelectionSignature, DescribeSelections(wizard.Selections), wizard.Selections,
                     progress: installDialog.Progress, cancellationToken: cts.Token);
             }
             else
             {
-                SetLoadOrderBusy(true, $"Analyzing '{mod.Name}' — large archives can take a while.");
-                var layout = await AppServices.ModInstallService.InspectLayoutAsync(mod, cts.Token);
+                installDialog.CloseAsync().GetAwaiter().GetResult();
+
+                var layout = await AppServices.ModInstallService.InspectLayoutAsync(
+                    mod, installDialog.AnalysisProgress, cts.Token);
                 var destinationDialog = new ModDestinationDialog(layout, mod.LastManualInstallPath) { XamlRoot = XamlRoot };
                 if (await destinationDialog.ShowAsync() != ContentDialogResult.Primary)
                     return InstallOutcome.Cancelled;
 
-                installDialog = new InstallProgressDialog(mod.Name, cts.Cancel) { XamlRoot = XamlRoot };
                 installDialog.SetPhase(InstallPhase.Hashing, "Hashing archive…");
                 _ = installDialog.ShowAsync();
-                SetLoadOrderBusy(false);
                 installation = await AppServices.ModInstallService.FindOrCreateManualInstallationAsync(
                     mod, destinationDialog.SourceRootRelativePath, destinationDialog.DestinationRelativePath,
                     progress: installDialog.Progress, cancellationToken: cts.Token);
@@ -445,32 +453,27 @@ public sealed partial class ProfilesPage
                     await RememberManualInstallPathAsync(mod.Id, destinationDialog.DestinationRelativePath);
             }
 
-            if (installDialog is not null)
-                installDialog.SetPhase(InstallPhase.ScanningPlugins, "Scanning plugins…");
+            installDialog.SetPhase(InstallPhase.ScanningPlugins, "Scanning plugins…");
 
             // The empty-path placeholder row (queue installs) does not count as an existing install.
             if (profile.LoadOrder.Any(item => item.ModId == mod.Id && item.Path.Length > 0))
             {
-                if (installDialog is not null)
-                    await CloseDialogAsync(installDialog, InstallPhase.Done, "Installed.");
+                await CloseDialogAsync(installDialog, InstallPhase.Done, "Installed.");
                 ShowLoadOrderError($"'{mod.Name}' is already in this profile's load order.");
                 return InstallOutcome.Failed;
             }
 
             if (!_runAccess.CanModify(profile))
             {
-                if (installDialog is not null)
-                    await CloseDialogAsync(installDialog, InstallPhase.Done, "Installed.");
+                await CloseDialogAsync(installDialog, InstallPhase.Done, "Installed.");
                 return InstallOutcome.Failed;
             }
 
-            if (installDialog is not null)
-                installDialog.SetPhase(InstallPhase.CheckingDependencies, "Checking dependencies…");
+            installDialog.SetPhase(InstallPhase.CheckingDependencies, "Checking dependencies…");
 
             await ExtractAndSaveDependenciesAsync(mod, fomodModule, installation.FolderPath);
 
-            if (installDialog is not null)
-                await CloseDialogAsync(installDialog, InstallPhase.Done, "Installed.");
+            await CloseDialogAsync(installDialog, InstallPhase.Done, "Installed.");
 
             var newFolder = new ProfileFolder
             {
@@ -518,20 +521,16 @@ public sealed partial class ProfilesPage
         }
         catch (OperationCanceledException)
         {
-            if (installDialog is not null)
-            {
-                // Staging cleanup happens in ExtractAndPublishAsync before this point, so the
-                // dialog stays open (owned by this method) while partial files are removed.
-                installDialog.SetPhase(InstallPhase.Cancelling, "Cancelling — removing partial files…");
-                await CloseDialogAsync(installDialog, InstallPhase.Cancelling, "Cancelled.");
-            }
+            // Staging cleanup happens in ExtractAndPublishAsync before this point, so the
+            // dialog stays open (owned by this method) while partial files are removed.
+            installDialog.SetPhase(InstallPhase.Cancelling, "Cancelling — removing partial files…");
+            await CloseDialogAsync(installDialog, InstallPhase.Cancelling, "Cancelled.");
             ShowLoadOrderError($"Install of '{mod.Name}' was cancelled.");
             return InstallOutcome.Cancelled;
         }
         catch (Exception exception)
         {
-            if (installDialog is not null)
-                await CloseDialogAsync(installDialog, InstallPhase.Done, "Install failed.");
+            await CloseDialogAsync(installDialog, InstallPhase.Done, "Install failed.");
             ShowLoadOrderError($"Unable to install '{mod.Name}'. {exception.Message}");
             return InstallOutcome.Failed;
         }

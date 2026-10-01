@@ -16,7 +16,7 @@ namespace Wildpinkler.App.Tests;
 /// <summary>
 /// Verifies the lazy SHA-256 hashing in
 /// <see cref="ModInstallService.EnsureArchiveSha256Async"/>: correct digest, caching on the
-/// entry, indeterminate progress, and cancellation leaving the entry un-hashed.
+/// entry, determinate progress, and cancellation leaving the entry un-hashed.
 /// </summary>
 public class ModInstallServiceHashTests : IDisposable
 {
@@ -111,12 +111,13 @@ public class ModInstallServiceHashTests : IDisposable
     }
 
     [Fact]
-    public async Task EnsureArchiveSha256_ProgressReportsAreIndeterminate()
+    public async Task EnsureArchiveSha256_ProgressIsDeterminateAndCompletes()
     {
         var content = new byte[8 * 1024 * 1024];
         var archivePath = CreateArchive("mod.zip", content);
         var service = CreateService();
         var mod = new ModEntry { Id = "mod", Name = "Mod", ArchivePath = archivePath };
+        var fileLength = new FileInfo(archivePath).Length;
 
         var reports = new List<ExtractionProgress>();
         var progress = new ProgressRecorder(reports);
@@ -124,9 +125,25 @@ public class ModInstallServiceHashTests : IDisposable
         await service.EnsureArchiveSha256Async(mod, progress: progress, cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.NotEmpty(reports);
-        Assert.All(reports, report => Assert.Equal(0, report.BytesTotal));
+        // Hashing is now byte-determinate: the total is the archive's on-disk size and the
+        // progress is framed as a single logical unit.
+        Assert.All(reports, report => Assert.Equal(fileLength, report.BytesTotal));
+        Assert.All(reports, report => Assert.Equal(1, report.FilesTotal));
         Assert.All(reports, report => Assert.StartsWith("Hashing ", report.CurrentEntry));
-        Assert.All(reports, report => Assert.Equal(0, report.FilesTotal));
+
+        // BytesWritten must be monotonic and never exceed the total.
+        var previous = -1L;
+        foreach (var report in reports)
+        {
+            Assert.True(report.BytesWritten >= previous, $"BytesWritten decreased: {previous} -> {report.BytesWritten}");
+            Assert.True(report.BytesWritten <= fileLength, $"BytesWritten {report.BytesWritten} exceeded total {fileLength}");
+            previous = report.BytesWritten;
+        }
+
+        // The terminal report always lands: the full file is accounted for as complete.
+        var last = reports[^1];
+        Assert.Equal(fileLength, last.BytesWritten);
+        Assert.Equal(1, last.FilesDone);
     }
 
     private ModInstallService CreateService()
