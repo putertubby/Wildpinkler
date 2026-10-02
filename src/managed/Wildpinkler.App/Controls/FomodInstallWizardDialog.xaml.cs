@@ -68,10 +68,11 @@ public sealed partial class FomodInstallWizardDialog : ContentDialog
     private readonly FomodSelectionResolver _engine = new();
     private readonly List<FomodStepSelection> _committed = new();
     private readonly List<FomodStepDraft> _drafts = new();
+    private string _defaultDestination = string.Empty;
     private int _editorSeed;
     private int _displayedStepIndex = -2; // -2 = not yet started, -1 = summary, >=0 = a real step index
 
-    public FomodInstallWizardDialog(FomodModule module, IFomodFileStateProvider fileStateProvider)
+    public FomodInstallWizardDialog(FomodModule module, IFomodFileStateProvider fileStateProvider, string defaultDestination = "")
     {
         InitializeComponent();
         // ContentDialog subclasses don't reliably inherit the implicit style from XAML alone.
@@ -79,6 +80,16 @@ public sealed partial class FomodInstallWizardDialog : ContentDialog
 
         _module = module;
         _files = fileStateProvider;
+        _defaultDestination = defaultDestination;
+
+        // The destination base is the TARGET FOLDER chosen at the summary (default the game's
+        // PluginDataFolder). Every file's FOMOD destination is relative to it: an empty
+        // destination places the file directly in the base, and a non-empty one nests under
+        // it (e.g. "SKSE" -> "Data/SKSE"). It also feeds the reuse signature, the recorded
+        // install path (install root + base), and the remembered LastInstallPath.
+        if (!string.IsNullOrWhiteSpace(defaultDestination))
+            DestinationBox.Text = defaultDestination;
+        UpdateDestinationValidity();
 
         if (module.Warnings.Count > 0)
         {
@@ -94,12 +105,30 @@ public sealed partial class FomodInstallWizardDialog : ContentDialog
 
     public IReadOnlyList<FomodFileInstall> ResolvedFiles => _engine.ResolveFileInstalls(_module, _committed, _files);
 
-    public string SelectionSignature => _engine.ComputeSelectionSignature(_committed);
+    /// <summary>
+    /// The destination base the user chose (trimmed, install-root-relative, validated empty-or-safe).
+    /// Valid only after the dialog closed with <see cref="ContentDialogResult.Primary"/>.
+    /// </summary>
+    public string Destination => DestinationBox.Text.Trim();
+
+    /// <summary>Whether the user chose to remember the destination base for future installs.</summary>
+    public bool RememberPath => RememberPathCheck.IsChecked == true;
+
+    /// <summary>Deterministic reuse key for the current selections and destination base.</summary>
+    public string SelectionSignature => _engine.ComputeSelectionSignature(_committed, Destination);
 
     private void ContentDialog_PrimaryButtonClick(ContentDialog sender, ContentDialogButtonClickEventArgs args)
     {
         if (_displayedStepIndex == -1)
-            return; // At the summary: let the dialog actually close with Result = Primary.
+        {
+            // At the summary: validate the destination before letting the dialog close with Primary.
+            if (!TryValidateDestination())
+            {
+                args.Cancel = true;
+                return;
+            }
+            return; // Let the dialog actually close with Result = Primary.
+        }
 
         args.Cancel = true;
         if (!TryCommitCurrentStep(out var error))
@@ -111,6 +140,31 @@ public sealed partial class FomodInstallWizardDialog : ContentDialog
 
         ErrorText.Visibility = Visibility.Collapsed;
         AdvanceTo(_displayedStepIndex + 1);
+    }
+
+    private void DestinationBox_TextChanged(object sender, TextChangedEventArgs e) => UpdateDestinationValidity();
+
+    /// <summary>Blocks the Install click while the destination base is an unsafe relative path.</summary>
+    private bool TryValidateDestination()
+    {
+        var value = DestinationBox.Text.Trim();
+        var valid = value.Length == 0 || DefinitionValidation.IsSafeRelativePath(value);
+        DestinationErrorText.Text = valid
+            ? string.Empty
+            : "Destination must be a safe relative path (no leading/trailing separators or absolute paths).";
+        DestinationErrorText.Visibility = valid ? Visibility.Collapsed : Visibility.Visible;
+        return valid;
+    }
+
+    private void UpdateDestinationValidity()
+    {
+        var value = DestinationBox.Text.Trim();
+        var valid = value.Length == 0 || DefinitionValidation.IsSafeRelativePath(value);
+        IsPrimaryButtonEnabled = valid;
+        DestinationErrorText.Text = valid
+            ? string.Empty
+            : "Destination must be a safe relative path (no leading/trailing separators or absolute paths).";
+        DestinationErrorText.Visibility = valid ? Visibility.Collapsed : Visibility.Visible;
     }
 
     private void ContentDialog_SecondaryButtonClick(ContentDialog sender, ContentDialogButtonClickEventArgs args)
@@ -288,6 +342,7 @@ public sealed partial class FomodInstallWizardDialog : ContentDialog
             PrimaryButtonText = "Install";
             StepHeader.Text = "Ready to install";
             EditorHost.Children.Clear();
+            DestinationSection.Visibility = Visibility.Visible;
             RebuildRows();
             return;
         }
@@ -295,6 +350,7 @@ public sealed partial class FomodInstallWizardDialog : ContentDialog
         var step = _module.InstallSteps[rawIndex];
         PrimaryButtonText = "Next";
         StepHeader.Text = $"Step {rawIndex + 1} of {_module.InstallSteps.Count}: {step.Name}";
+        DestinationSection.Visibility = Visibility.Collapsed;
         BuildEditor(step, GetDraft(step));
         RebuildRows();
     }

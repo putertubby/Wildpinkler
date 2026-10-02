@@ -423,15 +423,25 @@ public sealed partial class ProfilesPage
                 installDialog.CloseAsync().GetAwaiter().GetResult();
 
                 var fileState = new ProfileFileStateProvider(profile.LoadOrder);
-                var wizard = new FomodInstallWizardDialog(fomodModule, fileState) { XamlRoot = XamlRoot };
+                var defaultDestination = GameFor(profile)?.Definition?.PluginList?.PluginDataFolder ?? "Data";
+                var wizard = new FomodInstallWizardDialog(fomodModule, fileState, defaultDestination) { XamlRoot = XamlRoot };
                 if (await wizard.ShowAsync() != ContentDialogResult.Primary)
                     return InstallOutcome.Cancelled;
 
                 installDialog.SetPhase(InstallPhase.Hashing, "Hashing archive…");
                 _ = installDialog.ShowAsync();
+                // The wizard's destination (default the game's PluginDataFolder) is the TARGET
+                // FOLDER: every file's FOMOD destination is relative to it (empty -> files go
+                // directly in it, non-empty -> nested under it, e.g. "SKSE" -> "Data/SKSE").
+                // It is also used for the reuse signature, the recorded install path (install
+                // root + base), and the remembered LastInstallPath.
                 installation = await AppServices.ModInstallService.FindOrCreateFomodInstallationAsync(
                     mod, wizard.ResolvedFiles, wizard.SelectionSignature, DescribeSelections(wizard.Selections), wizard.Selections,
+                    destination: wizard.Destination,
                     progress: installDialog.Progress, cancellationToken: cts.Token);
+
+                if (wizard.RememberPath)
+                    await RememberInstallPathAsync(mod.Id, wizard.Destination);
             }
             else
             {
@@ -439,7 +449,7 @@ public sealed partial class ProfilesPage
 
                 var layout = await AppServices.ModInstallService.InspectLayoutAsync(
                     mod, installDialog.AnalysisProgress, cts.Token);
-                var destinationDialog = new ModDestinationDialog(layout, mod.LastManualInstallPath) { XamlRoot = XamlRoot };
+                var destinationDialog = new ModDestinationDialog(layout, mod.LastInstallPath) { XamlRoot = XamlRoot };
                 if (await destinationDialog.ShowAsync() != ContentDialogResult.Primary)
                     return InstallOutcome.Cancelled;
 
@@ -450,7 +460,7 @@ public sealed partial class ProfilesPage
                     progress: installDialog.Progress, cancellationToken: cts.Token);
 
                 if (destinationDialog.RememberPath)
-                    await RememberManualInstallPathAsync(mod.Id, destinationDialog.DestinationRelativePath);
+                    await RememberInstallPathAsync(mod.Id, destinationDialog.DestinationRelativePath);
             }
 
             installDialog.SetPhase(InstallPhase.ScanningPlugins, "Scanning plugins…");
@@ -683,15 +693,16 @@ public sealed partial class ProfilesPage
     }
 
     // Mirrors UpdateModAssociationsAsync's reload-mutate-save shape so a stale in-memory mod
-    // snapshot elsewhere in the app can never clobber this write.
-    private async Task RememberManualInstallPathAsync(string modId, string destinationRelativePath)
+    // snapshot elsewhere in the app can never clobber this write. Used by both FOMOD and
+    // manual installs to remember the last chosen destination.
+    private async Task RememberInstallPathAsync(string modId, string destinationRelativePath)
     {
         var mods = (await AppServices.ModStore.LoadAsync()).ToList();
         var mod = mods.FirstOrDefault(item => item.Id == modId);
         if (mod is null)
             return;
 
-        mod.LastManualInstallPath = destinationRelativePath;
+        mod.LastInstallPath = destinationRelativePath;
         await AppServices.ModStore.SaveAsync(mods);
     }
 

@@ -225,7 +225,10 @@ public sealed class FomodInstallerParser
             result.Add(new FomodFileInstall
             {
                 Source = Attr(element, "source") ?? string.Empty,
-                Destination = Attr(element, "destination") ?? Attr(element, "source") ?? string.Empty,
+                // An empty/absent destination is NOT a source fallback: the target folder is prepended
+                // at extraction time, so falling back to `source` would install into the mod's
+                // step folders (e.g. `00 base/`) instead of the game's data folder.
+                Destination = Attr(element, "destination") ?? string.Empty,
                 Priority = int.TryParse(Attr(element, "priority"), out var priority) ? priority : 0,
                 IsFolder = IsNamed("folder")(element)
             });

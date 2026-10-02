@@ -16,6 +16,7 @@
     <PackageVersion Include="Microsoft.WindowsAppSDK" Version="1.7.260224002" />
     <PackageVersion Include="OpenAI" Version="2.13.0" />
     <PackageVersion Include="SharpCompress" Version="0.48.1" />
+    <PackageVersion Include="SharpSevenZip" Version="2.0.128" />
     <PackageVersion Include="System.Security.Cryptography.ProtectedData" Version="9.0.19" />
   </ItemGroup>
 

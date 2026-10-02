@@ -69,10 +69,19 @@ public sealed class FomodSelectionResolver
         return result.OrderBy(install => install.Priority).ToList();
     }
 
-    /// <summary>Deterministic reuse key: ordered "step>group>plugin" tuples over every selected plugin, hashed.</summary>
-    public string ComputeSelectionSignature(IReadOnlyList<FomodStepSelection> selections)
+    /// <summary>
+    /// Deterministic reuse key: ordered "step>group>plugin" tuples over every selected
+    /// plugin, plus the destination base, hashed. The base distinguishes installs that
+    /// chose different wizard destinations; an empty base reproduces the legacy signature,
+    /// so records created before destinations were introduced replay unchanged.
+    /// </summary>
+    public string ComputeSelectionSignature(IReadOnlyList<FomodStepSelection> selections, string destinationBase = "")
     {
         var builder = new StringBuilder();
+        // Only fold the base into the hash when present: an empty base must reproduce
+        // the legacy signature exactly so pre-existing installs keep deduplicating.
+        if (destinationBase.Length > 0)
+            builder.Append(destinationBase).Append('\n');
         foreach (var step in selections)
         foreach (var group in step.Groups)
         foreach (var plugin in group.SelectedPlugins)

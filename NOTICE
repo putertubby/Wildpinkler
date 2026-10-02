@@ -1,0 +1,34 @@
+Wildpinkler third-party notices
+================================
+
+This distribution includes the following third-party components. The full
+license texts remain available from the upstream projects and from the NuGet
+packages that ship them; the essential license terms are summarized below.
+
+SharpSevenZip (NuGet: SharpSevenZip)
+-------------------------------------
+Copyright (c) the SharpSevenZip contributors.
+Source: https://github.com/JeremyAnsel/SharpSevenZip
+
+Redistributed as the managed assembly "SharpSevenZip.dll".
+License: GNU Lesser General Public License, version 3 or later (LGPL-3.0-or-later).
+
+The SharpSevenZip package also ships a native runtime, "7z.dll", built from the
+7-Zip / LZMA SDK code bases for both x86 and x64, staged into the "x86" and
+"x64" subfolders next to the application.
+
+7-Zip / 7z.dll native runtime
+------------------------------
+Portions are based on the 7-Zip program and its 7-Zip/LZMA SDK libraries.
+The 7z.dll native runtime is licensed under the unRAR license / 7-Zip license
+as published by the 7-Zip project. See the upstream project for the exact
+terms: https://www.7-zip.org/ and https://7-zip.org/7zip.html.
+
+Compliance notes
+----------------
+- SharpSevenZip is LGPL-3.0-or-later; the application links it dynamically.
+  If you modify SharpSevenZip itself, the modified library must be made
+  available under the LGPL.
+- The 7z.dll native binary is redistributed as shipped by the SharpSevenZip
+  package. Keep this NOTICE file with any redistribution and provide the
+  source-compliance materials referenced above.

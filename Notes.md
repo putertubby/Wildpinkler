@@ -87,10 +87,11 @@ git rebase -r 6a8b51fbf9cb1dea6a35cceb5cbb04833c8f86ab --exec 'git commit --amen
    - [x] Installing fomod files from large archive (BHUNP) takes a very long time!
    - [x] Cancel fomod installation of large archive (BHUNP) does not close the dialog (or maybe after a long time?)
    - [x] Infobar for text and cancel button appears in very strange place (right of "reveal folder" button), mangling the UI layout.
-   - [ ] 500ms timer + scanning archive is instantaneous - only make the extract (and analysis) of each file part of progress
-   - [ ] Install mod dialog have tiny space for selectable options. Dialog overall also seems very small for the amount of information it handles.
+   - [ ] 500ms timer + scanning archive is instantaneous - only make the extract (and analysis) of each file part of progress. Don't show progress until a reasonable time passed (and some work remains to be done) to avoid flickering windows.
+   - [ ] Install mod dialog have tiny space for selectable options. Dialog overall also seems very small for the amount of information it handles. Include support for fomod screens (and dialog redesign to more modern style)
    - [ ] Installing files, unpacking the files after "hashing archive" phase, is very slow. Example 83kB in 41 seconds. This must be improved!
    - [x] After "cancelling" phase the dialog shows the text "canceled." but the dialog never closes and the app is stuck in a modal dialog that cant be closed. 
+   - [ ] Path doubling (Data\Data) in fomod installs? Maybe in all installs??
 - [ ] Tool output overlay shall be added to the load order only when: The tool is added to the profile and the tool has the "capture tool output" setting enabled while there is no output overlay branch in the load order (first time and after manually removing the output overlay branch). When the output overlay branch is added it shall be enabled in the load order.
        Once the output overlay is added to the load order it stays until manually removed, at which point the tool "capture tool output" setting shall automatically be disabled.
        For as long as the output overlay branch is part of the profile it shall retain its place in the load order and can be enabled/disabled independently from the tool. If the tool is removed from the profile or the "capture tool output" is turned off, the user shall be asked whether to keep the tool output overlay in the load order or not. Disabling the tool does not affect the status of the output overlay branch at all.

@@ -53,6 +53,32 @@ public sealed class FomodInstallerParserSecurityTests : IDisposable
         Assert.True(module is null || module.Name.Length < 1000);
     }
 
+    [Fact]
+    public void TryParse_EmptyDestination_KeepsEmptyInsteadOfFallingBackToSource()
+    {
+        var xml = """
+            <?xml version="1.0"?>
+            <config>
+              <moduleName>Test</moduleName>
+              <requiredInstallFiles>
+                <folder source="00 base" destination="" priority="1"/>
+                <file source="Data/Plugin.esp" destination="textures" priority="1"/>
+              </requiredInstallFiles>
+            </config>
+            """;
+
+        var module = _parser.TryParse(xml);
+
+        Assert.NotNull(module);
+        Assert.Equal(2, module!.RequiredInstallFiles.Count);
+        // An empty destination is authoritative: the install target folder is prepended at
+        // extraction time, so the parser must NOT substitute the source here.
+        Assert.Equal(string.Empty, module.RequiredInstallFiles[0].Destination);
+        Assert.Equal("00 base", module.RequiredInstallFiles[0].Source);
+        Assert.True(module.RequiredInstallFiles[0].IsFolder);
+        Assert.Equal("textures", module.RequiredInstallFiles[1].Destination);
+    }
+
     [Theory]
     [InlineData("")]
     [InlineData("   ")]

@@ -10,5 +10,6 @@
         }
     },
     "terminal.integrated.shellIntegration.enabled": true,
-    "terminal.integrated.defaultProfile.windows": "PowerShell"
+    "terminal.integrated.defaultProfile.windows": "PowerShell",
+    "chat.agent.maxRequests": 100
 }

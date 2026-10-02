@@ -91,6 +91,13 @@ if ($LASTEXITCODE -ne 0) {
 Copy-DirectoryContent $publishDirectory $stageDirectory
 Copy-Item -LiteralPath $queryDll -Destination $stageDirectory -Force
 
+# SharpSevenZip native runtime: the managed wrapper plus the per-arch 7z.dll
+# that the package's MSBuild targets stage into the x86/x64 subfolders.
+$sharpSevenZipNugetDir = Join-Path $env:USERPROFILE '.nuget\packages\sharpsevenzip\2.0.128'
+$sharpSevenZipLicense = Join-Path $sharpSevenZipNugetDir 'LICENSE'
+Copy-Item -LiteralPath $sharpSevenZipLicense -Destination (Join-Path $stageDirectory 'NOTICE-SharpSevenZip') -Force
+Copy-Item -LiteralPath (Join-Path $repoRoot 'NOTICE') -Destination (Join-Path $stageDirectory 'NOTICE') -Force
+
 $requiredFiles = @(
     'Wildpinkler.App.exe',
     'Wildpinkler.App.dll',
@@ -100,6 +107,11 @@ $requiredFiles = @(
     'wildpinkler_vfs.dll',
     'uufs64ldr.exe',
     'uufs64.dll',
+    'SharpSevenZip.dll',
+    'x64\7z.dll',
+    'x86\7z.dll',
+    'NOTICE',
+    'NOTICE-SharpSevenZip',
     'Assets\GameDefinitions',
     'Assets\ToolDefinitions',
     'Assets\AppIcon'

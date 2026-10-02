@@ -33,7 +33,7 @@ public sealed partial class ModEntry : ObservableObject
     private FomodState _fomodState;
     private bool _hasUpdate;
     private List<string> _profileIds = new();
-    private string? _lastManualInstallPath;
+    private string? _lastInstallPath;
     private RemoteFileCategory _remoteFileCategory;
     private bool _isPrimaryFile;
     private string? _changelogText;
@@ -70,7 +70,7 @@ public sealed partial class ModEntry : ObservableObject
         AddedAt = source.AddedAt;
         HasFomod = source.HasFomod;
         FomodState = source.FomodState;
-        LastManualInstallPath = source.LastManualInstallPath;
+        LastInstallPath = source.LastInstallPath;
         RemoteFileCategory = source.RemoteFileCategory;
         IsPrimaryFile = source.IsPrimaryFile;
         ChangelogText = source.ChangelogText;
@@ -163,8 +163,8 @@ public sealed partial class ModEntry : ObservableObject
     [System.Text.Json.Serialization.JsonIgnore]
     public bool HasRemotePage => !string.IsNullOrWhiteSpace(Remote?.PageUrl);
 
-    /// <summary>The last manual (non-FOMOD) relative destination path this mod was installed with, if the user chose to remember it.</summary>
-    public string? LastManualInstallPath { get => _lastManualInstallPath; set => SetProperty(ref _lastManualInstallPath, value); }
+    /// <summary>The last relative destination path this mod was installed with, if the user chose to remember it. Used by both FOMOD and manual installs.</summary>
+    public string? LastInstallPath { get => _lastInstallPath; set => SetProperty(ref _lastInstallPath, value); }
 
     public RemoteFileCategory RemoteFileCategory { get => _remoteFileCategory; set => SetProperty(ref _remoteFileCategory, value); }
     public bool IsPrimaryFile { get => _isPrimaryFile; set => SetProperty(ref _isPrimaryFile, value); }

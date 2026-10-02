@@ -27,6 +27,7 @@
     <PackageReference Include="Microsoft.Extensions.Logging" />
     <PackageReference Include="OpenAI" />
     <PackageReference Include="SharpCompress" />
+    <PackageReference Include="SharpSevenZip" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" />
   </ItemGroup>
 

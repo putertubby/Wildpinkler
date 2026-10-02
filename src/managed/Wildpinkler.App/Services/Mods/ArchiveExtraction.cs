@@ -6,6 +6,19 @@ using SharpCompress.Archives;
 namespace Wildpinkler.App.Services;
 
 /// <summary>
+/// Backend-neutral metadata for one archive entry, sufficient for the shared budget and
+/// link-rejection checks. Each extraction backend (SharpCompress, SharpSevenZip) maps its own
+/// entry type to this record so the safety logic stays in one place.
+/// </summary>
+/// <param name="Key">Normalized archive-relative entry key (forward slashes).</param>
+/// <param name="Size">Declared uncompressed size in bytes.</param>
+/// <param name="CompressedSize">Declared compressed size in bytes (0 when unknown).</param>
+/// <param name="Attrib">File attributes; may carry the Windows reparse bit or Unix link type.</param>
+/// <param name="LinkTarget">Link target for real symbolic-link entries, or empty.</param>
+public sealed record ArchiveEntryMetadata(
+    string Key, long Size, long CompressedSize, uint Attrib, string? LinkTarget);
+
+/// <summary>
 /// Caps applied while unpacking an archive. Archives are untrusted input, so an install must not be
 /// able to fill the disk through a high compression ratio or a very long entry list.
 /// </summary>
@@ -111,6 +124,27 @@ internal sealed class ArchiveExtractionBudget
                 $"Archive entry '{entry.Key}' expands more than {_limits.MaxCompressionRatio:F0}x, which indicates a decompression bomb.");
     }
 
+    /// <summary>
+    /// Runs the same declared-size and decompression-ratio pre-checks over backend-neutral
+    /// metadata. Backends that do not report per-entry compressed size pass 0, which skips
+    /// the ratio check while still enforcing the entry-count and declared-size limits.
+    /// </summary>
+    public void AccountForEntry(ArchiveEntryMetadata entry)
+    {
+        if (++_entryCount > _limits.MaxEntryCount)
+            throw new ArchiveExtractionLimitExceededException(
+                $"The archive declares more than {_limits.MaxEntryCount} files, which Wildpinkler will not install.");
+
+        var declared = entry.Size;
+        if (declared > _limits.MaxEntryBytes)
+            throw new ArchiveExtractionLimitExceededException(
+                $"Archive entry '{entry.Key}' declares {declared} bytes, beyond the {_limits.MaxEntryBytes} byte per-file limit.");
+
+        if (entry.CompressedSize > 0 && declared / (double)entry.CompressedSize > _limits.MaxCompressionRatio)
+            throw new ArchiveExtractionLimitExceededException(
+                $"Archive entry '{entry.Key}' expands more than {_limits.MaxCompressionRatio:F0}x, which indicates a decompression bomb.");
+    }
+
     /// <summary>Charges bytes actually written, because a declared size cannot be trusted.</summary>
     public void AccountForWrittenBytes(string entryKey, long written)
     {
@@ -142,6 +176,25 @@ internal sealed class ArchiveExtractionBudget
                 $"Archive entry '{entry.Key}' is marked as a reparse point, which Wildpinkler does not install.");
 
         if (((attributes >> 16) & UnixFileTypeMask) == UnixSymbolicLink)
+            throw new ArchiveEntryRejectedException(
+                $"Archive entry '{entry.Key}' is a symbolic link, which Wildpinkler does not install.");
+    }
+
+    /// <summary>
+    /// Rejects link entries outright over backend-neutral metadata. Backends without a link-target
+    /// concept pass null/empty; the attribute bits still carry reparse/link information.
+    /// </summary>
+    public static void RejectLinkEntry(ArchiveEntryMetadata entry)
+    {
+        if (!string.IsNullOrEmpty(entry.LinkTarget))
+            throw new ArchiveEntryRejectedException(
+                $"Archive entry '{entry.Key}' is a link, which Wildpinkler does not install.");
+
+        if ((entry.Attrib & WindowsReparsePointAttribute) != 0)
+            throw new ArchiveEntryRejectedException(
+                $"Archive entry '{entry.Key}' is marked as a reparse point, which Wildpinkler does not install.");
+
+        if (((entry.Attrib >> 16) & UnixFileTypeMask) == UnixSymbolicLink)
             throw new ArchiveEntryRejectedException(
                 $"Archive entry '{entry.Key}' is a symbolic link, which Wildpinkler does not install.");
     }

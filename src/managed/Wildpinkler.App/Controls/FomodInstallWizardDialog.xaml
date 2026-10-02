@@ -46,6 +46,24 @@
             <StackPanel x:Name="EditorHost" Spacing="10" />
         </ScrollViewer>
 
+        <!-- Destination choice, shown only on the summary step. This base is the TARGET FOLDER
+             (default: the game's PluginDataFolder): every file's FOMOD destination is relative
+             to it (an empty destination places files directly in the base, a non-empty one
+             nests under it, e.g. "SKSE" -> "Data/SKSE"). It is also used for the reuse
+             signature, the recorded install path (install root + base), and the remembered
+             LastInstallPath. -->
+        <StackPanel x:Name="DestinationSection" Spacing="8" Visibility="Collapsed">
+            <TextBlock Opacity="0.72" TextWrapping="Wrap"
+                       Text="Destination base for this install (files are placed under this folder; the mod's install rules decide where inside it). Choosing a different base creates a separate installation of this mod." />
+            <TextBox x:Name="DestinationBox" Header="Relative destination path"
+                     PlaceholderText="e.g. Data" TextChanged="DestinationBox_TextChanged" />
+            <CheckBox x:Name="RememberPathCheck"
+                      Content="Remember this path for future installs of this mod" />
+            <TextBlock x:Name="DestinationErrorText"
+                       Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                       TextWrapping="Wrap" Visibility="Collapsed" />
+        </StackPanel>
+
         <TextBlock x:Name="ErrorText" Foreground="{ThemeResource SystemFillColorCriticalBrush}"
                    TextWrapping="Wrap" Visibility="Collapsed" />
     </StackPanel>

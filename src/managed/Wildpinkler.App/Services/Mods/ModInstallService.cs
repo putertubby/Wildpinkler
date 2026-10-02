@@ -9,6 +9,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using SharpCompress.Archives;
+using SharpSevenZip;
 using Wildpinkler.App.Models;
 using Wildpinkler.App.Models.Fomod;
 
@@ -69,9 +70,20 @@ public sealed class ModInstallService
     public Task<ArchiveLayout> InspectLayoutAsync(ModEntry mod, IProgress<AnalysisProgressReport>? analysisProgress = null, CancellationToken cancellationToken = default) =>
         Task.Run(() => InspectLayout(mod, analysisProgress, cancellationToken), cancellationToken);
 
+    /// <summary>
+    /// Reuse or create an installation for the given resolved FOMOD files.
+    /// <paramref name="destination"/> is the destination base chosen in the FOMOD wizard
+    /// (default: the game's PluginDataFolder) and is the TARGET FOLDER every file is placed
+    /// under. FOMOD destinations are relative to it: an empty destination resolves to the
+    /// base itself (files go directly in the game data folder), and a non-empty one nests
+    /// under it (e.g. <c>SKSE</c> -> <c>Data/SKSE/...</c>, <c>textures</c> -> <c>Data/textures/...</c>).
+    /// The base is also persisted on the recipe for replay and distinguishes installs that
+    /// chose different wizard destinations.
+    /// </summary>
     public async Task<ModInstallation> FindOrCreateFomodInstallationAsync(
         ModEntry mod, IReadOnlyList<FomodFileInstall> resolvedFiles, string signature, string selectionSummary,
         IReadOnlyList<FomodStepSelection> selections,
+        string destination = "",
         IProgress<ExtractionProgress>? progress = null, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -88,7 +100,8 @@ public sealed class ModInstallService
                     Group = group.Group.Name,
                     Plugins = group.SelectedPlugins.Select(plugin => plugin.Name).ToList()
                 }))
-                .ToList()
+                .ToList(),
+            Destination = destination
         };
         var existing = (await _store.LoadAsync())
             .FirstOrDefault(item => item.ModId == mod.Id && item.Recipe is FomodInstallationRecipe &&
@@ -107,7 +120,7 @@ public sealed class ModInstallService
         };
         return await ExtractAndPublishAsync(
             installation,
-            (root, token) => Task.Run(() => ExtractFomodFiles(mod.ArchivePath, resolvedFiles, root, progress, token), token),
+            (root, token) => Task.Run(() => ExtractFomodFiles(mod.ArchivePath, resolvedFiles, root, destination, progress, token), token),
             cancellationToken);
     }
 
@@ -165,9 +178,9 @@ public sealed class ModInstallService
             throw new InvalidDataException("A recorded FOMOD step no longer exists.");
 
         var resolvedFiles = engine.ResolveFileInstalls(module, selections, fileState);
-        var signature = engine.ComputeSelectionSignature(selections);
+        var signature = engine.ComputeSelectionSignature(selections, fomod.Destination);
         return await FindOrCreateFomodInstallationAsync(
-            mod, resolvedFiles, signature, DescribeSelections(fomod), selections, progress, cancellationToken);
+            mod, resolvedFiles, signature, DescribeSelections(fomod), selections, fomod.Destination, progress, cancellationToken);
     }
 
     private static string DescribeSelections(FomodInstallationRecipe recipe) =>
@@ -343,9 +356,43 @@ public sealed class ModInstallService
         return digest;
     }
 
+    /// <summary>
+    /// Benchmark entry point onto the production extraction paths. Lets the opt-in extraction
+    /// benchmark measure the exact production code without duplicating it. The <paramref name="strategy"/>
+    /// selects which backend to exercise so a fair A/B can be run: "sharpcompress" forces the
+    /// SharpCompress path (even for 7z archives), and "native7z" forces the native 7z path.
+    /// </summary>
+    internal static void ExtractFomodFilesForBenchmark(
+        string archivePath, IReadOnlyList<FomodFileInstall> installs, string destinationRoot,
+        IProgress<ExtractionProgress>? progress, string strategy, CancellationToken cancellationToken, string destinationBase = "")
+    {
+        var service = new ModInstallService(null!, null!, null!);
+        var canonical = strategy.Trim().Equals("native7z", StringComparison.OrdinalIgnoreCase) ? "native7z" : "sharpcompress";
+        if (canonical == "native7z")
+            service.ExtractFomodFilesSevenZip(archivePath, installs, destinationRoot, destinationBase, progress, cancellationToken);
+        else
+            service.ExtractFomodFilesSharpCompress(archivePath, installs, destinationRoot, destinationBase, progress, cancellationToken);
+    }
+
     // Applied in the caller's priority-ascending order, so a later entry legitimately overwrites an earlier one.
     private void ExtractFomodFiles(
-        string archivePath, IReadOnlyList<FomodFileInstall> installs, string destinationRoot,
+        string archivePath, IReadOnlyList<FomodFileInstall> installs, string destinationRoot, string destinationBase,
+        IProgress<ExtractionProgress>? progress, CancellationToken cancellationToken)
+    {
+        if (IsSevenZipArchive(archivePath))
+        {
+            // Solid 7z archives are slow to re-open per entry, so the native backend decodes the
+            // selected entries in ONE archive-order operation instead of re-decoding each entry.
+            ExtractFomodFilesSevenZip(archivePath, installs, destinationRoot, destinationBase, progress, cancellationToken);
+        }
+        else
+        {
+            ExtractFomodFilesSharpCompress(archivePath, installs, destinationRoot, destinationBase, progress, cancellationToken);
+        }
+    }
+
+    private void ExtractFomodFilesSharpCompress(
+        string archivePath, IReadOnlyList<FomodFileInstall> installs, string destinationRoot, string destinationBase,
         IProgress<ExtractionProgress>? progress, CancellationToken cancellationToken)
     {
         using var archive = ArchiveFactory.OpenArchive(archivePath);
@@ -363,10 +410,16 @@ public sealed class ModInstallService
         foreach (var install in installs)
         {
             var source = NormalizeKey(install.Source);
+            // Destinations are relative to the target folder (the destination base, default the
+            // game's data folder): an empty destination resolves to the base itself, and a
+            // non-empty one nests under it (e.g. `SKSE` -> `Data/SKSE`).
+            var effectiveDest = install.Destination.Length > 0
+                ? CombineRelative(destinationBase, install.Destination)
+                : destinationBase;
             if (install.IsFolder)
             {
                 var prefix = source.Length == 0 ? string.Empty : source + "/";
-                for (var i = FindKeyStart(index, prefix);
+                for (var i = FindKeyStart(index.Count, i => index[i].Key, prefix);
                     i < index.Count && index[i].Key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
                     i++)
                 {
@@ -374,14 +427,17 @@ public sealed class ModInstallService
                     if (relative.Length == 0)
                         continue;
 
-                    work.Add((index[i].Entry, CombineRelative(install.Destination, relative)));
+                    work.Add((index[i].Entry, CombineRelative(effectiveDest, relative)));
                 }
             }
             else
             {
-                var i = FindKeyStart(index, source);
+                var i = FindKeyStart(index.Count, i => index[i].Key, source);
                 if (i < index.Count && index[i].Key.Equals(source, StringComparison.OrdinalIgnoreCase))
-                    work.Add((index[i].Entry, install.Destination.Length > 0 ? install.Destination : Path.GetFileName(source)));
+                {
+                    var leaf = install.Destination.Length > 0 ? install.Destination : Path.GetFileName(source);
+                    work.Add((index[i].Entry, CombineRelative(destinationBase, leaf)));
+                }
             }
         }
 
@@ -398,6 +454,269 @@ public sealed class ModInstallService
         }
 
         reporter.Finish();
+    }
+
+    /// <summary>
+    /// Unpacks a 7z FOMOD through the native 7z backend in a single archive-order decode. SharpCompress
+    /// re-opens a per-entry stream for every file, which on a SOLID archive re-decodes a large block
+    /// each time (the dominant cost for big FOMODs). Instead this builds the priority-ordered work
+    /// list, lets 7-Zip decode the distinct selected entries in one pass into a staging folder, and
+    /// then relocates the staged files to their destinations in install (priority) order so a later
+    /// entry still overwrites an earlier one. All on-disk safety checks (path containment, link
+    /// rejection, byte budget, written-file verification, cancellation) are preserved.
+    /// </summary>
+    private void ExtractFomodFilesSevenZip(
+        string archivePath, IReadOnlyList<FomodFileInstall> installs, string destinationRoot, string destinationBase,
+        IProgress<ExtractionProgress>? progress, CancellationToken cancellationToken)
+    {
+        var budget = new ArchiveExtractionBudget(_extractionLimits);
+        var verifiedDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        string stagingDir;
+
+        using (var extractor = new SharpSevenZipExtractor(archivePath))
+        {
+            var fileData = extractor.ArchiveFileData;
+            if (fileData.Count == 0)
+                throw new InvalidOperationException("The 7z archive contains no entries.");
+            if (extractor.ErrorFlags != ArchiveErrorFlags.None)
+                throw new InvalidOperationException($"The 7z archive could not be opened: {extractor.ErrorMessage}");
+
+            // A normalized-key index of non-directory entries sorted case-insensitively lets each
+            // install's file set be found by binary search (same shape as the SharpCompress path).
+            // Metadata is captured at planning time so the shared budget/link checks never have to
+            // understand SharpSevenZip's types.
+            var index = new List<(int Index, string Key, string ArchivePath, ArchiveEntryMetadata Metadata)>(fileData.Count);
+            var bytesTotal = 0L;
+            foreach (var info in fileData)
+            {
+                if (info.IsDirectory)
+                    continue;
+
+                var key = NormalizeKey(info.FileName);
+                if (key.Length == 0)
+                    continue;
+
+                index.Add((info.Index, key, info.FileName.Replace('\\', '/'),
+                    new ArchiveEntryMetadata(key, (long)info.Size, 0L, (uint)info.Attributes, null)));
+                bytesTotal += (long)info.Size;
+            }
+            index.Sort((a, b) => string.Compare(a.Key, b.Key, StringComparison.OrdinalIgnoreCase));
+
+            // Every candidate (source entry, destination) the FOMOD rules map to, in rule order.
+            // The rule's priority and position are carried alongside so the dedup below does not
+            // have to reverse-map back into the installs list (folder rules emit many candidates).
+            var candidates = new List<(int ArchiveIndex, int Priority, int RuleIndex, string ArchivePath, string Destination, ArchiveEntryMetadata Metadata)>();
+            for (var rule = 0; rule < installs.Count; rule++)
+            {
+                var install = installs[rule];
+                var source = NormalizeKey(install.Source);
+                // Destinations are relative to the target folder (the destination base, default the
+                // game's data folder): an empty destination resolves to the base itself, and a
+                // non-empty one nests under it (e.g. `SKSE` -> `Data/SKSE`).
+                var effectiveDest = install.Destination.Length > 0
+                    ? CombineRelative(destinationBase, install.Destination)
+                    : destinationBase;
+                if (install.IsFolder)
+                {
+                    var prefix = source.Length == 0 ? string.Empty : source + "/";
+                    for (var i = FindKeyStart(index.Count, i => index[i].Key, prefix);
+                        i < index.Count && index[i].Key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
+                        i++)
+                    {
+                        var relative = index[i].Key[prefix.Length..];
+                        if (relative.Length == 0)
+                            continue;
+
+                        candidates.Add((index[i].Index, install.Priority, rule, index[i].ArchivePath, CombineRelative(effectiveDest, relative), index[i].Metadata));
+                    }
+                }
+                else
+                {
+                    var i = FindKeyStart(index.Count, i => index[i].Key, source);
+                    if (i < index.Count && index[i].Key.Equals(source, StringComparison.OrdinalIgnoreCase))
+                    {
+                        var leaf = install.Destination.Length > 0 ? install.Destination : Path.GetFileName(source);
+                        candidates.Add((index[i].Index, install.Priority, rule, index[i].ArchivePath, CombineRelative(destinationBase, leaf), index[i].Metadata));
+                    }
+                }
+            }
+
+            // Run the per-entry pre-checks and link rejections over every candidate in rule order,
+            // so a malicious or oversized entry aborts the install exactly as the SharpCompress
+            // path would abort, even when a higher-priority rule overwrites it later.
+            foreach (var candidate in candidates)
+            {
+                ArchiveExtractionBudget.RejectLinkEntry(candidate.Metadata);
+                budget.AccountForEntry(candidate.Metadata);
+            }
+
+            // Resolve ONE winning source per case-insensitive destination so each source is
+            // decoded only once. The winner must match the on-disk result of the SharpCompress
+            // path, which writes every candidate in rule order so the LAST write to a
+            // destination wins: the highest-priority rule, and for equal priority the later
+            // rule index.
+            var work = new List<(int ArchiveIndex, string SourceArchivePath, string Destination, ArchiveEntryMetadata Metadata)>();
+            var byDestination = new Dictionary<string, (int Priority, int RuleIndex, int ArchiveOrdinal, string ArchivePath, string Destination, ArchiveEntryMetadata Metadata)>(StringComparer.OrdinalIgnoreCase);
+            foreach (var candidate in candidates)
+            {
+                var (archiveIndex, priority, ruleIndex, sourcePath, destination, metadata) = candidate;
+                if (byDestination.TryGetValue(destination, out var current) &&
+                    (current.Priority > priority ||
+                     (current.Priority == priority && current.RuleIndex >= ruleIndex)))
+                    continue;
+
+                byDestination[destination] = (priority, ruleIndex, archiveIndex, sourcePath, destination, metadata);
+            }
+
+            foreach (var (_, stored) in byDestination)
+            {
+                work.Add((stored.ArchiveOrdinal, stored.ArchivePath, stored.Destination, stored.Metadata));
+            }
+            work.Sort((a, b) =>
+            {
+                var byArchive = a.ArchiveIndex.CompareTo(b.ArchiveIndex);
+                return byArchive != 0 ? byArchive : string.Compare(a.Destination, b.Destination, StringComparison.Ordinal);
+            });
+
+            // Canonicalize the extraction root ONCE. Every planned destination is then
+            // resolved and containment-checked once against this root before any output is
+            // created, so the relocation loop only walks already-verified absolute paths.
+            var destinationRootFull = Path.TrimEndingDirectorySeparator(Path.GetFullPath(destinationRoot));
+            stagingDir = Path.Combine(destinationRoot, "__sevenzip_staging__");
+            // A crashed earlier run can leave the staging folder behind; remove it so this run
+            // starts from a clean tree.
+            DeleteDirectoryBestEffort(stagingDir);
+            Directory.CreateDirectory(stagingDir);
+            try
+            {
+                // ONE archive-order decode of every distinct selected entry. 7-Zip streams the solid
+                // blocks once and writes each selected file; no per-entry re-decode.
+                var distinctIndexes = work.Select(item => item.ArchiveIndex).Distinct().OrderBy(x => x).ToArray();
+                if (distinctIndexes.Length > 0)
+                    extractor.ExtractFiles(stagingDir, distinctIndexes);
+
+                // Pre-resolve and containment-check each distinct planned destination ONCE, so the
+                // relocation loop never re-canonicalizes or re-checks containment per file.
+                var resolvedDestinations = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var destination in work.Select(item => item.Destination).Distinct(StringComparer.OrdinalIgnoreCase))
+                    resolvedDestinations[destination] = ResolveSafeDestination(destinationRootFull, destination);
+
+                var reporter = new ExtractionReporter(progress, work.Count, bytesTotal, "Extracting");
+                var bytesWritten = 0L;
+                for (var i = 0; i < work.Count; i++)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var (_, sourceArchivePath, destinationRelative, metadata) = work[i];
+                    var destinationPath = resolvedDestinations[destinationRelative];
+                    var stagedPath = Path.Combine(stagingDir, sourceArchivePath.Replace('/', Path.DirectorySeparatorChar));
+                    var written = RelocateStagedFile(
+                        stagedPath, destinationPath, metadata.Key, destinationRootFull, budget, verifiedDirectories, cancellationToken);
+                    bytesWritten += written;
+                    reporter.Report(i + 1, work.Count, bytesWritten, bytesTotal, destinationRelative);
+                }
+
+                reporter.Finish();
+            }
+            finally
+            {
+                DeleteDirectoryBestEffort(stagingDir);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Copies one natively-decoded file from the staging folder to its final destination, applying the
+    /// same on-disk safety checks as <see cref="ExtractEntry"/>: link rejection, directory-link
+    /// avoidance, byte budget, written-file verification, and cancellation.
+    /// </summary>
+    private static long RelocateStagedFile(
+        string stagedPath, string destinationPath, string entryKey, string destinationRoot,
+        ArchiveExtractionBudget budget, HashSet<string>? verifiedDirectories, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+
+        var directory = Path.GetDirectoryName(destinationPath);
+        if (!string.IsNullOrEmpty(directory))
+            ArchiveExtractionBudget.CreateDirectoryWithoutLinks(destinationRoot, directory, verifiedDirectories);
+
+        RejectExistingLink(destinationPath);
+
+        long written = 0;
+        try
+        {
+            // The native decode already wrote the full file, so a bounded copy lands it in place.
+            using var source = new FileStream(stagedPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            using var target = new FileStream(destinationPath, FileMode.Create, FileAccess.Write, FileShare.None);
+            var buffer = ArrayPool<byte>.Shared.Rent(CopyChunkSize);
+            try
+            {
+                int read;
+                while ((read = source.Read(buffer, 0, buffer.Length)) > 0)
+                {
+                    target.Write(buffer, 0, read);
+                    written += read;
+
+                    if (cancellationToken.IsCancellationRequested)
+                        throw new OperationCanceledException("Entry copy cancelled.", cancellationToken);
+                }
+            }
+            finally
+            {
+                ArrayPool<byte>.Shared.Return(buffer);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            try { File.Delete(destinationPath); }
+            catch
+            {
+                // Best effort: cleanup failures must not mask the cancellation.
+            }
+            throw;
+        }
+
+        budget.AccountForWrittenBytes(entryKey, written);
+        ArchiveExtractionBudget.VerifyWrittenFile(destinationPath);
+        return written;
+    }
+
+    /// <summary>Detects a 7z archive by its magic signature (not by extension).</summary>
+    internal static bool IsSevenZipArchive(string path)
+    {
+        try
+        {
+            var buffer = new byte[6];
+            using var stream = File.OpenRead(path);
+            var read = 0;
+            while (read < buffer.Length)
+            {
+                var count = stream.Read(buffer, read, buffer.Length - read);
+                if (count == 0)
+                    break;
+                read += count;
+            }
+
+            return read == buffer.Length &&
+                buffer[0] == 0x37 && buffer[1] == 0x7A && buffer[2] == 0xBC &&
+                buffer[3] == 0xAF && buffer[4] == 0x27 && buffer[5] == 0x1C;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+    }
+
+    internal static void DeleteDirectoryBestEffort(string path)
+    {
+        try
+        {
+            if (Directory.Exists(path))
+                Directory.Delete(path, recursive: true);
+        }
+        catch
+        {
+            // Best effort: staging cleanup must not mask a real error or cancellation.
+        }
     }
 
     internal static string BuildManualSelectionSignature(string sourceRoot, string destination) =>
@@ -547,14 +866,14 @@ public sealed class ModInstallService
     /// (case-insensitive), or the index count when none do. Binary search keeps each install's lookup
     /// O(log n) even when a FOMOD declares many installs against tens of thousands of files.
     /// </summary>
-    private static int FindKeyStart(List<(IArchiveEntry Entry, string Key)> index, string key)
+    private static int FindKeyStart(int count, Func<int, string> keyAt, string key)
     {
         var low = 0;
-        var high = index.Count;
+        var high = count;
         while (low < high)
         {
             var mid = low + ((high - low) / 2);
-            if (string.Compare(index[mid].Key, key, StringComparison.OrdinalIgnoreCase) < 0)
+            if (string.Compare(keyAt(mid), key, StringComparison.OrdinalIgnoreCase) < 0)
                 low = mid + 1;
             else
                 high = mid;

@@ -265,6 +265,20 @@ public sealed class AppCommandCatalog : IAppCommandCatalog
                 new AppCommandParameter("profileId", "string", "The profile to change.", IsRequired: true),
                 new AppCommandParameter("folderId", "string", "The load-order folder id, from profiles.getLoadOrder.", IsRequired: true),
                 new AppCommandParameter("newIndex", "integer", "The desired zero-based position among the unpinned folders.", IsRequired: true)
+            ]),
+
+        new AppCommandDescriptor(
+            "profiles.benchmarkExtraction",
+            "Opt-in performance benchmark: re-extracts a caller-supplied FOMOD archive with the full " +
+            "select-all selection into fresh throwaway staging folders and reports median wall time, CPU " +
+            "time, peak working set, throughput and an output manifest hash. Non-destructive.",
+            typeof(BenchmarkExtractionCommand), typeof(ExtractionBenchmarkReport),
+            Group: "diagnostics",
+            IsDestructive: false, RequiresConfirmation: false,
+            Parameters:
+            [
+                new AppCommandParameter("archivePath", "string", "Full path to the FOMOD archive to benchmark.", IsRequired: true),
+                new AppCommandParameter("runCount", "integer", "How many timed runs to average over (default 3).", IsRequired: false)
             ])
     ];
 }
@@ -301,6 +315,7 @@ public static class CommandRegistration
         services.AddSingleton<IAppCommandHandler<AddModDependencyCommand, ModDependencyDto>, AddModDependencyHandler>();
         services.AddSingleton<IAppCommandHandler<RemoveModDependencyCommand, bool>, RemoveModDependencyHandler>();
         services.AddSingleton<IAppCommandHandler<UpdateModDependencyCommand, ModDependencyDto>, UpdateModDependencyHandler>();
+        services.AddSingleton<IAppCommandHandler<BenchmarkExtractionCommand, ExtractionBenchmarkReport>, BenchmarkExtractionHandler>();
         return services;
     }
 }

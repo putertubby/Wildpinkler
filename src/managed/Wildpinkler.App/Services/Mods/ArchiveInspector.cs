@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using SharpCompress.Archives;
+using SharpSevenZip;
 
 namespace Wildpinkler.App.Services;
 
@@ -62,70 +63,140 @@ public sealed class ArchiveInspector : IArchiveInspector
         var state = FomodState.Unknown;
         var files = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var decodeFailed = false;
-        try
+        if (ModInstallService.IsSevenZipArchive(path))
         {
-            using var archive = ArchiveFactory.OpenArchive(path);
-            // Materializing the index is cheap: SharpCompress builds it when the archive opens,
-            // and the count gives the UI a deterministic Phase-1 denominator.
-            var entries = archive.Entries.ToList();
-            var totalEntries = (int?)entries.Count;
-            var entryIndex = 0;
-            var metadataEntries = new List<IArchiveEntry>();
-            var seenNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            // Pass 1: enumerate the entry list, reporting every entry, and collect the FOMOD
-            // metadata entries. Enumeration reads only the archive index, so it is fast; the
-            // slow work (decompressing the metadata contents) is deferred to pass 2.
-            foreach (var entry in entries)
+            // 7z path: use the native backend for both enumeration and metadata reads.
+            // ONE archive-order native decode replaces the per-entry stream re-opens that
+            // dominate the cost on solid archives.
+            try
             {
-                // Entry enumeration on a large archive is the long pole, so cooperate with
-                // cancellation every 64 entries. Let OperationCanceledException propagate (it is
-                // rethrown below) rather than being swallowed as a decode failure or cached.
-                if ((entryIndex & 63) == 0)
+                using var extractor = new SharpSevenZipExtractor(path);
+                var fileData = extractor.ArchiveFileData;
+                var totalEntries = (int?)fileData.Count;
+                var entryIndex = 0;
+                var metadataEntries = new List<(int Index, string Name, string FileName)>();
+                var seenNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                // Pass 1: enumerate entries, report progress, collect metadata entries.
+                foreach (var entry in fileData)
+                {
+                    if ((entryIndex & 63) == 0)
+                        cancellationToken.ThrowIfCancellationRequested();
+                    entryIndex++;
+                    analysisProgress?.Report(new AnalysisProgressReport(entryIndex, totalEntries, null, null));
+
+                    if (entry.IsDirectory || !IsInsideFomodDirectory(entry.FileName))
+                        continue;
+
+                    state = FomodState.Yes;
+                    if (!IsFomodXmlFile(entry.FileName) || (long)entry.Size > MaxFomodFileBytes)
+                        continue;
+
+                    var name = Path.GetFileName(Normalize(entry.FileName));
+                    if (name.Length == 0 || !seenNames.Add(name))
+                        continue;
+
+                    metadataEntries.Add((entry.Index, name, entry.FileName));
+                }
+
+                // Pass 2: extract selected XML entries in ONE native operation, then read from disk.
+                var metadataTotal = metadataEntries.Count;
+                analysisProgress?.Report(new AnalysisProgressReport(entryIndex, totalEntries, 0, metadataTotal));
+
+                if (metadataTotal > 0)
+                {
+                    var stagingDir = Path.Combine(Path.GetTempPath(), "wildpinkler_fomod_" + Guid.NewGuid().ToString("N"));
+                    try
+                    {
+                        var indexes = metadataEntries.Select(m => m.Index).ToArray();
+                        extractor.ExtractFiles(stagingDir, indexes);
+
+                        var metadataDone = 0;
+                        foreach (var (_, name, fileName) in metadataEntries)
+                        {
+                            cancellationToken.ThrowIfCancellationRequested();
+                            metadataDone++;
+
+                            var stagedPath = Path.Combine(stagingDir, fileName.Replace('/', Path.DirectorySeparatorChar));
+                            using var stream = new FileStream(stagedPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                            using var reader = new StreamReader(stream, detectEncodingFromByteOrderMarks: true);
+                            files[name] = reader.ReadToEnd();
+
+                            analysisProgress?.Report(new AnalysisProgressReport(entryIndex, totalEntries, metadataDone, metadataTotal));
+                        }
+                    }
+                    finally
+                    {
+                        ModInstallService.DeleteDirectoryBestEffort(stagingDir);
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception)
+            {
+                decodeFailed = true;
+            }
+        }
+        else
+        {
+            // Non-7z path (ZIP/RAR): SharpCompress (unchanged behavior).
+            try
+            {
+                using var archive = ArchiveFactory.OpenArchive(path);
+                var entries = archive.Entries.ToList();
+                var totalEntries = (int?)entries.Count;
+                var entryIndex = 0;
+                var metadataEntries = new List<IArchiveEntry>();
+                var seenNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                foreach (var entry in entries)
+                {
+                    if ((entryIndex & 63) == 0)
+                        cancellationToken.ThrowIfCancellationRequested();
+                    entryIndex++;
+                    analysisProgress?.Report(new AnalysisProgressReport(entryIndex, totalEntries, null, null));
+
+                    if (entry.IsDirectory || !IsInsideFomodDirectory(entry.Key))
+                        continue;
+
+                    state = FomodState.Yes;
+                    if (!IsFomodXmlFile(entry.Key) || entry.Size > MaxFomodFileBytes)
+                        continue;
+
+                    var name = Path.GetFileName(Normalize(entry.Key));
+                    if (name.Length == 0 || !seenNames.Add(name))
+                        continue;
+
+                    metadataEntries.Add(entry);
+                }
+
+                var metadataTotal = metadataEntries.Count;
+                analysisProgress?.Report(new AnalysisProgressReport(entryIndex, totalEntries, 0, metadataTotal));
+                var metadataDone = 0;
+                foreach (var entry in metadataEntries)
+                {
                     cancellationToken.ThrowIfCancellationRequested();
-                entryIndex++;
-                analysisProgress?.Report(new AnalysisProgressReport(entryIndex, totalEntries, null, null));
+                    metadataDone++;
 
-                if (entry.IsDirectory || !IsInsideFomodDirectory(entry.Key))
-                    continue;
+                    var name = Path.GetFileName(Normalize(entry.Key));
+                    using var stream = entry.OpenEntryStream();
+                    using var reader = new StreamReader(stream, detectEncodingFromByteOrderMarks: true);
+                    files[name] = reader.ReadToEnd();
 
-                state = FomodState.Yes;
-                if (!IsFomodXmlFile(entry.Key) || entry.Size > MaxFomodFileBytes)
-                    continue;
-
-                var name = Path.GetFileName(Normalize(entry.Key));
-                if (name.Length == 0 || !seenNames.Add(name))
-                    continue;
-
-                metadataEntries.Add(entry);
+                    analysisProgress?.Report(new AnalysisProgressReport(entryIndex, totalEntries, metadataDone, metadataTotal));
+                }
             }
-
-            // Pass 2: decompress each metadata file, reporting progress per file so the UI
-            // keeps moving while these reads run.
-            var metadataTotal = metadataEntries.Count;
-            analysisProgress?.Report(new AnalysisProgressReport(entryIndex, totalEntries, 0, metadataTotal));
-            var metadataDone = 0;
-            foreach (var entry in metadataEntries)
+            catch (OperationCanceledException)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                metadataDone++;
-
-                var name = Path.GetFileName(Normalize(entry.Key));
-                using var stream = entry.OpenEntryStream();
-                using var reader = new StreamReader(stream, detectEncodingFromByteOrderMarks: true);
-                files[name] = reader.ReadToEnd();
-
-                analysisProgress?.Report(new AnalysisProgressReport(entryIndex, totalEntries, metadataDone, metadataTotal));
+                throw;
             }
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception)
-        {
-            // Archives come from untrusted sources; any decode failure just means we cannot tell.
-            decodeFailed = true;
+            catch (Exception)
+            {
+                decodeFailed = true;
+            }
         }
 
         // If we successfully enumerated every entry and none were inside a fomod/ directory,
