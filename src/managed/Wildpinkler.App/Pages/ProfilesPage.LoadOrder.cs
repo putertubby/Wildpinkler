@@ -682,6 +682,20 @@ public sealed partial class ProfilesPage
         UiTask.Run(() => PickAndApplyRolesAsync(profile, folder), nameof(ChooseRoles_Click), ShowLoadOrderError);
     }
 
+    // Opens the branch's folder in File Explorer from the branch row's "more" menu.
+    // The flyout's DataContext is the ProfileFolder row, so this is a plain handler, not a RelayCommand.
+    private void RevealFolder_Click(object sender, RoutedEventArgs args)
+    {
+        if ((sender as FrameworkElement)?.DataContext is not ProfileFolder folder
+            || folder.Kind is not (ProfileFolderKind.Mod or ProfileFolderKind.ToolOutput))
+            return;
+
+        if (!System.IO.Directory.Exists(folder.Path))
+            return;
+
+        Process.Start(new ProcessStartInfo("explorer.exe", $"\"{folder.Path}\"") { UseShellExecute = true });
+    }
+
     private static void ClearOtherLauncherDesignations(Profile profile, string exceptFolderId)
     {
         foreach (var otherFolder in profile.LoadOrder.Where(folder =>

@@ -90,6 +90,15 @@ public sealed partial class ProfileFolder : ObservableObject
     [JsonIgnore]
     public bool IsModBranch => Kind == ProfileFolderKind.Mod;
 
+    // Drives the "Reveal folder" menu item's visibility: mod and tool-output branches have
+    // their own folders worth opening.
+    [JsonIgnore]
+    public bool IsModOrToolBranch => Kind == ProfileFolderKind.Mod || Kind == ProfileFolderKind.ToolOutput;
+
+    // Drives the "Reveal folder" menu item's enabled state.
+    [JsonIgnore]
+    public bool HasPath => !string.IsNullOrWhiteSpace(Path) && System.IO.Directory.Exists(Path);
+
     [JsonIgnore]
     public string KindText => Kind switch
     {

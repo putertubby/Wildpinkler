@@ -400,6 +400,9 @@
                                                                         <MenuFlyoutSeparator />
                                                                         <MenuFlyoutItem Text="Choose roles..." Click="ChooseRoles_Click"
                                                                                         Visibility="{x:Bind IsModBranch}" />
+                                                                        <MenuFlyoutItem Text="Reveal folder" Click="RevealFolder_Click"
+                                                                                        Visibility="{x:Bind IsModOrToolBranch}"
+                                                                                        IsEnabled="{x:Bind HasPath, Mode=OneWay}" />
                                                                         <MenuFlyoutItem Text="Remove" Click="RemoveFolder_Click" />
                                                                     </MenuFlyout>
                                                                 </Button.Flyout>

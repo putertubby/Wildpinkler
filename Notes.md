@@ -88,7 +88,7 @@ git rebase -r 6a8b51fbf9cb1dea6a35cceb5cbb04833c8f86ab --exec 'git commit --amen
    - [x] Cancel fomod installation of large archive (BHUNP) does not close the dialog (or maybe after a long time?)
    - [x] Infobar for text and cancel button appears in very strange place (right of "reveal folder" button), mangling the UI layout.
    - [ ] 500ms timer + scanning archive is instantaneous - only make the extract (and analysis) of each file part of progress. Don't show progress until a reasonable time passed (and some work remains to be done) to avoid flickering windows.
-   - [ ] Installing same mod twice
+   - [ ] Installing same mod twice?
    - [ ] Save mod installation choices (+ log)
    - [x] Install mod dialog have tiny space for selectable options. Dialog overall also seems very small for the amount of information it handles. Include support for fomod screens (and dialog redesign to more modern style)
    - [x] Installing files, unpacking the files after "hashing archive" phase, is very slow. Example 83kB in 41 seconds. This must be improved!
@@ -112,6 +112,7 @@ git rebase -r 6a8b51fbf9cb1dea6a35cceb5cbb04833c8f86ab --exec 'git commit --amen
 - [ ] Status in mod list not properly updated when mod finished download.
 - [ ] Check! Game launcher is mutually exclusive (only one mod at a time (at most) can launch)
 - [ ] Insufficient logging
+- [ ] Bodyslide thinks it can't write to directory
 
 ## Refactoring
 
@@ -126,16 +127,17 @@ git rebase -r 6a8b51fbf9cb1dea6a35cceb5cbb04833c8f86ab --exec 'git commit --amen
 - [x] Bodyslide, FNIS and others - not a tool and not a game! Make all executables visible as toolbuttons using their icons
 - [ ] Tools shall be mutually exclusive launchable, including actual game
 - [ ] Add mod definitions like game and tool definitions.
-- [ ] Icon
+- [x] Icon
 - [ ] LOOT and/or manual load order editing. Offer LOOT execution in warning dialog.
 - [ ] Show archive tree in the "choose destination" dialog when installing mods (done?)
-- [ ] Reveal folder for installed mod
+- [x] Reveal folder for installed mod and tool output
 - [ ] Dependencies (general + version-specific) editing in better graph. Tree view is probably better...
 - [ ] Data pre-filled in the "add mod" dialog (is there a setting in the game definition?)
 - [ ] Install mod with dependencies?
 - [ ] Mod categories (Animation ...)
 - [ ] Remove all migration code and make all current schemas version 1
 - [ ] Dead code, vulnerabilities, code smells, optimizations, adherence to design reference ...
+- [ ] ledger logging in wildpinkler
 
 ## Mods
 
