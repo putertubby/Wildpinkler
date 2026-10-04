@@ -424,7 +424,8 @@ public sealed partial class ProfilesPage
 
                 var fileState = new ProfileFileStateProvider(profile.LoadOrder);
                 var defaultDestination = GameFor(profile)?.Definition?.PluginList?.PluginDataFolder ?? "Data";
-                var wizard = new FomodInstallWizardDialog(fomodModule, fileState, defaultDestination) { XamlRoot = XamlRoot };
+                var wizard = new FomodInstallWizardDialog(fomodModule, fileState, mod.ArchivePath, defaultDestination,
+                    gameExecutablePath: GameFor(profile)?.ExecutablePath) { XamlRoot = XamlRoot };
                 if (await wizard.ShowAsync() != ContentDialogResult.Primary)
                     return InstallOutcome.Cancelled;
 

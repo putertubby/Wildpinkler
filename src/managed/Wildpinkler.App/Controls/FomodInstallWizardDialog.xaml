@@ -10,40 +10,88 @@
     DefaultButton="Primary"
     PrimaryButtonClick="ContentDialog_PrimaryButtonClick"
     SecondaryButtonClick="ContentDialog_SecondaryButtonClick"
-    MinWidth="560"
     Style="{StaticResource DefaultContentDialogStyle}">
 
-    <StackPanel Spacing="12">
-        <InfoBar x:Name="WarningsBar" Severity="Warning" IsOpen="False" IsClosable="True"
-                 Title="Some install rules could not be fully understood" />
+    <ContentDialog.Resources>
+        <!-- Raise the card's max width (theme default is ~548, too tight for the two-column
+             option rows below) and max height (theme default is 756 - shorter than the 720px
+             inner Grid once the title, padding and button bar overhead are added, which
+             clipped the bottom of the wizard and hid the body ScrollViewer's scrollbar).
+             Same sanctioned pattern GameDefinitionEditDialog / ToolDefinitionEditDialog use
+             for the width; the template's BackgroundElement binds these keys, and the
+             override in this dialog's resources wins without touching the template or its
+             internal centering. 820 + ~30px card padding fits inside the 880 card with no
+             right-edge clipping; 880 height clears the Grid (720) plus the title, button bar
+             and padding overhead (~130px). -->
+        <x:Double x:Key="ContentDialogMaxWidth">880</x:Double>
+        <x:Double x:Key="ContentDialogMaxHeight">880</x:Double>
+    </ContentDialog.Resources>
 
-        <TextBlock x:Name="StepHeader" Style="{StaticResource SubtitleTextBlockStyle}" TextWrapping="Wrap" />
+    <!-- The dialog root must NOT carry Width/MinWidth/MaxWidth (verified WinUI 3 pitfall: an
+         explicit width constraint on the ContentDialog breaks the template's internal
+         centering and renders the card flush against one window edge). A fixed size on the
+         inner Grid instead keeps the card centered AND gives the wizard one stable size for
+         the whole run: the star body row absorbs the difference between small and dense steps. -->
+    <Grid ColumnSpacing="16" Margin="0,4,0,4" Width="820" Height="720">
+        <Grid.RowDefinitions>
+            <!-- 0: module identity header -->
+            <RowDefinition Height="Auto" />
+            <!-- 1: step indicator -->
+            <RowDefinition Height="Auto" />
+            <!-- 2: single scrolling body (owns all remaining vertical space) -->
+            <RowDefinition Height="*" />
+            <!-- 3: destination + summary (final step only) -->
+            <RowDefinition Height="Auto" />
+            <!-- 4: error line -->
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+        <Grid.RowSpacing>12</Grid.RowSpacing>
 
-        <!-- One row per install step, plus a final summary row. The ListView virtualizes its
-             rows, so mods with hundreds of steps stay responsive. -->
-        <ListView x:Name="StepList" SelectionMode="Single"
-                  SelectionChanged="StepList_SelectionChanged"
-                  MaxHeight="420" IsItemClickEnabled="True">
-            <ListView.ItemTemplate>
-                <DataTemplate>
-                    <StackPanel Margin="0,6,16,6">
-                        <TextBlock Text="{Binding Title}" FontSize="15"
-                                   FontWeight="SemiBold" TextWrapping="Wrap" />
-                        <TextBlock Text="{Binding Subtitle}" Opacity="0.72" TextWrapping="Wrap" />
-                        <TextBlock Text="{Binding SelectionSummary}" Opacity="0.55"
-                                   TextWrapping="Wrap" />
-                    </StackPanel>
-                </DataTemplate>
-            </ListView.ItemTemplate>
-        </ListView>
+        <!-- Module identity: image (when the FOMOD carries one) plus name and a one-line
+             Author · Version · Description subtitle. FOMOD spec: this info heads the install window.
+             The image lives in a fixed 64x64 frame with Stretch="Uniform": every image occupies the
+             same on-screen footprint and is never distorted (odd aspect ratios letterbox inside the
+             frame). Decoded at 128px (2x) for high-DPI crispness. -->
+        <StackPanel x:Name="HeaderPanel" Grid.Row="0" Orientation="Horizontal" Spacing="12">
+            <Border x:Name="ModuleImageFrame" Width="64" Height="64" CornerRadius="8"
+                    Background="{ThemeResource LayerFillColorDefaultBrush}"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1"
+                    Visibility="Collapsed" VerticalAlignment="Center">
+                <Image x:Name="ModuleImage" Stretch="Uniform" Margin="4" />
+            </Border>
+            <StackPanel Spacing="2" VerticalAlignment="Center" MaxWidth="420">
+                <TextBlock x:Name="ModuleName" Style="{StaticResource TitleTextBlockStyle}"
+                           TextWrapping="Wrap" TextTrimming="CharacterEllipsis" />
+                <TextBlock x:Name="ModuleSubtitle" Opacity="0.85" TextWrapping="Wrap"
+                           TextTrimming="CharacterEllipsis" />
+            </StackPanel>
+        </StackPanel>
 
-        <!-- Interactive editor for the active step: one section per group, written straight into the
-             step draft. The ScrollViewer bounds the editor so dense steps (many groups or plugins)
-             get a scrollbar instead of squeezing the dialog's buttons out of view. -->
-        <ScrollViewer MaxHeight="360"
+        <!-- Step indicator replaces the old tall overview list: compact orientation that hands the
+             body all remaining height. Back navigation covers revisiting earlier steps. -->
+        <StackPanel Grid.Row="1" Spacing="6">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="StepHeader" Style="{StaticResource SubtitleTextBlockStyle}"
+                           TextWrapping="Wrap" Grid.Column="0" />
+                <TextBlock x:Name="StepCounter" Grid.Column="1" Opacity="0.85"
+                           VerticalAlignment="Center" FontSize="13" />
+            </Grid>
+            <ProgressBar x:Name="StepProgress" Minimum="0" Maximum="100"
+                         IsEnabled="False" VerticalAlignment="Center" Height="4" />
+        </StackPanel>
+
+        <!-- The single body: every step's groups render here. One ScrollViewer bounds the dialog,
+             so dense steps (many groups/plugins) scroll cleanly instead of clipping the options
+             into a tiny area. Each option row places its badges (group rule, author type tag)
+             in a fixed right-aligned slot so tags line up across rows instead of scattering. -->
+        <ScrollViewer Grid.Row="2"
                       VerticalScrollBarVisibility="Auto"
                       HorizontalScrollBarVisibility="Disabled">
-            <StackPanel x:Name="EditorHost" Spacing="10" />
+            <StackPanel x:Name="EditorHost" Spacing="10" Margin="0,4,0,4" />
         </ScrollViewer>
 
         <!-- Destination choice, shown only on the summary step. This base is the TARGET FOLDER
@@ -52,7 +100,7 @@
              nests under it, e.g. "SKSE" -> "Data/SKSE"). It is also used for the reuse
              signature, the recorded install path (install root + base), and the remembered
              LastInstallPath. -->
-        <StackPanel x:Name="DestinationSection" Spacing="8" Visibility="Collapsed">
+        <StackPanel x:Name="DestinationSection" Grid.Row="3" Spacing="8" Visibility="Collapsed">
             <TextBlock Opacity="0.72" TextWrapping="Wrap"
                        Text="Destination base for this install (files are placed under this folder; the mod's install rules decide where inside it). Choosing a different base creates a separate installation of this mod." />
             <TextBox x:Name="DestinationBox" Header="Relative destination path"
@@ -64,7 +112,11 @@
                        TextWrapping="Wrap" Visibility="Collapsed" />
         </StackPanel>
 
-        <TextBlock x:Name="ErrorText" Foreground="{ThemeResource SystemFillColorCriticalBrush}"
-                   TextWrapping="Wrap" Visibility="Collapsed" />
-    </StackPanel>
+        <StackPanel Grid.Row="4" Spacing="6">
+            <InfoBar x:Name="WarningsBar" Severity="Warning" IsOpen="False" IsClosable="True"
+                     Title="Some install rules could not be fully understood" />
+            <TextBlock x:Name="ErrorText" Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                       TextWrapping="Wrap" Visibility="Collapsed" />
+        </StackPanel>
+    </Grid>
 </ContentDialog>

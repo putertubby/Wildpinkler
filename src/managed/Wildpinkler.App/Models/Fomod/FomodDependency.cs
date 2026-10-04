@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Wildpinkler.App.Services;
 
 namespace Wildpinkler.App.Models.Fomod;
 
@@ -28,15 +29,16 @@ public sealed class FomodFileDependency : FomodDependency
     public FomodFileDependencyState State { get; set; } = FomodFileDependencyState.Active;
 }
 
-/// <summary>Game/manager version gates - never actually block install in this app (no version registry to check against).</summary>
+/// <summary>A game-version gate, checked against the profile's game executable version.</summary>
 public sealed class FomodGameDependency : FomodDependency
 {
-    public string Version { get; set; } = string.Empty;
+    public FomodVersionSpec? VersionSpec { get; set; }
 }
 
+/// <summary>A mod-manager (FO3Edit/FO4Edit) version gate; never satisfied in this app (no such registry).</summary>
 public sealed class FomodFommDependency : FomodDependency
 {
-    public string Version { get; set; } = string.Empty;
+    public FomodVersionSpec? VersionSpec { get; set; }
 }
 
 /// <summary>A dependency node the parser could not understand; always evaluates true and surfaces a warning.</summary>

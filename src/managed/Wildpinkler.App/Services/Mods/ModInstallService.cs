@@ -51,7 +51,11 @@ public sealed class ModInstallService
             return null;
 
         var files = _archiveInspector.ReadFomodFiles(mod.ArchivePath, analysisProgress, cancellationToken);
-        return files.TryGetValue("ModuleConfig.xml", out var xml) ? _parser.TryParse(xml) : null;
+        if (!files.TryGetValue("ModuleConfig.xml", out var xml))
+            return null;
+
+        // info.xml (optional) only enriches the wizard header; its absence is harmless.
+        return _parser.TryParse(xml, files.TryGetValue("info.xml", out var infoXml) ? infoXml : null);
     }
 
     /// <summary>Like <see cref="TryParseFomod"/>, but runs the archive decode off the caller's thread.</summary>
@@ -126,7 +130,8 @@ public sealed class ModInstallService
 
     public async Task<ModInstallation> FindOrCreateFromRecipeAsync(
         ModEntry mod, ModInstallationRecipe recipe, IReadOnlyList<ProfileFolder> profileFolders,
-        IProgress<ExtractionProgress>? progress = null, CancellationToken cancellationToken = default)
+        IProgress<ExtractionProgress>? progress = null, string? gameExecutablePath = null,
+        CancellationToken cancellationToken = default)
     {
         if (recipe is ManualInstallationRecipe manual)
             return await FindOrCreateManualInstallationAsync(mod, manual.SourceRoot, manual.Destination, progress, cancellationToken);
@@ -140,7 +145,9 @@ public sealed class ModInstallService
             throw new InvalidDataException("The FOMOD installer changed since this recipe was recorded.");
 
         var fileState = new ProfileFileStateProvider(profileFolders);
-        var engine = new FomodSelectionResolver();
+        // Replay must evaluate version gates against the same game the install targeted. When the
+        // caller can't supply the game executable path, the null provider fails version gates closed.
+        var engine = new FomodSelectionResolver(new FomodVersionProvider(gameExecutablePath));
         var selections = new List<FomodStepSelection>();
         var flags = new Dictionary<string, string>();
         foreach (var step in module.InstallSteps)
@@ -164,7 +171,7 @@ public sealed class ModInstallService
                     : requested[0].Plugins.Select(name =>
                         group.Plugins.SingleOrDefault(plugin => plugin.Name == name)
                         ?? throw new InvalidDataException($"FOMOD option '{name}' no longer exists in '{group.Name}'.")).ToList();
-                var validationError = engine.ValidateGroup(group, plugins);
+                var validationError = engine.ValidateGroup(group, plugins, flags, fileState);
                 if (validationError is not null)
                     throw new InvalidDataException(validationError);
                 stepSelection.Groups.Add(new FomodGroupSelection { Group = group, SelectedPlugins = plugins });

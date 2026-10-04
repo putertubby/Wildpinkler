@@ -27,6 +27,23 @@ public interface IArchiveInspector
     IReadOnlyDictionary<string, string> ReadFomodFiles(string path, IProgress<AnalysisProgressReport>? analysisProgress = null, CancellationToken cancellationToken = default);
 
     ArchiveLayout InspectLayout(string path, IProgress<AnalysisProgressReport>? analysisProgress = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Reads a single archive entry's raw bytes by its normalized entry path (e.g.
+    /// <c>fomod/images/preview.png</c>), or null when the entry is missing or the archive
+    /// cannot be decoded. Used to pull FOMOD option preview images; never affects install.
+    /// </summary>
+    byte[]? ReadEntryBytes(string path, string entryName, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Reads several archive entries in ONE archive pass, returning an array aligned with
+    /// <paramref name="entryNames"/> (null slot = that entry is missing or undecodable); the
+    /// whole array is null when the archive itself is unusable. The 7z path is the reason this
+    /// exists: a solid 7z archive must be decoded from the head to reach any one entry, so
+    /// reading N entries one-by-one re-decodes the archive N times; this reads them all with a
+    /// single decode.
+    /// </summary>
+    byte[]?[]? ReadEntryBytesBulk(string path, string[] entryNames, CancellationToken cancellationToken = default);
 }
 
 public sealed class ArchiveInspector : IArchiveInspector
@@ -286,6 +303,195 @@ public sealed class ArchiveInspector : IArchiveInspector
         {
             return new ArchiveLayout(Array.Empty<string>(), null, false);
         }
+    }
+
+    public byte[]? ReadEntryBytes(string path, string entryName, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(entryName) || !File.Exists(path))
+            return null;
+
+        // FOMOD authors are inconsistent about image paths: the <image> path may be relative to
+        // the archive root ("fomod/images/x.png"), relative to the fomod folder ("images/x.png",
+        // as in the official tutorial), or prefixed with the archive's own root folder name
+        // ("MyMod/fomod/images/x.png"). Try each candidate in turn; the first hit wins.
+        var normalized = Normalize(entryName).TrimStart('/');
+        var uniqueCandidates = CandidateForms(normalized, path).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+        try
+        {
+            if (ModInstallService.IsSevenZipArchive(path))
+            {
+                using var extractor = new SharpSevenZipExtractor(path);
+                foreach (var candidate in uniqueCandidates)
+                {
+                    var foundIndex = -1;
+                    foreach (var entry in extractor.ArchiveFileData)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        if (entry.IsDirectory)
+                            continue;
+                        if (!Normalize(entry.FileName).TrimStart('/').Equals(candidate, StringComparison.OrdinalIgnoreCase))
+                            continue;
+
+                        foundIndex = entry.Index;
+                        break;
+                    }
+
+                    if (foundIndex < 0)
+                        continue;
+
+                    var stagingDir = Path.Combine(Path.GetTempPath(), "wildpinkler_fomod_" + Guid.NewGuid().ToString("N"));
+                    try
+                    {
+                        extractor.ExtractFiles(stagingDir, new[] { foundIndex });
+                        var stagedName = Normalize(extractor.ArchiveFileData[foundIndex].FileName)
+                            .Replace('/', Path.DirectorySeparatorChar);
+                        var stagedPath = Path.Combine(stagingDir, stagedName);
+                        return File.Exists(stagedPath) ? File.ReadAllBytes(stagedPath) : null;
+                    }
+                    finally
+                    {
+                        ModInstallService.DeleteDirectoryBestEffort(stagingDir);
+                    }
+                }
+            }
+            else
+            {
+                using var archive = ArchiveFactory.OpenArchive(path);
+                foreach (var entry in archive.Entries)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (entry.IsDirectory)
+                        continue;
+                    var entryPath = Normalize(entry.Key).TrimStart('/');
+                    if (uniqueCandidates.All(candidate => !entryPath.Equals(candidate, StringComparison.OrdinalIgnoreCase)))
+                        continue;
+
+                    using var stream = entry.OpenEntryStream();
+                    using var memory = new MemoryStream();
+                    stream.CopyTo(memory);
+                    return memory.ToArray();
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            // Best-effort: a missing/corrupt image degrades to "no thumbnail", never blocks install.
+            return null;
+        }
+
+        return null;
+    }
+
+    public byte[]?[]? ReadEntryBytesBulk(string path, string[] entryNames, CancellationToken cancellationToken = default)
+    {
+        if (!File.Exists(path))
+            return null;
+
+        byte[]?[] result = new byte[entryNames.Length][];
+
+        // Build every candidate form per entry, then collapse to one set so the archive is
+        // walked ONCE and each requested name resolves to at most one archive entry (the first
+        // candidate form that exists wins — same precedence as the single-entry path).
+        var wanted = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        for (var i = 0; i < entryNames.Length; i++)
+        {
+            if (string.IsNullOrWhiteSpace(entryNames[i]))
+                continue;
+            var normalized = Normalize(entryNames[i]).TrimStart('/');
+            foreach (var candidate in CandidateForms(normalized, path))
+            {
+                if (!wanted.ContainsKey(candidate))
+                    wanted.TryAdd(candidate, i);
+            }
+        }
+        if (wanted.Count == 0)
+            return result;
+
+        try
+        {
+            if (ModInstallService.IsSevenZipArchive(path))
+            {
+                // ONE extractor and ONE archive-order extract of every matching entry: the solid
+                // 7z is decoded from the head once in total, never once per image.
+                using var extractor = new SharpSevenZipExtractor(path);
+                var indexes = new List<int>();
+                for (var i = 0; i < extractor.ArchiveFileData.Count; i++)
+                {
+                    var entry = extractor.ArchiveFileData[i];
+                    if (entry.IsDirectory)
+                        continue;
+                    var key = Normalize(entry.FileName).TrimStart('/');
+                    if (wanted.TryGetValue(key, out var request) && result[request] is null)
+                        indexes.Add(i);
+                }
+
+                if (indexes.Count == 0)
+                    return result;
+
+                var stagingDir = Path.Combine(Path.GetTempPath(), "wildpinkler_fomod_" + Guid.NewGuid().ToString("N"));
+                try
+                {
+                    extractor.ExtractFiles(stagingDir, indexes.OrderBy(x => x).ToArray());
+                    foreach (var index in indexes)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        var entry = extractor.ArchiveFileData[index];
+                        if (!wanted.TryGetValue(Normalize(entry.FileName).TrimStart('/'), out var request) || result[request] is not null)
+                            continue;
+                        var stagedName = Normalize(entry.FileName).Replace('/', Path.DirectorySeparatorChar);
+                        var stagedPath = Path.Combine(stagingDir, stagedName);
+                        if (File.Exists(stagedPath))
+                            result[request] = File.ReadAllBytes(stagedPath);
+                    }
+                }
+                finally
+                {
+                    ModInstallService.DeleteDirectoryBestEffort(stagingDir);
+                }
+            }
+            else
+            {
+                using var archive = ArchiveFactory.OpenArchive(path);
+                foreach (var entry in archive.Entries)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (entry.IsDirectory)
+                        continue;
+                    var key = Normalize(entry.Key).TrimStart('/');
+                    if (!wanted.TryGetValue(key, out var request) || result[request] is not null)
+                        continue;
+                    using var stream = entry.OpenEntryStream();
+                    using var memory = new MemoryStream();
+                    stream.CopyTo(memory);
+                    result[request] = memory.ToArray();
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            // Best-effort: a corrupt archive degrades to missing images, never blocks install.
+            return null;
+        }
+
+        return result;
+    }
+
+    /// <summary>The candidate archive-path forms for a FOMOD entry (see <see cref="ReadEntryBytes"/>).</summary>
+    private static IEnumerable<string> CandidateForms(string normalized, string archivePath)
+    {
+        yield return normalized;
+        if (!normalized.StartsWith("fomod/", StringComparison.OrdinalIgnoreCase))
+            yield return "fomod/" + normalized;
+        yield return Path.GetFileNameWithoutExtension(archivePath) + "/" + normalized;
     }
 
     private static bool IsInsideFomodDirectory(string? key)

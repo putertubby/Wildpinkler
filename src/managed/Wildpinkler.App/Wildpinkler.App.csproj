@@ -28,6 +28,7 @@
     <PackageReference Include="OpenAI" />
     <PackageReference Include="SharpCompress" />
     <PackageReference Include="SharpSevenZip" />
+    <PackageReference Include="SixLabors.ImageSharp" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" />
   </ItemGroup>
 

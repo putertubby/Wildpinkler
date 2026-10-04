@@ -9,6 +9,12 @@ public sealed class FomodFileInstall
     public string Destination { get; set; } = string.Empty;
     public int Priority { get; set; }
     public bool IsFolder { get; set; }
+
+    /// <summary>XSD <c>alwaysInstall</c>: install regardless of whether the owning plugin is selected.</summary>
+    public bool AlwaysInstall { get; set; }
+
+    /// <summary>XSD <c>installIfUsable</c>: install whenever the owning plugin is not NotUsable, regardless of selection.</summary>
+    public bool InstallIfUsable { get; set; }
 }
 
 /// <summary>One (dependency, type) entry in a plugin's dependency-pattern type descriptor, evaluated top-to-bottom.</summary>

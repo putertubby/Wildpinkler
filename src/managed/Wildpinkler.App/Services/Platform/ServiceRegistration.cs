@@ -91,6 +91,7 @@ public static class ServiceRegistration
         services.AddSingleton<IArchiveInspector, ArchiveInspector>();
         services.AddSingleton<FomodInstallerParser>();
         services.AddSingleton<FomodMetadataReader>();
+        services.AddSingleton<FomodImageService>();
         services.AddSingleton<ModStore>();
         services.AddSingleton<ModInstallationStore>();
         services.AddSingleton<ModInstallService>();

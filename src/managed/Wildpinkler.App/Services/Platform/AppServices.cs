@@ -36,6 +36,7 @@ public static class AppServices
     public static IProcessLauncher ProcessLauncher => AppHost.Get<IProcessLauncher>();
     public static LaunchService LaunchService => AppHost.Get<LaunchService>();
     public static FomodMetadataReader FomodMetadataReader => AppHost.Get<FomodMetadataReader>();
+    public static FomodImageService FomodImageService => AppHost.Get<FomodImageService>();
     public static ModInstallationStore ModInstallationStore => AppHost.Get<ModInstallationStore>();
     public static ModListBuildStore ModListBuildStore => AppHost.Get<ModListBuildStore>();
     public static ModListPreflightService ModListPreflightService => AppHost.Get<ModListPreflightService>();

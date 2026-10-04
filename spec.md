@@ -273,10 +273,90 @@ Mods are installed and associated with a profile directly from the Profiles pane
   folder, associated with the mod. Toggling it off removes it from the merged content without losing
   its position in the load order or requiring reinstallation; removing it drops the association
   entirely (a mod's known-mods entry tracks which profiles currently reference it).
-- Archive extraction and fomod parsing follow the full fomod XML schema (nested dependency
-  composites, flag- and file-state-based conditions, install-step/group/plugin ordering,
-  conditional file installs); a dependency node the parser cannot understand is treated as always
-  satisfied rather than blocking the install, and the user is warned.
+- Archive extraction and fomod parsing cover the FOMOD schema's core install flow (nested
+  dependency composites, flag- and file-state-based conditions, install-step/group/plugin
+  ordering, conditional file installs); a dependency node the parser cannot understand is
+  treated as always satisfied rather than blocking the install, and the user is warned.
+  See the [FOMOD support status](#fomod-support-status) section for the full list of
+  supported, deviating, and intentionally omitted spec features.
+
+### FOMOD support status
+
+Wildpinkler implements the FOMOD install specification (fomod-docs XSD) with the following status.
+The wizard presents the module's header (name, author, version, description, optional module image),
+walks every visible install step one at a time with a step counter and progress bar, and only after
+the final step resolves the file list and performs the extraction.
+
+**Supported**
+
+| Spec feature | Implementation |
+| --- | --- |
+| `moduleName` | Header title; `position` (Left/Right/RightOfImage) and `colour` (hex RRGGBB, optional alpha byte) applied to the title and subtitle. |
+| `moduleImage` | Loaded pre-dialog (bulk-decoded, no stutter); drawn with `Stretch="Uniform"` in a fixed square frame so every image has identical on-screen footprint without distortion; `showImage="false"` hides it; `height` overrides the frame size. |
+| `moduleDependencies` | Evaluated on dialog open against empty flags; when unsatisfied a non-blocking warning is shown in the warnings bar. |
+| `requiredInstallFiles` | Always included in the resolved file list, before any selection-derived files. |
+| `installSteps` / `installStep` | One wizard page per visible step; `order` (Explicit/Ascending/Descending) honoured; step-level `<visible>` gate hides the whole step. |
+| `optionalFileGroups` `type` | `SelectAny`, `SelectExactlyOne`, `SelectAtMostOne`, `SelectAll` all validated on commit (`SelectAll` counts only *visible* plugins, so visibility-gated options cannot make a step impossible). |
+| `plugin` | `name`, `description`, `image` (preview in the option row, uniform-scaled), `files`, `defaultSelected` (pre-selects options on the step's draft). |
+| `typeDescriptor` | Static `<type>` and `<dependencyType>` with `defaultType` plus ordered `<pattern>` entries; the first matching pattern wins, else the declared default, else the static type, else `Optional`. NotUsable options are greyed out, keep readable text, and are rejected if somehow committed. |
+| `conditionFlags` | Flags of every selected plugin fold into the running flag set in step/group/plugin order (last write wins) and drive later visibility and type patterns. |
+| Dependency leaves | `flagDependency`, `fileDependency` (three-state: Active/Inactive/Missing against the profile's load order), `gameDependency`, `fommDependency`, nested `dependencies` composites with `operator="And"`/`"Or"`. |
+| `file`/`folder` installs | `source`, `destination`, `priority`, `alwaysInstall` (installed regardless of selection), `installIfUsable` (installed whenever the owning plugin is not NotUsable, regardless of selection). |
+| `conditionalFileInstalls` | Patterns whose dependency matches the final flag set contribute their files. |
+| `info.xml` | Additive header metadata only (Author, Version, Description, Website); never affects install behaviour; a malformed or absent info.xml degrades silently. |
+
+**Deviation from the spec**
+
+- **Omitted `destination`.** The XSD letter says an empty `destination` falls back to `source`;
+  Wildpinkler deliberately treats it as *empty* (place under the target base) instead. Falling back
+  to `source` would install into the mod's own step folders (e.g. `00 base/`) rather than the game
+  data folder, because the target base is prepended at extraction time.
+
+**Deliberate gaps (fail closed, warn, or ignore)**
+
+- **`fommDependency` always fails.** The XSD's fomm version refers to the FO3Edit/FO4Edit
+  mod managers; Wildpinkler is not one of them and has no such registry, so the gate is never
+  satisfied and version-gated options stay disabled.
+- **`gameDependency` fails closed without a game context.** The gate compares the profile's game
+  executable version (read via Win32 file version info) against the required spec (`<=`, `>=`, `<`,
+  `>`, `==`, or a bare version, compared numerically component-wise when both sides are dotted
+  numbers, otherwise ordinally). When no executable path is available — e.g. the install-replay
+  path that has no profile context — the gate fails and the gated option is disabled rather than
+  silently installed.
+- **`moduleImage showFade` is parsed but not applied.** The fade animation between steps has no
+  equivalent in the current wizard; the attribute is ignored.
+- **Unknown dependency nodes degrade to always-true** plus a user warning, matching the behaviour
+  promised in the section above.
+
+**Extensions beyond the XSD (accepted for author compatibility)**
+
+- **Plugin-level `<visible>`** gate: the official schema only defines step-level `<visible>`;
+  Wildpinkler additionally honours a `<visible>` element on a `<plugin>`, letting authors hide
+  individual options based on earlier choices.
+- **`SelectAll` group type**: not in the XSD's group enumeration (a Mod Organizer 2 extension);
+  supported and validated.
+
+**Wizard UX conventions (not spec-derived)**
+
+- The dialog is a fixed 820×720 centred ContentDialog; the card's `ContentDialogMaxHeight`
+  resource is raised from the theme default (756) to 880 so the fixed grid, title and button bar
+  fit inside the card and the body's scrollbar stays reachable. All step content scrolls
+  vertically within the body, so dense steps never clip.
+- Option rows carry their badges (group rule, author type tag such as Recommended/Optional) in a
+  fixed right-aligned slot so tags line up across rows. Both locked row classes — NotUsable/
+  CouldBeUsable options and SelectAll ("always installed") rows — share a muted text cue
+  (0.6 opacity on name, description and chips: clearly dimmer than the selectable rows, yet
+  still comfortably readable). NotUsable/CouldBeUsable options additionally carry non-text cues:
+  a dimmed thumbnail (50% opacity), a warning-glyph status marker on the type chip, and a
+  hover tooltip with the plugin's description.
+- SelectAll rows are locked selections, not disabled ones: they stay checked, unclickable, and
+  full-opacity in the thumbnail (the selection IS active), and carry a distinct lock-glyph
+  "Always installed" chip so their non-editable state is visible at a glance.
+- On the final step the user picks the destination base (default: the game's PluginDataFolder) and
+  optionally remembers it for future installs; the base is folded into the reuse signature so
+  different bases create distinct installations.
+- Back navigation discards drafts from the step after the one navigated to, so earlier committed
+  choices (and their flags) keep driving visibility and types on subsequent steps.
 
 ### Protocol links
 
