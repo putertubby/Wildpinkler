@@ -6,6 +6,7 @@ obj/
 [Rr]elease/
 x64/
 *.png
+*.ico
 *.zip
 *.7z
 

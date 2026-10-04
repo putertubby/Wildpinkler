@@ -8,6 +8,9 @@
     <RootNamespace>Wildpinkler.App</RootNamespace>
     <AssemblyName>Wildpinkler.App</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- Embedded exe icon shown in Explorer/Alt-Tab; the multi-size .ico is also copied
+         to the output so MainWindow.SetAppIcon can set the runtime window icon. -->
+    <ApplicationIcon>Assets\AppIcon\Wildpinkler-Icon.ico</ApplicationIcon>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <UseWinUI>true</UseWinUI>
     <EnableMsixTooling>true</EnableMsixTooling>
@@ -42,6 +45,7 @@
     <Content Include="Assets\GameDefinitions\**\*.wpgame.json" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\ToolDefinitions\**\*.wptool.json" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="Assets\AppIcon\**\*.png" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="Assets\AppIcon\Wildpinkler-Icon.ico" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(VfsAssetsPath)' != ''">

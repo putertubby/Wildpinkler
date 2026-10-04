@@ -307,26 +307,21 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Sets the app icon from the Assets/AppIcon folder.
-    /// Tries to load the 256×256 PNG icon; falls back to 128×128 if not available.
+    /// Sets the app icon shown in the title bar and taskbar.
+    /// Windows App SDK's <see cref="AppWindow.SetIcon"/> only accepts an .ico file;
+    /// a .png path silently produces no icon, so use the multi-size .ico.
     /// </summary>
     private void SetAppIcon()
     {
         try
         {
-            var appFolder = AppContext.BaseDirectory;
-            var iconPath = Path.Combine(appFolder, "Assets", "AppIcon", "Wildpinkler-Icon-256.png");
-            
-            // Fallback to 128×128 if 256×256 not available
+            var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "AppIcon", "Wildpinkler-Icon.ico");
             if (!File.Exists(iconPath))
-                iconPath = Path.Combine(appFolder, "Assets", "AppIcon", "Wildpinkler-Icon-128.png");
-            
-            if (File.Exists(iconPath))
-            {
-                AppWindow.SetIcon(iconPath);
-            }
+                return;
+
+            AppWindow.SetIcon(iconPath);
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException)
+        catch (Exception exception)
         {
             // The app is fully functional without a custom icon; record it rather than hiding it.
             AppDiagnostics.Write("Setting the window icon failed.", exception);
