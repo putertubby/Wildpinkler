@@ -88,8 +88,8 @@ git rebase -r 6a8b51fbf9cb1dea6a35cceb5cbb04833c8f86ab --exec 'git commit --amen
    - [x] Cancel fomod installation of large archive (BHUNP) does not close the dialog (or maybe after a long time?)
    - [x] Infobar for text and cancel button appears in very strange place (right of "reveal folder" button), mangling the UI layout.
    - [ ] 500ms timer + scanning archive is instantaneous - only make the extract (and analysis) of each file part of progress. Don't show progress until a reasonable time passed (and some work remains to be done) to avoid flickering windows.
-   - [ ] Installing same mod twice?
-   - [ ] Save mod installation choices (+ log)
+   - [-] Installing same mod twice?
+   - [ ] Save mod installation choices (+ log) for later automatic reinstallation (modlist)
    - [x] Install mod dialog have tiny space for selectable options. Dialog overall also seems very small for the amount of information it handles. Include support for fomod screens (and dialog redesign to more modern style)
    - [x] Installing files, unpacking the files after "hashing archive" phase, is very slow. Example 83kB in 41 seconds. This must be improved!
    - [x] After "cancelling" phase the dialog shows the text "canceled." but the dialog never closes and the app is stuck in a modal dialog that cant be closed. 
@@ -98,13 +98,15 @@ git rebase -r 6a8b51fbf9cb1dea6a35cceb5cbb04833c8f86ab --exec 'git commit --amen
 - [ ] Tool output overlay shall be added to the load order only when: The tool is added to the profile and the tool has the "capture tool output" setting enabled while there is no output overlay branch in the load order (first time and after manually removing the output overlay branch). When the output overlay branch is added it shall be enabled in the load order.
        Once the output overlay is added to the load order it stays until manually removed, at which point the tool "capture tool output" setting shall automatically be disabled.
        For as long as the output overlay branch is part of the profile it shall retain its place in the load order and can be enabled/disabled independently from the tool. If the tool is removed from the profile or the "capture tool output" is turned off, the user shall be asked whether to keep the tool output overlay in the load order or not. Disabling the tool does not affect the status of the output overlay branch at all.
-- [ ] Diabling/enabling mods with tools does not remove and bring back tools or overlays correctly. (see above)
+       When a tool is called the corresponding output capture overlay is temporarily put at the very top of the load order so all tool output is correctly captured. Once the tool exits the general profile overlay is put back on top to act as a catch-all when the game is run.
+- [ ] Don't step the tool output overlay folder if there are no new files written.
+- [ ] Disabling/enabling mods with tools does not remove and bring back tools or overlays correctly. (see above)
 - [ ] Toolbutton menus in profile page does nothing
 - [ ] "Chose roles" menu item does nothing
 - [ ] What does "remove tool" do? How are global tools added? Automatically for associated games??
 - [x] Overlay for tools doesn't work. Overlay branch should be added to view automatically.
 - [x] No scrollbar in add mods dialog
-- [ ] Local ollama does not work
+- [-] Local ollama does not work
 - [ ] Why are there assistant "what can assistant do" settings? Dropdown in assistant pane should suffice?
 - [ ] When LOOT is running... Bad message!
 - [ ] Renaming a mod drops dependencies (only when depending??)
@@ -129,7 +131,7 @@ git rebase -r 6a8b51fbf9cb1dea6a35cceb5cbb04833c8f86ab --exec 'git commit --amen
 - [ ] Add mod definitions like game and tool definitions.
 - [x] Icon
 - [ ] LOOT and/or manual load order editing. Offer LOOT execution in warning dialog.
-- [ ] Show archive tree in the "choose destination" dialog when installing mods (done?)
+- [x] Show archive tree in the "choose destination" dialog when installing mods (done?)
 - [x] Reveal folder for installed mod and tool output
 - [ ] Dependencies (general + version-specific) editing in better graph. Tree view is probably better...
 - [ ] Data pre-filled in the "add mod" dialog (is there a setting in the game definition?)
@@ -137,7 +139,8 @@ git rebase -r 6a8b51fbf9cb1dea6a35cceb5cbb04833c8f86ab --exec 'git commit --amen
 - [ ] Mod categories (Animation ...)
 - [ ] Remove all migration code and make all current schemas version 1
 - [ ] Dead code, vulnerabilities, code smells, optimizations, adherence to design reference ...
-- [ ] ledger logging in wildpinkler
+- [ ] ledger logging in wildpinkler (set pipe and level in ui, send info to launched binary + show logs/include in wp log)
+
 
 ## Mods
 

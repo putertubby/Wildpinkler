@@ -450,7 +450,10 @@ public sealed partial class ProfilesPage
 
                 var layout = await AppServices.ModInstallService.InspectLayoutAsync(
                     mod, installDialog.AnalysisProgress, cts.Token);
-                var destinationDialog = new ModDestinationDialog(layout, mod.LastInstallPath) { XamlRoot = XamlRoot };
+                // Pre-fill the game's configured PluginDataFolder (same default as the FOMOD
+                // wizard); a remembered LastInstallPath from a previous install wins.
+                var manualDefaultDestination = GameFor(profile)?.Definition?.PluginList?.PluginDataFolder ?? "Data";
+                var destinationDialog = new ModDestinationDialog(layout, mod.LastInstallPath ?? manualDefaultDestination) { XamlRoot = XamlRoot };
                 if (await destinationDialog.ShowAsync() != ContentDialogResult.Primary)
                     return InstallOutcome.Cancelled;
 
