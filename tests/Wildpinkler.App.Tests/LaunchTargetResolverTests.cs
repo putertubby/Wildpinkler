@@ -243,6 +243,88 @@ public sealed class LaunchTargetResolverTests
         Assert.Equal(LaunchTargetKind.Game, Assert.Single(targets).Kind);
     }
 
+    [Fact]
+    public void ResolveTool_InstalledAsMod_UsesVirtualPathAndVirtualWorkingDirectory()
+    {
+        var game = CreateGame();
+        // The mod branch physically lives here; the tool's executable is inside it.
+        const string modBranch = @"C:\mods\sorter";
+        var tool = CreateTool("tool-1", "Sorter", @"Data\CalienteTools\BodySlide\sorter.exe", modBranch, "Sorter mod", "folder-1");
+        var profile = CreateProfile(game);
+        profile.LoadOrder.Add(new ProfileFolder
+        {
+            Id = "folder-1",
+            Name = "Sorter mod",
+            Kind = ProfileFolderKind.Mod,
+            IsEnabled = true,
+            Path = modBranch
+        });
+        profile.Tools.Add(new ProfileTool { ToolEntryId = "tool-1", IsEnabled = true });
+
+        var target = Assert.Single(new LaunchTargetResolver().Resolve(profile, game, new[] { tool }), item => item.Kind == LaunchTargetKind.Tool);
+
+        // The launch target is the virtual path (re-anchored under the game install root).
+        Assert.Equal(Path.Combine(game.InstallPath, @"Data\CalienteTools\BodySlide\sorter.exe"), target.VirtualExecutablePath);
+        // The default start-in is the virtual directory containing the executable.
+        Assert.Equal(Path.Combine(game.InstallPath, @"Data\CalienteTools\BodySlide"), target.VirtualWorkingDirectory);
+    }
+
+    [Fact]
+    public void ResolveTool_NotInstalledAsMod_KeepsRealPathAndWorkingDirectory()
+    {
+        var game = CreateGame();
+        // A global tool whose executable is outside every load-order branch is unaffected.
+        var tool = CreateTool("tool-1", "Editor", "editor.exe", "C:\\tools", string.Empty, string.Empty);
+        var profile = CreateProfile(game);
+        profile.Tools.Add(new ProfileTool { ToolEntryId = "tool-1", IsEnabled = true });
+
+        var target = Assert.Single(new LaunchTargetResolver().Resolve(profile, game, new[] { tool }), item => item.Kind == LaunchTargetKind.Tool);
+
+        Assert.Equal(Path.Combine("C:\\tools", "editor.exe"), target.VirtualExecutablePath);
+        Assert.Equal(Path.Combine("C:\\tools", "editor.exe"), target.ExecutablePath);
+        Assert.Equal(target.ExecutablePath, target.VirtualExecutablePath);
+        Assert.Equal(target.WorkingDirectory, target.VirtualWorkingDirectory);
+    }
+
+    [Fact]
+    public void ResolveTool_WorkingDirectoryOverride_AppliesVirtualOverride()
+    {
+        var game = CreateGame();
+        var tool = CreateTool("tool-1", "Editor", "editor.exe", "C:\\tools", string.Empty, string.Empty);
+        var profile = CreateProfile(game);
+        profile.Tools.Add(new ProfileTool { ToolEntryId = "tool-1", IsEnabled = true, WorkingDirectoryOverride = "Custom\\StartIn" });
+
+        var target = Assert.Single(new LaunchTargetResolver().Resolve(profile, game, new[] { tool }), item => item.Kind == LaunchTargetKind.Tool);
+
+        Assert.Equal(Path.Combine(game.InstallPath, "Custom\\StartIn"), target.VirtualWorkingDirectory);
+    }
+
+    [Fact]
+    public void ResolveTool_WorkingDirectoryOverride_AbsoluteIsKept()
+    {
+        var game = CreateGame();
+        var tool = CreateTool("tool-1", "Editor", "editor.exe", "C:\\tools", string.Empty, string.Empty);
+        var profile = CreateProfile(game);
+        profile.Tools.Add(new ProfileTool { ToolEntryId = "tool-1", IsEnabled = true, WorkingDirectoryOverride = @"D:\workdir" });
+
+        var target = Assert.Single(new LaunchTargetResolver().Resolve(profile, game, new[] { tool }), item => item.Kind == LaunchTargetKind.Tool);
+
+        Assert.Equal(@"D:\workdir", target.VirtualWorkingDirectory);
+    }
+
+    [Fact]
+    public void Resolve_Game_WorkingDirectoryOverride_AppliesVirtualOverride()
+    {
+        var game = CreateGame();
+        var profile = CreateProfile(game);
+        profile.WorkingDirectoryOverride = "Data";
+
+        var gameTarget = new LaunchTargetResolver().Resolve(profile, game, Array.Empty<ToolEntry>()).Single();
+
+        Assert.Equal(Path.Combine(game.InstallPath, "Data"), gameTarget.VirtualWorkingDirectory);
+        Assert.Equal(Path.Combine(game.InstallPath, "Data"), gameTarget.WorkingDirectory);
+    }
+
     private static LaunchTarget Resolve(GameEntry game, ProfileFolder[] LoadOrder)
     {
         var profile = new Profile

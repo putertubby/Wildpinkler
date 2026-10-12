@@ -13,6 +13,13 @@ public sealed partial class ProfileTool : ObservableObject
     public bool IsEnabled { get => _isEnabled; set => SetProperty(ref _isEnabled, value); }
     public string LaunchArgumentsOverride { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Per-profile "start in" working directory for this tool, expressed as a virtual path (relative to the
+    /// game install root, or absolute). Empty means "use the default" - for a mod tool the virtual directory
+    /// containing its executable, for a non-mod tool the tool's own working directory.
+    /// </summary>
+    public string WorkingDirectoryOverride { get; set; } = string.Empty;
+
     /// <summary>Id of the profile folder holding this tool's output.</summary>
     public string OutputFolderId { get; set; } = string.Empty;
 
@@ -51,6 +58,7 @@ public sealed partial class ProfileTool : ObservableObject
         IsEnabled = source.IsEnabled;
         CapturesOutput = source.CapturesOutput;
         LaunchArgumentsOverride = source.LaunchArgumentsOverride;
+        WorkingDirectoryOverride = source.WorkingDirectoryOverride;
         OutputFolderId = source.OutputFolderId;
         OutputVersion = source.OutputVersion;
         VariableOverrides = source.VariableOverrides;

@@ -168,6 +168,14 @@ public sealed class LaunchTargetResolver
         var virtualWorkingDirectory = launcherFolder is null
             ? workingDirectory
             : (Path.GetDirectoryName(virtualExecutable) is { Length: > 0 } directory ? directory : game.InstallPath);
+        // The game's start-in directory can be overridden per profile; the override is virtual, so it
+        // replaces both the real and the virtual working directory (the loader only ever uses the virtual).
+        var startInOverride = ResolveStartInOverride(profile.WorkingDirectoryOverride, game);
+        if (startInOverride.Length > 0)
+        {
+            workingDirectory = startInOverride;
+            virtualWorkingDirectory = startInOverride;
+        }
         var profileScope = BuildProfileScope(profile, game, tool: null);
         var views = BuildGameViews(profile, game, profileScope);
 
@@ -283,7 +291,21 @@ public sealed class LaunchTargetResolver
             ? AbsolutizeRelative(BuildToolDefinitionScope(definition).Expand(definition.WorkingDirectory), toolViewBaseFolder)
             : (Path.GetDirectoryName(executable) is { Length: > 0 } exeDir ? exeDir : installPath);
 
-        // A tool's own binary is installed directly, never as part of a mounted branch, so its virtual and real paths are identical.
+        // Virtual identity: when the tool's executable is installed as a mod (inside a mounted load-order
+        // branch), the launch target and the default start-in directory are the virtual path - the branch is
+        // mounted at the game install root, so the game sees it there, never at the branch's real disk path.
+        // A tool installed outside the VFS (global/manual) keeps its real path as the target.
+        var (virtualExecutable, isModTool) = MapToVirtualPath(executable, profile, game);
+        var virtualWorkingDirectory = isModTool
+            ? (Path.GetDirectoryName(virtualExecutable) is { Length: > 0 } directory ? directory : game.InstallPath)
+            : workingDirectory;
+
+        // The start-in directory can be overridden per profile; the override is virtual, so it replaces
+        // the virtual working directory (the loader only ever uses the virtual path).
+        var startInOverride = ResolveStartInOverride(binding.WorkingDirectoryOverride, game);
+        if (startInOverride.Length > 0)
+            virtualWorkingDirectory = startInOverride;
+
         return new LaunchTarget(
             tool.Id,
             tool.Name,
@@ -291,8 +313,8 @@ public sealed class LaunchTargetResolver
             executable,
             arguments,
             workingDirectory,
-            executable,
-            workingDirectory,
+            virtualExecutable,
+            virtualWorkingDirectory,
             views,
             profileScope.ResolveAll(),
             profileScope.ReadOnlyNames,
@@ -394,6 +416,63 @@ public sealed class LaunchTargetResolver
 
     internal static string NormalizeMountPath(string path) =>
         string.IsNullOrEmpty(path) ? string.Empty : Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+
+    /// <summary>
+    /// Maps a real on-disk path to its virtual identity when it lives inside one of this profile's
+    /// mounted load-order branches (i.e. the executable is installed as a mod). Returns the path
+    /// re-anchored under the game install root, plus whether such a branch was found. A branch
+    /// matches only on a full directory-segment prefix, so …\mod-installs\abc never matches
+    /// …\mod-installs\abcd. A path not in any branch maps to itself with <c>false</c>.
+    /// </summary>
+    internal static (string VirtualPath, bool IsMod) MapToVirtualPath(string realPath, Profile profile, GameEntry game)
+    {
+        if (realPath.Length == 0)
+            return (realPath, false);
+
+        var real = Path.GetFullPath(realPath);
+        foreach (var branch in BuildLoadOrderView(profile, game, pendingToolOutput: null).Branches)
+        {
+            if (branch.Length == 0)
+                continue;
+
+            var b = Path.GetFullPath(branch);
+            if (IsDirectorySegmentPrefix(b, real))
+            {
+                // Drop the leading separator so Path.Combine re-anchors under the game install root
+                // (a remainder that starts with '\' would be treated as rooted and the root ignored).
+                var relative = real[b.Length..].TrimStart(Path.DirectorySeparatorChar);
+                return (Path.Combine(game.InstallPath, relative), true);
+            }
+        }
+
+        return (real, false);
+    }
+
+    /// <summary>True when <paramref name="prefix"/> is <paramref name="path"/> or a full directory segment of it.</summary>
+    private static bool IsDirectorySegmentPrefix(string prefix, string path)
+    {
+        if (!path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+            return false;
+        if (path.Length == prefix.Length)
+            return true;
+        return prefix.EndsWith(Path.DirectorySeparatorChar.ToString(), StringComparison.Ordinal)
+            || path[prefix.Length] == Path.DirectorySeparatorChar;
+    }
+
+    /// <summary>
+    /// Resolves a user "start in" override to an absolute virtual path: a relative value is taken against
+    /// the game install root, an absolute value is kept. Empty returns <see cref="string.Empty"/>.
+    /// </summary>
+    private static string ResolveStartInOverride(string overrideText, GameEntry game)
+    {
+        var trimmed = overrideText.Trim();
+        if (trimmed.Length == 0)
+            return string.Empty;
+
+        return Path.IsPathRooted(trimmed)
+            ? Path.GetFullPath(trimmed)
+            : Path.GetFullPath(Path.Combine(game.InstallPath, trimmed));
+    }
 
     /// <summary>
     /// The profile's own merged view, mounted over the game install folder: the profile overlay on

@@ -616,6 +616,9 @@ public sealed partial class ProfilesPage : PageBase
         DetailsName.Text = profile.Name;
         var gameName = GameFor(profile)?.Name ?? "(missing game)";
         DetailsGame.Text = $"{gameName} \u00b7 created {profile.CreatedAt.ToLocalTime():d}";
+        // The game "start in" override binds to the selected profile's WorkingDirectoryOverride.
+        GameStartInBox.DataContext = profile;
+        GameStartInBox.Text = profile.WorkingDirectoryOverride;
         ToolTipService.SetToolTip(
             RevealFolderButton,
             string.IsNullOrWhiteSpace(profile.FolderPath) ? "The profile folder has not been created yet." : profile.FolderPath);
@@ -624,6 +627,17 @@ public sealed partial class ProfilesPage : PageBase
         RefreshTools(profile);
         ResetMergedContent();
         RefreshWorkspace();
+    }
+
+    // The TwoWay binding already pushed the edited text into the profile on focus loss; this just
+    // persists it. Trimming here keeps a whitespace-only override from being stored.
+    private void GameStartInBox_LostFocus(object sender, RoutedEventArgs args)
+    {
+        if (GameStartInBox.DataContext is not Profile profile)
+            return;
+
+        profile.WorkingDirectoryOverride = GameStartInBox.Text.Trim();
+        Save("Save game start in");
     }
     /// <summary>The one target every workspace section is scoped to.</summary>
     /// <summary>
@@ -856,6 +870,7 @@ public sealed partial class ProfilesPage : PageBase
             if (row.Tool.Definition is null)
                 binding.CapturesOutput = row.CapturesOutput;
             binding.LaunchArgumentsOverride = row.LaunchArgumentsOverride;
+            binding.WorkingDirectoryOverride = row.WorkingDirectoryOverride.Trim();
             binding.OutputVersion = row.OutputVersion;
             binding.VariableOverrides = new Dictionary<string, string>(row.VariableOverrides);
             binding.MergedViewOverrides = row.MergedViewOverrides.Select(view => view.Clone()).ToList();

@@ -20,6 +20,35 @@ public enum GraphLayoutKind
     Circular,
 }
 
+/// <summary>
+/// Log level passed to the uufs64 loader via its <c>loglevel</c> argument. Deliberately distinct from
+/// <see cref="Microsoft.Extensions.Logging.LogLevel"/>: the loader speaks its own five-token vocabulary.
+/// </summary>
+public enum VfsLogLevel
+{
+    Trace,
+    Info,
+    Warn,
+    Error,
+    Fatal,
+}
+
+/// <summary>Maps the app-facing <see cref="VfsLogLevel"/> to the loader's <c>loglevel</c> token.</summary>
+public static class VfsLogLevelTokens
+{
+    public const string DefaultPipe = @"\\.\pipe\uufs64log";
+
+    public static string ToLoaderToken(VfsLogLevel level) => level switch
+    {
+        VfsLogLevel.Trace => "TRACE",
+        VfsLogLevel.Info => "INFO",
+        VfsLogLevel.Warn => "WARN",
+        VfsLogLevel.Error => "ERROR",
+        VfsLogLevel.Fatal => "FATAL",
+        _ => "WARN",
+    };
+}
+
 public sealed class AppSettings
 {
     public int SchemaVersion { get; set; } = 1;
@@ -47,6 +76,10 @@ public sealed class AppSettings
     public string? ActivePageTag { get; set; }
     public Microsoft.Extensions.Logging.LogLevel LogLevel { get; set; } = Microsoft.Extensions.Logging.LogLevel.Information;
 
+    // VFS loader logging: the level and named pipe handed to uufs64ldr at launch.
+    public VfsLogLevel VfsLogLevel { get; set; } = VfsLogLevel.Warn;
+    public string VfsLogPipe { get; set; } = VfsLogLevelTokens.DefaultPipe;
+
     // Assistant provider selection. The API key never lives here; it is held by CredentialStore.
     public string AssistantProviderId { get; set; } = Agent.AiProviderPresets.DefaultProviderId;
 
@@ -68,7 +101,7 @@ public sealed class AppSettings
 // (constructor and AppWindow.Closing) where awaiting is not available.
 public sealed class AppSettingsStore
 {
-    private const int CurrentSchemaVersion = 2;
+    private const int CurrentSchemaVersion = 3;
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         WriteIndented = true,

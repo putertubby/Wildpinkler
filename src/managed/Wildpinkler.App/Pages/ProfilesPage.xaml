@@ -193,6 +193,12 @@
                                     </Button>
                                 </Grid>
                                 <TextBlock x:Name="DetailsGame" Opacity="0.72" TextWrapping="Wrap" />
+                                <TextBox x:Name="GameStartInBox"
+                                         Header="Game start in (relative to game install; leave empty for default)"
+                                         PlaceholderText="e.g. Data\CalienteTools\BodySlide"
+                                         Text="{Binding WorkingDirectoryOverride, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                         IsEnabled="{x:Bind IsSelectedProfileModifiable, Mode=OneWay}"
+                                         LostFocus="GameStartInBox_LostFocus" />
                                 <TextBlock x:Name="RenameWarningText" Foreground="{ThemeResource SystemFillColorCautionBrush}" TextWrapping="Wrap"
                                            Visibility="Collapsed" Text="A profile with this name already exists." />
                             </StackPanel>
@@ -549,6 +555,10 @@
                                                         <TextBox Header="Launch arguments override"
                                                                  PlaceholderText="Leave empty to use the tool's own arguments"
                                                                  Text="{Binding LaunchArgumentsOverride, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                                 LostFocus="ToolOverride_LostFocus" />
+                                                        <TextBox Header="Start in (relative to game install; leave empty for default)"
+                                                                 PlaceholderText="e.g. Data\CalienteTools\BodySlide"
+                                                                 Text="{Binding WorkingDirectoryOverride, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                                                  LostFocus="ToolOverride_LostFocus" />
                                                         <Border Style="{StaticResource CardSeparatorStyle}" />
                                                         <StackPanel Spacing="12" Visibility="{Binding CaptureToggleVisibility}">

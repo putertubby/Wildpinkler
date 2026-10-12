@@ -124,7 +124,7 @@ public sealed class LaunchServiceTests : IDisposable
         var process = new FakeProcess();
         var launcher = new FakeLauncher(process, throwOnStart);
         var runs = new ActiveRunRegistry();
-        var service = new LaunchService(new ProfileConfigExporter(), new ProfileFolderService(_root), runs, launcher, loader, logger);
+        var service = new LaunchService(new ProfileConfigExporter(), new ProfileFolderService(_root), runs, launcher, new AppSettings(), loader, logger);
         return new Fixture(service, profile, binding, target, process, launcher, runs, _root, loader, executable);
     }
 
@@ -151,7 +151,7 @@ public sealed class LaunchServiceTests : IDisposable
             null, string.Empty, string.Empty);
         var process = new FakeProcess();
         var launcher = new FakeLauncher(process, throwOnStart: false);
-        var service = new LaunchService(new ProfileConfigExporter(), new ProfileFolderService(_root), new ActiveRunRegistry(), launcher, loader);
+        var service = new LaunchService(new ProfileConfigExporter(), new ProfileFolderService(_root), new ActiveRunRegistry(), launcher, new AppSettings(), loader);
 
         var completionTask = service.LaunchAndWaitAsync(profile, target);
         process.Exit(0);
@@ -194,7 +194,7 @@ public sealed class LaunchServiceTests : IDisposable
             null, string.Empty, string.Empty);
         var process = new FakeProcess();
         var launcher = new FakeLauncher(process, throwOnStart: false);
-        var service = new LaunchService(new ProfileConfigExporter(), new ProfileFolderService(_root), new ActiveRunRegistry(), launcher, loader);
+        var service = new LaunchService(new ProfileConfigExporter(), new ProfileFolderService(_root), new ActiveRunRegistry(), launcher, new AppSettings(), loader);
 
         var completionTask = service.LaunchAndWaitAsync(profile, target);
         process.Exit(0);
@@ -243,6 +243,48 @@ public sealed class LaunchServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task CreateStartInfo_PassesDefaultLogLevelAndLogPipe()
+    {
+        var (launcher, _) = await StartTargetWithFlags(string.Empty, string.Empty, new AppSettings());
+
+        var indexLevel = launcher.LastArguments!.IndexOf("--loglevel");
+        Assert.True(indexLevel >= 0, "--loglevel flag was not passed.");
+        Assert.Equal("WARN", launcher.LastArguments[indexLevel + 1]);
+
+        var indexPipe = launcher.LastArguments.IndexOf("--logpipe");
+        Assert.True(indexPipe >= 0, "--logpipe flag was not passed.");
+        Assert.Equal(@"\\.\pipe\uufs64log", launcher.LastArguments[indexPipe + 1]);
+    }
+
+    [Fact]
+    public async Task CreateStartInfo_PassesConfiguredLogLevelAndLogPipe()
+    {
+        var settings = new AppSettings { VfsLogLevel = VfsLogLevel.Trace, VfsLogPipe = @"\\.\pipe\custompipe" };
+        var (launcher, _) = await StartTargetWithFlags(string.Empty, string.Empty, settings);
+
+        var indexLevel = launcher.LastArguments!.IndexOf("--loglevel");
+        Assert.True(indexLevel >= 0, "--loglevel flag was not passed.");
+        Assert.Equal("TRACE", launcher.LastArguments[indexLevel + 1]);
+
+        var indexPipe = launcher.LastArguments.IndexOf("--logpipe");
+        Assert.True(indexPipe >= 0, "--logpipe flag was not passed.");
+        Assert.Equal(@"\\.\pipe\custompipe", launcher.LastArguments[indexPipe + 1]);
+    }
+
+    [Fact]
+    public async Task CreateStartInfo_FallsBackToDefaultLogPipeWhenBlank()
+    {
+        var settings = new AppSettings { VfsLogLevel = VfsLogLevel.Fatal, VfsLogPipe = "   " };
+        var (launcher, _) = await StartTargetWithFlags(string.Empty, string.Empty, settings);
+
+        var indexLevel = launcher.LastArguments!.IndexOf("--loglevel");
+        Assert.Equal("FATAL", launcher.LastArguments[indexLevel + 1]);
+
+        var indexPipe = launcher.LastArguments.IndexOf("--logpipe");
+        Assert.Equal(@"\\.\pipe\uufs64log", launcher.LastArguments[indexPipe + 1]);
+    }
+
+    [Fact]
     public async Task CreateScope_ScopesInvocationAndCompletionLines()
     {
         var dir = Path.Combine(Path.GetTempPath(), "wp-launch-scope-tests-" + Guid.NewGuid().ToString("N"));
@@ -280,7 +322,7 @@ public sealed class LaunchServiceTests : IDisposable
         }
     }
 
-    private async Task<(FakeLauncher Launcher, ILaunchedProcess Process)> StartTargetWithFlags(string arguments, string steamId)
+    private async Task<(FakeLauncher Launcher, ILaunchedProcess Process)> StartTargetWithFlags(string arguments, string steamId, AppSettings? settings = null)
     {
         Directory.CreateDirectory(_root);
         var realExecutable = Path.Combine(_root, "bin", "game.exe");
@@ -299,7 +341,7 @@ public sealed class LaunchServiceTests : IDisposable
             null, string.Empty, string.Empty);
         var process = new FakeProcess();
         var launcher = new FakeLauncher(process, throwOnStart: false);
-        var service = new LaunchService(new ProfileConfigExporter(), new ProfileFolderService(_root), new ActiveRunRegistry(), launcher, loader);
+        var service = new LaunchService(new ProfileConfigExporter(), new ProfileFolderService(_root), new ActiveRunRegistry(), launcher, settings ?? new AppSettings(), loader);
 
         var completionTask = service.LaunchAndWaitAsync(profile, target);
         process.Exit(0);

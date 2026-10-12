@@ -14,6 +14,7 @@ public sealed partial class ProfileToolRow : ObservableObject
     private bool _isEnabled;
     private bool _capturesOutput;
     private string _launchArgumentsOverride;
+    private string _workingDirectoryOverride;
     private string _outputFolder = string.Empty;
 
     /// <summary>The profile's binding for this tool, if one exists; null until the tool is enabled.</summary>
@@ -26,6 +27,7 @@ public sealed partial class ProfileToolRow : ObservableObject
         _isEnabled = binding?.IsEnabled ?? false;
         _capturesOutput = binding?.CapturesOutput ?? false;
         _launchArgumentsOverride = binding?.LaunchArgumentsOverride ?? string.Empty;
+        _workingDirectoryOverride = binding?.WorkingDirectoryOverride ?? string.Empty;
         OutputFolderId = binding?.OutputFolderId ?? string.Empty;
         OutputVersion = binding?.OutputVersion ?? 1;
         VariableOverrides = binding is null
@@ -134,6 +136,13 @@ public sealed partial class ProfileToolRow : ObservableObject
     {
         get => _launchArgumentsOverride;
         set => SetProperty(ref _launchArgumentsOverride, value);
+    }
+
+    /// <summary>The per-profile "start in" working directory override (virtual path); empty means default.</summary>
+    public string WorkingDirectoryOverride
+    {
+        get => _workingDirectoryOverride;
+        set => SetProperty(ref _workingDirectoryOverride, value);
     }
 
     public string OutputFolderId { get; set; }

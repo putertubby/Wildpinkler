@@ -23,6 +23,7 @@ public sealed partial class LaunchService
     private readonly ToolStore? _toolStore;
     private readonly ProfileStore? _profileStore;
     private readonly string? _loaderPath;
+    private readonly AppSettings _settings;
     private readonly ILogger<LaunchService> _logger;
 
     public LaunchService(
@@ -30,6 +31,7 @@ public sealed partial class LaunchService
         ProfileFolderService provisioner,
         ActiveRunRegistry runs,
         IProcessLauncher processLauncher,
+        AppSettings settings,
         string? loaderPath = null,
         ILogger<LaunchService>? logger = null,
         PluginsTxtService? pluginsTxt = null,
@@ -40,6 +42,7 @@ public sealed partial class LaunchService
         _provisioner = provisioner;
         _runs = runs;
         _processLauncher = processLauncher;
+        _settings = settings;
         _pluginsTxt = pluginsTxt;
         _toolStore = toolStore;
         _profileStore = profileStore;
@@ -125,7 +128,12 @@ public sealed partial class LaunchService
         startInfo.ArgumentList.Add("--target");
         startInfo.ArgumentList.Add(target.VirtualExecutablePath);
         startInfo.ArgumentList.Add("--curdir");
-        startInfo.ArgumentList.Add(Path.GetDirectoryName(Path.GetFullPath(target.VirtualExecutablePath))!);
+        // The working directory is the resolved (and possibly overridden) virtual directory; fall back to
+        // the executable's own directory only if it is somehow empty.
+        var currentDirectory = target.VirtualWorkingDirectory.Length > 0
+            ? target.VirtualWorkingDirectory
+            : Path.GetDirectoryName(Path.GetFullPath(target.VirtualExecutablePath))!;
+        startInfo.ArgumentList.Add(currentDirectory);
         if (!string.IsNullOrWhiteSpace(target.Arguments))
         {
             startInfo.ArgumentList.Add("--args");
@@ -136,6 +144,13 @@ public sealed partial class LaunchService
             startInfo.ArgumentList.Add("--steamid");
             startInfo.ArgumentList.Add(target.SteamGameId);
         }
+        // Logging is always configured: the loader needs a level and a pipe it can write to.
+        startInfo.ArgumentList.Add("--loglevel");
+        startInfo.ArgumentList.Add(VfsLogLevelTokens.ToLoaderToken(_settings.VfsLogLevel));
+        startInfo.ArgumentList.Add("--logpipe");
+        startInfo.ArgumentList.Add(string.IsNullOrWhiteSpace(_settings.VfsLogPipe)
+            ? VfsLogLevelTokens.DefaultPipe
+            : _settings.VfsLogPipe);
         startInfo.ArgumentList.Add(configPath);
         return startInfo;
     }

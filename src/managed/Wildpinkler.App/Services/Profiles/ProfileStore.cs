@@ -14,7 +14,7 @@ namespace Wildpinkler.App.Services;
 public sealed class ProfileStore : IDisposable
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
-    private const int CurrentSchemaVersion = 3;
+    private const int CurrentSchemaVersion = 4;
 
     /// <summary>The last schema that stored the load order under "Folders".</summary>
     private const int LoadOrderRenameSchemaVersion = 2;

@@ -36,6 +36,20 @@ public sealed class ProfileStoreSchemaTests : IDisposable
     }
 
     [Fact]
+    public async Task RoundTrip_PreservesWorkingDirectoryOverrides()
+    {
+        var store = new ProfileStore(_root);
+        var profile = new Profile { Id = "profile", Name = "Test", GameId = "game", WorkingDirectoryOverride = @"Data\Game" };
+        profile.Tools.Add(new ProfileTool { ToolEntryId = "tool-1", IsEnabled = true, WorkingDirectoryOverride = @"Data\Tool" });
+
+        await store.SaveAsync(new[] { profile });
+        var loaded = Assert.Single(await store.LoadAsync());
+
+        Assert.Equal(@"Data\Game", loaded.WorkingDirectoryOverride);
+        Assert.Equal(@"Data\Tool", Assert.Single(loaded.Tools).WorkingDirectoryOverride);
+    }
+
+    [Fact]
     public async Task LegacySchema_IsRejected()
     {
         File.WriteAllText(Path.Combine(_root, "profiles.json"), """

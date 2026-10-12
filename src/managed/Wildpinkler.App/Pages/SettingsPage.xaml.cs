@@ -152,6 +152,8 @@ public sealed partial class SettingsPage : PageBase
         _isApplyingHandlerState = true;
         ConfirmDownloadsToggle.IsOn = AppServices.AppSettings.ConfirmRemoteDownloads;
         LogLevelBox.SelectedIndex = LevelToIndex(AppServices.AppSettings.LogLevel);
+        VfsLogLevelBox.SelectedIndex = (int)AppServices.AppSettings.VfsLogLevel;
+        VfsLogPipeBox.Text = AppServices.AppSettings.VfsLogPipe;
         _isApplyingHandlerState = false;
 
         IsAppearanceDirty = false;
@@ -174,6 +176,22 @@ public sealed partial class SettingsPage : PageBase
     private void LogLevel_SelectionChanged(object sender, SelectionChangedEventArgs args)
     {
         if (_isApplyingHandlerState || LogLevelBox.SelectedIndex < 0)
+            return;
+
+        AreDiagnosticsDirty = true;
+    }
+
+    private void VfsLogLevel_SelectionChanged(object sender, SelectionChangedEventArgs args)
+    {
+        if (_isApplyingHandlerState || VfsLogLevelBox.SelectedIndex < 0)
+            return;
+
+        AreDiagnosticsDirty = true;
+    }
+
+    private void VfsLogPipe_TextChanged(object sender, TextChangedEventArgs args)
+    {
+        if (_isApplyingHandlerState)
             return;
 
         AreDiagnosticsDirty = true;
@@ -440,10 +458,16 @@ public sealed partial class SettingsPage : PageBase
     {
         var level = SelectableLogLevels[LogLevelBox.SelectedIndex];
         var previousLevel = AppServices.AppSettings.LogLevel;
+        var previousVfsLevel = AppServices.AppSettings.VfsLogLevel;
+        var previousVfsPipe = AppServices.AppSettings.VfsLogPipe;
         AppServices.AppSettings.LogLevel = level;
+        AppServices.AppSettings.VfsLogLevel = (VfsLogLevel)VfsLogLevelBox.SelectedIndex;
+        AppServices.AppSettings.VfsLogPipe = VfsLogPipeBox.Text.Trim();
         if (!AppServices.AppSettingsStore.Save(AppServices.AppSettings))
         {
             AppServices.AppSettings.LogLevel = previousLevel;
+            AppServices.AppSettings.VfsLogLevel = previousVfsLevel;
+            AppServices.AppSettings.VfsLogPipe = previousVfsPipe;
             ShowDiagnosticsInfo("The diagnostic settings could not be written to disk.", InfoBarSeverity.Error);
             return;
         }
@@ -459,6 +483,8 @@ public sealed partial class SettingsPage : PageBase
     {
         _isApplyingHandlerState = true;
         LogLevelBox.SelectedIndex = LevelToIndex(AppServices.AppSettings.LogLevel);
+        VfsLogLevelBox.SelectedIndex = (int)AppServices.AppSettings.VfsLogLevel;
+        VfsLogPipeBox.Text = AppServices.AppSettings.VfsLogPipe;
         _isApplyingHandlerState = false;
         AreDiagnosticsDirty = false;
     }

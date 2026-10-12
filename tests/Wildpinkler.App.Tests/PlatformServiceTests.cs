@@ -172,6 +172,28 @@ public sealed class AppSettingsStoreTests : IDisposable
         Assert.False(store.Load().ShowGraphEdgeLabels);
     }
 
+    [Fact]
+    public void Load_WithNoFile_ReturnsVfsLogDefaults()
+    {
+        var settings = new AppSettingsStore(_root).Load();
+
+        Assert.Equal(VfsLogLevel.Warn, settings.VfsLogLevel);
+        Assert.Equal(@"\\.\pipe\uufs64log", settings.VfsLogPipe);
+    }
+
+    [Fact]
+    public void SaveAndLoad_PreservesVfsLogLevelAndLogPipe()
+    {
+        var store = new AppSettingsStore(_root);
+        var settings = new AppSettings { VfsLogLevel = VfsLogLevel.Trace, VfsLogPipe = @"\\.\pipe\custompipe" };
+
+        Assert.True(store.Save(settings));
+
+        var loaded = store.Load();
+        Assert.Equal(VfsLogLevel.Trace, loaded.VfsLogLevel);
+        Assert.Equal(@"\\.\pipe\custompipe", loaded.VfsLogPipe);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_root))

@@ -263,6 +263,23 @@
                             <ComboBoxItem Content="Verbose" />
                         </ComboBox>
 
+                        <TextBlock Style="{StaticResource SectionLabelStyle}"
+                                   Text="VFS LOADER LOGGING" Margin="0,4,0,0" />
+                        <ComboBox x:Name="VfsLogLevelBox" Header="VFS log level" Width="220"
+                                  AutomationProperties.Name="VFS log level"
+                                  SelectionChanged="VfsLogLevel_SelectionChanged">
+                            <ComboBoxItem Content="Trace" />
+                            <ComboBoxItem Content="Info" />
+                            <ComboBoxItem Content="Warn" />
+                            <ComboBoxItem Content="Error" />
+                            <ComboBoxItem Content="Fatal" />
+                        </ComboBox>
+                        <TextBox x:Name="VfsLogPipeBox" Header="VFS log pipe" Width="220"
+                                 AutomationProperties.Name="VFS log pipe"
+                                 TextChanged="VfsLogPipe_TextChanged" />
+                        <TextBlock Opacity="0.72" TextWrapping="Wrap"
+                                   Text="The level and named pipe are passed to uufs64ldr on launch. An empty pipe falls back to the default." />
+
                         <TextBlock x:Name="LogFolderText" Opacity="0.72" TextWrapping="Wrap"
                                    IsTextSelectionEnabled="True" />
 

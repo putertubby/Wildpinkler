@@ -173,7 +173,7 @@ public sealed class ModListBuildCoordinatorTests : IDisposable
             new RemoteSiteContext(new RemoteSiteStore(registry, new CredentialStore(_root), _root)),
             new ArchiveDownloadService(),
             modStore);
-        var launcher = new LaunchService(new ProfileConfigExporter(), provisioner, new ActiveRunRegistry(), new NeverProcessLauncher(), Path.Combine(_root, "loader.exe"));
+        var launcher = new LaunchService(new ProfileConfigExporter(), provisioner, new ActiveRunRegistry(), new NeverProcessLauncher(), new AppSettings(), Path.Combine(_root, "loader.exe"));
         var installer = new ModInstallService(installationStore, new ArchiveInspector(), new FomodInstallerParser(), Path.Combine(_root, "installs"));
         return new ModListBuildCoordinator(
             new ModListBuildStore(_root), new ModListPreflightService(installer, modStore), provisioner, acquisition,

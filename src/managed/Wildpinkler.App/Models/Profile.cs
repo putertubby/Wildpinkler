@@ -62,6 +62,13 @@ public sealed partial class Profile : ObservableObject
     /// </summary>
     public bool PluginListSorted { get; set; }
 
+    /// <summary>
+    /// Per-profile "start in" working directory for the game launch target, expressed as a virtual path
+    /// (relative to the game install root, or absolute). Empty means "use the default" - the virtual
+    /// directory containing the game's (or launcher's) executable.
+    /// </summary>
+    public string WorkingDirectoryOverride { get; set; } = string.Empty;
+
     // Not persisted: resolved from the games list after load, purely for display.
     [JsonIgnore]
     public string GameName

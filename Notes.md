@@ -115,6 +115,15 @@ git rebase -r 6a8b51fbf9cb1dea6a35cceb5cbb04833c8f86ab --exec 'git commit --amen
 - [ ] Check! Game launcher is mutually exclusive (only one mod at a time (at most) can launch)
 - [ ] Insufficient logging
 - [ ] Bodyslide thinks it can't write to directory
+- [ ] Profiles files must be named "readbly" - i.e. tool-id rather than a guid.
+- [ ] tool workdir might not be proper.
+- [ ] plugins.txt editing in profile (tab)
+- [ ] game tab in profile (move working directory override there)
+
+Field	Path / Value
+Name	BodySlide
+Target (Binary)	C:\games\skyrimse\Data\CalienteTools\BodySlide\BodySlide.exe
+Start in	C:\games\skyrimse\Data\CalienteTools\BodySlide\
 
 ## Refactoring
 
