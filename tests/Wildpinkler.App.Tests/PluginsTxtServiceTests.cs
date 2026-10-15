@@ -82,7 +82,7 @@ public sealed class PluginsTxtServiceTests : IDisposable
         WritePlugin(Path.Combine(disabledBranch, "Data"), "Beta.esp");
 
         var profile = BuildProfile((enabledBranch, "mod-a"), (disabledBranch, "mod-b"));
-        profile.LoadOrder.Single(folder => folder.Id == "folder-mod-b").IsEnabled = false;
+        profile.LoadOrder.Single(folder => folder.Id == "mod-b").IsEnabled = false;
 
         var records = _service.ScanEffectivePlugins(profile, new GamePluginList());
 
@@ -94,6 +94,41 @@ public sealed class PluginsTxtServiceTests : IDisposable
         var beta = Assert.Single(records, record => record.FileName == "Beta.esp");
         Assert.Equal(disabledBranch, beta.WinningBranch);
         Assert.False(beta.Enabled);
+    }
+
+    [Fact]
+    public void ScanEffectivePlugins_IncludesToolOutputAndUnmanagedFolders()
+    {
+        var modData = Path.Combine(_root, "mod-a", "Data");
+        var toolData = Path.Combine(_root, "tool-out", "Data");
+        var unmanagedData = Path.Combine(_root, "unmanaged", "Data");
+        WritePlugin(modData, "Alpha.esp");
+        WritePlugin(toolData, "ToolPlugin.esp");
+        WritePlugin(unmanagedData, "Handmade.esp");
+
+        var profile = BuildProfile((Path.Combine(_root, "mod-a"), "mod-a"));
+        profile.LoadOrder.Add(new ProfileFolder
+        {
+            Id = "tool-folder",
+            Name = "Tool output",
+            Kind = ProfileFolderKind.ToolOutput,
+            Path = Path.Combine(_root, "tool-out")
+        });
+        profile.LoadOrder.Add(new ProfileFolder
+        {
+            Id = "unmanaged-folder",
+            Name = "Handmade",
+            Kind = ProfileFolderKind.Unmanaged,
+            Path = Path.Combine(_root, "unmanaged")
+        });
+
+        var records = _service.ScanEffectivePlugins(profile, new GamePluginList());
+
+        // All three branches contribute; SourceFolderId is the folder's Id (not a mod id).
+        Assert.Equal(3, records.Count);
+        Assert.Equal("tool-folder", Assert.Single(records, record => record.FileName == "ToolPlugin.esp").SourceFolderId);
+        Assert.Equal("unmanaged-folder", Assert.Single(records, record => record.FileName == "Handmade.esp").SourceFolderId);
+        Assert.Equal("mod-a", Assert.Single(records, record => record.FileName == "Alpha.esp").SourceFolderId);
     }
 
     [Fact]
@@ -433,6 +468,309 @@ public sealed class PluginsTxtServiceTests : IDisposable
         Assert.False(_service.NeedsPluginListWarning(profile, withDescriptor));
     }
 
+    [Fact]
+    public void SeedFromEffectiveOrder_MapsEnabledStateAndModIds()
+    {
+        var branch0 = Path.Combine(_root, "mod-a");
+        var branch1 = Path.Combine(_root, "mod-b");
+        WritePlugin(Path.Combine(branch0, "Data"), "Alpha.esp");
+        WritePlugin(Path.Combine(branch1, "Data"), "Beta.esp");
+
+        var profile = BuildProfile((branch0, "mod-a"), (branch1, "mod-b"));
+        profile.LoadOrder.Single(folder => folder.Id == "mod-b").IsEnabled = false;
+
+        var seeded = _service.SeedFromEffectiveOrder(profile, new GamePluginList());
+
+        Assert.Equal(2, seeded.Count);
+        var alpha = Assert.Single(seeded, entry => entry.FileName == "Alpha.esp");
+        Assert.True(alpha.IsEnabled);
+        Assert.Equal("mod-a", alpha.SourceFolderId);
+
+        var beta = Assert.Single(seeded, entry => entry.FileName == "Beta.esp");
+        Assert.False(beta.IsEnabled);
+        Assert.Equal("mod-b", beta.SourceFolderId);
+    }
+
+    [Fact]
+    public void ReadBack_PreservesOrderAndEnabledState()
+    {
+        var path = Path.Combine(_root, "plugins.txt");
+        File.WriteAllText(path, "*Alpha.esp\nBeta.esp\n*Gamma.esp\n\n", new System.Text.UTF8Encoding(false));
+
+        var read = _service.ReadBack(path);
+
+        Assert.Equal(new[] { "Alpha.esp", "Beta.esp", "Gamma.esp" }, read.Select(entry => entry.FileName));
+        Assert.Equal(new[] { true, false, true }, read.Select(entry => entry.IsEnabled));
+    }
+
+    [Fact]
+    public void ReadBack_MissingFile_ReturnsEmpty()
+    {
+        Assert.Empty(_service.ReadBack(Path.Combine(_root, "missing", "plugins.txt")));
+    }
+
+    [Fact]
+    public async Task WriteAuthoritativeAsync_WritesAsterisksAndOrder()
+    {
+        var installPath = Path.Combine(_root, "game");
+        var mount = Path.Combine(_root, "appdata", "game");
+        var writable = new MergedView
+        {
+            Name = "LocalAppData",
+            MountPath = mount,
+            Branches = { Path.Combine(_root, "profile", "localappdata") },
+            IsWritable = true
+        };
+        var target = GameTarget(installPath, writable);
+        var destination = Path.Combine(_root, "profile", "localappdata", "plugins.txt");
+        var game = new GameEntry
+        {
+            Id = "game",
+            InstallPath = installPath,
+            Definition = new GameDefinition
+            {
+                DefinitionId = "x",
+                Name = "X",
+                PluginList = new GamePluginList { ListPath = Path.Combine(mount, "plugins.txt") }
+            }
+        };
+
+        // Order is preserved exactly as given; the leading asterisk marks the enabled plugin.
+        var entries = new List<PluginEntry>
+        {
+            new() { FileName = "Alpha.esp", IsEnabled = true },
+            new() { FileName = "Beta.esp", IsEnabled = false }
+        };
+
+        var written = await _service.WriteAuthoritativeAsync(target, game, game.Definition!.PluginList!, entries);
+        Assert.Equal(destination, written);
+
+        var lines = File.ReadAllLines(destination).Where(line => line.Length > 0).ToList();
+        Assert.Equal(new[] { "*Alpha.esp", "Beta.esp" }, lines);
+    }
+
+    [Fact]
+    public void ApplyBranchState_DisabledBranch_DisablesPluginAndRemembersState()
+    {
+        var mod = new ProfileFolder
+        {
+            Id = "folder-a",
+            Name = "Mod A",
+            Kind = ProfileFolderKind.Mod,
+            ModId = "mod-a",
+            IsEnabled = false
+        };
+
+        var entry = new PluginEntry
+        {
+            FileName = "Alpha.esp",
+            IsEnabled = true,
+            SourceFolderId = "folder-a"
+        };
+
+        _service.ApplyBranchState(new[] { entry }, new[] { mod });
+
+        Assert.False(entry.IsEnabled);
+        Assert.False(entry.BranchEnabled);
+        Assert.Equal(true, entry.RememberedEnabled);
+    }
+
+    [Fact]
+    public void ApplyBranchState_LegacyModId_DisablesPluginAndSelfHealsFolderId()
+    {
+        // A profile seeded by an earlier build stores the mod id, not the folder id.
+        var mod = new ProfileFolder
+        {
+            Id = "folder-a",
+            Name = "Mod A",
+            Kind = ProfileFolderKind.Mod,
+            ModId = "mod-a",
+            IsEnabled = false
+        };
+
+        var entry = new PluginEntry
+        {
+            FileName = "Alpha.esp",
+            IsEnabled = true,
+            SourceFolderId = "mod-a"
+        };
+
+        _service.ApplyBranchState(new[] { entry }, new[] { mod });
+
+        Assert.False(entry.IsEnabled);
+        Assert.False(entry.BranchEnabled);
+        Assert.Equal(true, entry.RememberedEnabled);
+        Assert.Equal("folder-a", entry.SourceFolderId);
+    }
+
+    [Fact]
+    public void ApplyBranchState_ReenabledBranch_RestoresRememberedStateAndUnlocks()
+    {
+        var mod = new ProfileFolder
+        {
+            Id = "folder-a",
+            Name = "Mod A",
+            Kind = ProfileFolderKind.Mod,
+            ModId = "mod-a",
+            IsEnabled = true
+        };
+
+        var wasEnabled = new PluginEntry
+        {
+            FileName = "Alpha.esp",
+            IsEnabled = false,
+            SourceFolderId = "folder-a",
+            RememberedEnabled = true
+        };
+        var wasDisabled = new PluginEntry
+        {
+            FileName = "Beta.esp",
+            IsEnabled = false,
+            SourceFolderId = "folder-a",
+            RememberedEnabled = false
+        };
+
+        _service.ApplyBranchState(new[] { wasEnabled, wasDisabled }, new[] { mod });
+
+        Assert.True(wasEnabled.IsEnabled);
+        Assert.Null(wasEnabled.RememberedEnabled);
+        Assert.False(wasDisabled.IsEnabled);
+        Assert.Null(wasDisabled.RememberedEnabled);
+        Assert.True(wasEnabled.BranchEnabled);
+    }
+
+    [Fact]
+    public void ApplyBranchState_RerunDoesNotRecaptureFalse()
+    {
+        var mod = new ProfileFolder
+        {
+            Id = "folder-a",
+            Name = "Mod A",
+            Kind = ProfileFolderKind.Mod,
+            ModId = "mod-a",
+            IsEnabled = false
+        };
+
+        var entry = new PluginEntry
+        {
+            FileName = "Alpha.esp",
+            IsEnabled = true,
+            SourceFolderId = "folder-a"
+        };
+
+        _service.ApplyBranchState(new[] { entry }, new[] { mod });
+        _service.ApplyBranchState(new[] { entry }, new[] { mod });
+
+        // The original enabled choice survives the second run.
+        Assert.Equal(true, entry.RememberedEnabled);
+    }
+
+    [Fact]
+    public void ApplyBranchState_MissingFolder_LeavesEntryUngated()
+    {
+        var entry = new PluginEntry
+        {
+            FileName = "Orphan.esp",
+            IsEnabled = true,
+            SourceFolderId = "gone"
+        };
+
+        _service.ApplyBranchState(new[] { entry }, Array.Empty<ProfileFolder>());
+
+        Assert.True(entry.IsEnabled);
+        Assert.True(entry.BranchEnabled);
+        Assert.Null(entry.RememberedEnabled);
+    }
+
+    [Fact]
+    public void Reconcile_KeptUserOrder_DropsRemoved_AddsNew()
+    {
+        var authoritative = new List<PluginEntry>
+        {
+            new() { FileName = "Alpha.esp", IsEnabled = true, SourceFolderId = "mod-a" },
+            new() { FileName = "Old.esp", IsEnabled = true },
+            new() { FileName = "Beta.esp", IsEnabled = false }
+        };
+
+        // Effective set: Alpha and Beta remain (Beta now enabled because its mod was re-enabled);
+        // Old is gone; New appears.
+        var effective = new List<PluginRecord>
+        {
+            new() { FileName = "Alpha.esp", BranchIndex = 0, SourceFolderId = "mod-a", Enabled = true },
+            new() { FileName = "Beta.esp", BranchIndex = 1, SourceFolderId = "mod-b", Enabled = true },
+            new() { FileName = "New.esp", BranchIndex = 2, SourceFolderId = "mod-c", Enabled = true }
+        };
+
+        var reconciled = _service.Reconcile(authoritative, effective);
+
+        // Old is dropped; the user's order for Alpha (first) and Beta is kept; New is appended.
+        Assert.Equal(new[] { "Alpha.esp", "Beta.esp", "New.esp" }, reconciled.Select(entry => entry.FileName));
+        Assert.Equal(new[] { true, false, true }, reconciled.Select(entry => entry.IsEnabled));
+    }
+
+    [Fact]
+    public void Reconcile_PreservesRememberedEnabledForKeptEntries()
+    {
+        // Alpha's branch was disabled, so its enabled state is remembered (RememberedEnabled = true)
+        // and the entry is force-disabled. Reconcile must carry the remembered state through.
+        var authoritative = new List<PluginEntry>
+        {
+            new() { FileName = "Alpha.esp", IsEnabled = false, SourceFolderId = "mod-a", RememberedEnabled = true }
+        };
+
+        var effective = new List<PluginRecord>
+        {
+            new() { FileName = "Alpha.esp", BranchIndex = 0, SourceFolderId = "mod-a", Enabled = true }
+        };
+
+        var reconciled = _service.Reconcile(authoritative, effective);
+
+        var alpha = Assert.Single(reconciled, entry => entry.FileName == "Alpha.esp");
+        Assert.False(alpha.IsEnabled);
+        Assert.Equal(true, alpha.RememberedEnabled);
+    }
+
+    [Fact]
+    public async Task EnsureUpToDateAsync_UsesAuthoritativeListWhenPresent()
+    {
+        var installPath = Path.Combine(_root, "game");
+        var mount = Path.Combine(_root, "appdata", "game");
+        var writable = new MergedView
+        {
+            Name = "LocalAppData",
+            MountPath = mount,
+            Branches = { Path.Combine(_root, "profile", "localappdata") },
+            IsWritable = true
+        };
+        var target = GameTarget(installPath, writable);
+
+        // A mod that would produce "Derived.esp" if the authoritative list were ignored.
+        var branch = Path.Combine(_root, "mod-a");
+        WritePlugin(Path.Combine(branch, "Data"), "Derived.esp");
+        var profile = BuildProfile((branch, "mod-a"));
+        profile.PluginOrder.Add(new PluginEntry { FileName = "Authoritative.esp", IsEnabled = true });
+
+        var game = new GameEntry
+        {
+            Id = "game",
+            InstallPath = installPath,
+            Definition = new GameDefinition
+            {
+                DefinitionId = "x",
+                Name = "X",
+                PluginList = new GamePluginList { ListPath = Path.Combine(mount, "plugins.txt") }
+            }
+        };
+
+        await _service.EnsureUpToDateAsync(profile, target, game);
+
+        // The authoritative entry wins over the derived mod plugin.
+        var lines = File.ReadAllLines(Path.Combine(_root, "profile", "localappdata", "plugins.txt"))
+            .Where(line => line.Length > 0).ToList();
+        Assert.Single(lines);
+        Assert.Equal("*Authoritative.esp", lines[0]);
+    }
+
     public void Dispose()
     {
         if (Directory.Exists(_root))
@@ -458,7 +796,7 @@ public sealed class PluginsTxtServiceTests : IDisposable
         {
             profile.LoadOrder.Add(new ProfileFolder
             {
-                Id = "folder-" + modId,
+                Id = modId,
                 Kind = ProfileFolderKind.Mod,
                 Path = path,
                 ModId = modId

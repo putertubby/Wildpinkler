@@ -229,6 +229,7 @@ public sealed partial class ProfilesPage : PageBase
         ProfileLocalToolMigration.MaterializeLocalToolEntries(target);
         target.Variables = source.Variables;
         target.MergedViews = source.MergedViews;
+        CollectionReconciler.Reconcile(target.PluginOrder, source.PluginOrder, plugin => plugin.FileName, (current, desired) => current.IsEnabled = desired.IsEnabled);
         target.PluginListSorted = source.PluginListSorted;
         target.NotifySummaryChanged();
     }
@@ -608,6 +609,7 @@ public sealed partial class ProfilesPage : PageBase
         {
             DetailsCard.Visibility = Visibility.Collapsed;
             DetachLoadOrder();
+            DetachPluginsTxt();
             RefreshWorkspace();
             return;
         }
@@ -627,6 +629,11 @@ public sealed partial class ProfilesPage : PageBase
         RefreshTools(profile);
         ResetMergedContent();
         RefreshWorkspace();
+
+        // Refresh the plugins tab only while it is showing, so switching profiles keeps its list
+        // (and the attached CollectionChanged subscription) in sync with the new profile.
+        if (PluginsTxtSection.Visibility == Visibility.Visible)
+            RefreshPluginsTxt(profile);
     }
 
     // The TwoWay binding already pushed the edited text into the profile on focus loss; this just
@@ -738,9 +745,12 @@ public sealed partial class ProfilesPage : PageBase
         MergedViewSection.Visibility = sender.SelectedItem == MergedViewTab ? Visibility.Visible : Visibility.Collapsed;
         ToolsSection.Visibility = sender.SelectedItem == ToolsTab ? Visibility.Visible : Visibility.Collapsed;
         ContentSection.Visibility = sender.SelectedItem == ContentTab ? Visibility.Visible : Visibility.Collapsed;
+        PluginsTxtSection.Visibility = sender.SelectedItem == PluginsTxtTab ? Visibility.Visible : Visibility.Collapsed;
 
         if (sender.SelectedItem == ContentTab)
             RefreshMergedContentIfVisible();
+        else if (sender.SelectedItem == PluginsTxtTab && SelectedProfile is { } pluginsProfile)
+            RefreshPluginsTxt(pluginsProfile);
     }
 
     private void ProfileList_DoubleTapped(object sender, DoubleTappedRoutedEventArgs args)

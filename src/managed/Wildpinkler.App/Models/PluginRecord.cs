@@ -21,7 +21,7 @@ public sealed class PluginRecord
     /// <summary>Zero-based position of the winning branch inside the load-order view.</summary>
     public int BranchIndex { get; init; }
 
-    /// <summary>The mod's id when the winning branch belongs to an installed mod, otherwise null.</summary>
+    /// <summary>The owning load-order folder's id (any toggleable kind: Mod, ToolOutput, or Unmanaged).</summary>
     public string? SourceFolderId { get; init; }
 
     /// <summary>Master file names (basenames) this plugin declares, as read from its TES4 header.</summary>

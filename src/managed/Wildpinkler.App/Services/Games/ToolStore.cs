@@ -13,14 +13,15 @@ public sealed class ToolStore : IDisposable
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
     private const int CurrentSchemaVersion = 1;
-    private readonly string _rootPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Wildpinkler");
+    private readonly string _rootPath;
     private readonly string _databasePath;
     private readonly string _backupPath;
     private readonly string _temporaryPath;
     private readonly SemaphoreSlim _databaseLock = new(1, 1);
 
-    public ToolStore()
+    public ToolStore(string? rootPath = null)
     {
+        _rootPath = rootPath ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Wildpinkler");
         _databasePath = Path.Combine(_rootPath, "tools.json");
         _backupPath = Path.Combine(_rootPath, "tools.json.bak");
         _temporaryPath = Path.Combine(_rootPath, "tools.json.tmp");

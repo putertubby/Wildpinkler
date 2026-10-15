@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -97,6 +98,114 @@ public sealed class LaunchServiceTests : IDisposable
 
         Assert.Equal(1, fixture.Launcher.StartCount);
         fixture.Process.Exit(0);
+    }
+
+    [Fact]
+    public async Task LaunchAndWaitAsync_SettingsOnlySorter_SetsSortedFlag()
+    {
+        // Regression: a plugin-sorting tool that produces no output (e.g. LOOT) has no binding or
+        // pending run, yet it must still clear the "unsorted" warning by setting the sorted flag.
+        var (service, profile, target, process, game) = await RunToolWithStores(sorter: true);
+        await RunToCompletion(service, profile, target, process, game);
+
+        var stored = (await new ProfileStore(_root).LoadAsync()).Single(item => item.Id == profile.Id);
+        Assert.True(stored.PluginListSorted);
+    }
+
+    [Fact]
+    public async Task LaunchAndWaitAsync_NonSorterTool_DoesNotSetSortedFlag()
+    {
+        var (service, profile, target, process, game) = await RunToolWithStores(sorter: false);
+        await RunToCompletion(service, profile, target, process, game);
+
+        var stored = (await new ProfileStore(_root).LoadAsync()).Single(item => item.Id == profile.Id);
+        Assert.False(stored.PluginListSorted);
+    }
+
+    private async Task<(LaunchService Service, Profile Profile, LaunchTarget Target, FakeProcess Process, GameEntry Game)> RunToolWithStores(bool sorter)
+    {
+        Directory.CreateDirectory(_root);
+        var executable = Path.Combine(_root, "tool.exe");
+        var loader = Path.Combine(_root, LaunchService.LoaderFileName);
+        File.WriteAllText(executable, string.Empty);
+        File.WriteAllText(loader, string.Empty);
+
+        // The profile and game definition both declare a plugin list, which is the precondition for
+        // the sorted flag to be considered at all.
+        var profile = new Profile { Id = "profile", Name = "Profile", FolderPath = Path.Combine(_root, "profile") };
+        Directory.CreateDirectory(profile.FolderPath);
+        profile.Tools.Add(new ProfileTool { ToolEntryId = "tool", IsEnabled = true });
+        var game = new GameEntry
+        {
+            Id = "game",
+            InstallPath = _root,
+            Definition = new GameDefinition
+            {
+                DefinitionId = "test-game",
+                Name = "Test Game",
+                PluginList = new GamePluginList { ListPath = Path.Combine(_root, "localappdata", "plugins.txt") }
+            }
+        };
+        await new ProfileStore(_root).SaveAsync(new[] { profile });
+
+        // The tool entry's definition is display-only (not persisted); the sorter flag lives in the
+        // definition catalog, which is what LaunchService consults after a run completes.
+        var toolDefinitionStore = new ToolDefinitionStore(Path.Combine(_root, "tool-definitions"));
+        var definitionDirectory = toolDefinitionStore.UserDirectory;
+        Directory.CreateDirectory(definitionDirectory);
+        var definitionJson =
+            """
+            {
+              "schemaVersion": 2,
+              "definitionId": "test-sorter",
+              "name": "Test Sorter",
+              "definitionVersion": 1,
+              "author": "Wildpinkler",
+              "description": "Test tool for sorted-flag behavior.",
+              "producesOutput": false,
+              "sortsPluginList": __sorter__,
+              "executableRelativePath": "tool.exe",
+              "detectionMarkers": [
+                "tool.exe"
+              ]
+            }
+            """
+            .Replace("__sorter__", sorter ? "true" : "false");
+        File.WriteAllText(Path.Combine(definitionDirectory, "test-sorter.wptool.json"), definitionJson);
+
+        var toolStore = new ToolStore(_root);
+        await toolStore.SaveAsync(new[]
+        {
+            new ToolEntry
+            {
+                Id = "tool",
+                InstallPath = _root,
+                DefinitionId = "test-sorter",
+                DefinitionVersion = 1
+            }
+        });
+
+        // A settings-only tool: ProducesOutput=false means the page never creates a binding, so
+        // target.Id ("tool") is the only handle to the tool.
+        var target = new LaunchTarget(
+            "tool", "Tool", LaunchTargetKind.Tool, executable, string.Empty, _root, executable, _root,
+            Array.Empty<MergedView>(), new Dictionary<string, string>(), Array.Empty<string>(), "profile.tool.json", false, string.Empty,
+            null, string.Empty, string.Empty);
+        var process = new FakeProcess();
+        var service = new LaunchService(
+            new ProfileConfigExporter(), new ProfileFolderService(_root), new ActiveRunRegistry(),
+            new FakeLauncher(process, throwOnStart: false), new AppSettings(), loader,
+            pluginsTxt: null, toolStore: toolStore, toolDefinitionStore: toolDefinitionStore, profileStore: new ProfileStore(_root));
+
+        return (service, profile, target, process, game);
+    }
+
+    private static async Task RunToCompletion(LaunchService service, Profile profile, LaunchTarget target, FakeProcess process, GameEntry game)
+    {
+        var completionTask = service.LaunchAndWaitAsync(profile, target, game);
+        process.Exit(0);
+        var completion = await completionTask.WaitAsync(TestContext.Current.CancellationToken);
+        Assert.True(completion.Succeeded);
     }
 
     public void Dispose()

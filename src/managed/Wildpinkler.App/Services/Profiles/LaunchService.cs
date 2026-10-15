@@ -21,6 +21,7 @@ public sealed partial class LaunchService
     private readonly IProcessLauncher _processLauncher;
     private readonly PluginsTxtService? _pluginsTxt;
     private readonly ToolStore? _toolStore;
+    private readonly ToolDefinitionStore? _toolDefinitionStore;
     private readonly ProfileStore? _profileStore;
     private readonly string? _loaderPath;
     private readonly AppSettings _settings;
@@ -36,6 +37,7 @@ public sealed partial class LaunchService
         ILogger<LaunchService>? logger = null,
         PluginsTxtService? pluginsTxt = null,
         ToolStore? toolStore = null,
+        ToolDefinitionStore? toolDefinitionStore = null,
         ProfileStore? profileStore = null)
     {
         _exporter = exporter;
@@ -45,6 +47,7 @@ public sealed partial class LaunchService
         _settings = settings;
         _pluginsTxt = pluginsTxt;
         _toolStore = toolStore;
+        _toolDefinitionStore = toolDefinitionStore;
         _profileStore = profileStore;
         _loaderPath = loaderPath;
         _logger = logger ?? NullLogger<LaunchService>.Instance;
@@ -193,11 +196,16 @@ public sealed partial class LaunchService
             }
 
             if (succeeded && binding is not null && pendingRun is not null)
-            {
                 _provisioner.CompleteToolRun(profile, binding, target.Id, pendingRun);
+
+            // A settings-only tool (e.g. LOOT, producesOutput: false) has no binding or pending run,
+            // so the sorted flag is marked independently of them, keyed off the tool id. Without
+            // this, a plugin-sorting tool could never clear the "unsorted" warning.
+            if (succeeded)
+            {
                 try
                 {
-                    await MarkPluginListSortedAsync(profile, binding, game);
+                    await MarkPluginListSortedAsync(profile, target.Id, game);
                 }
                 catch (Exception ex)
                 {
@@ -231,17 +239,30 @@ public sealed partial class LaunchService
 
     /// <summary>
     /// A successful run of a tool whose definition declares <see cref="ToolDefinition.SortsPluginList"/>
-    /// supersedes the default load order, so the profile's sorted flag is set and persisted. The store
-    /// is the source of truth: the in-memory profile may not be the instance the store holds, so the
-    /// flag is applied to a fresh load-modify-save round trip.
+    /// supersedes the default load order, so the profile's sorted flag is set and persisted. This is
+    /// independent of whether the tool produces output: settings-only sorters (e.g. LOOT) never
+    /// create a binding or pending run, but they still establish an optimized order. The entry's
+    /// <see cref="ToolEntry.Definition"/> is not persisted, so the flag is looked up in the
+    /// definition catalog via the tool's <see cref="ToolEntry.DefinitionId"/>. The profile store is
+    /// the source of truth - the in-memory profile may not be the instance the store holds - so the
+    /// flag is applied to a fresh load-modify-save round trip. A game or a non-sorter tool is a no-op.
     /// </summary>
-    private async Task MarkPluginListSortedAsync(Profile profile, ProfileTool binding, GameEntry? game)
+    private async Task MarkPluginListSortedAsync(Profile profile, string toolId, GameEntry? game)
     {
         if (game?.Definition?.PluginList is null || _toolStore is null || _profileStore is null)
             return;
 
-        var tools = await _toolStore.LoadAsync();
-        if (tools.FirstOrDefault(tool => tool.Id == binding.ToolEntryId)?.Definition?.SortsPluginList != true)
+        var tool = (await _toolStore.LoadAsync()).FirstOrDefault(item => item.Id == toolId);
+        if (tool?.DefinitionId is null)
+            return;
+
+        if (_toolDefinitionStore is null)
+            return;
+
+        var definition = (await _toolDefinitionStore.LoadAsync())
+            .Definitions
+            .FirstOrDefault(item => item.DefinitionId == tool.DefinitionId);
+        if (definition?.SortsPluginList != true)
             return;
 
         var profiles = (await _profileStore.LoadAsync()).ToList();

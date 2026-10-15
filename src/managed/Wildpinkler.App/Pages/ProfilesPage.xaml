@@ -304,14 +304,19 @@
                                 <FontIcon Glyph="&#xE8B7;" />
                             </SelectorBarItem.Icon>
                         </SelectorBarItem>
-                        <SelectorBarItem x:Name="ToolsTab" Text="Tools">
+                        <SelectorBarItem x:Name="PluginsTxtTab" Text="Plugins">
                             <SelectorBarItem.Icon>
-                                <FontIcon Glyph="&#xE90F;" />
+                                <FontIcon Glyph="&#xE8F4;" />
                             </SelectorBarItem.Icon>
                         </SelectorBarItem>
                         <SelectorBarItem x:Name="ContentTab" Text="Content">
                             <SelectorBarItem.Icon>
                                 <FontIcon Glyph="&#xE8A5;" />
+                            </SelectorBarItem.Icon>
+                        </SelectorBarItem>
+                        <SelectorBarItem x:Name="ToolsTab" Text="Tools">
+                            <SelectorBarItem.Icon>
+                                <FontIcon Glyph="&#xE90F;" />
                             </SelectorBarItem.Icon>
                         </SelectorBarItem>
                     </SelectorBar>
@@ -643,6 +648,92 @@
                                 </Border>
                             </Grid>
                         </Grid>
+
+                        <!-- PLUGINS: the authoritative plugins.txt. The list below is the single source of
+                             truth for load order and the enabled (asterisk) state; it is seeded from the
+                             effective mod load order on first use and can be rewritten by a sorting tool. -->
+                        <ScrollViewer x:Name="PluginsTxtSection" VerticalScrollBarVisibility="Auto" Padding="16,16,8,16" Visibility="Collapsed">
+                            <StackPanel Spacing="12" Margin="0,0,8,0">
+                                <Border Style="{StaticResource ContentCardStyle}" Padding="8">
+                                    <StackPanel Spacing="6">
+                                        <Grid ColumnSpacing="8">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Opacity="0.68" VerticalAlignment="Center" Text="Load order, first loads first" />
+                                            <TextBlock Grid.Column="1" VerticalAlignment="Center"
+                                                     Text="{x:Bind PluginOrderStatusText, Mode=OneWay}" />
+                                        </Grid>
+                                        <TextBlock Opacity="0.68" TextWrapping="Wrap"
+                                                   Text="This is the authoritative plugins.txt: Wildpinkler writes it to the game at launch. A leading asterisk marks an enabled plugin. Reorder by dragging a row or with Alt+Up / Alt+Down, or from a row's actions menu. Changes save automatically. A plugin is disabled and its toggle locked while the branch (mod or tool output) that contains it is disabled, and leaves the list when that branch is removed." />
+                                        <ListView x:Name="PluginList" CanDragItems="True" CanReorderItems="True" AllowDrop="True" ReorderMode="Enabled"
+                                                  IsEnabled="{x:Bind IsSelectedProfileModifiable, Mode=OneWay}"
+                                                  DragItemsStarting="PluginList_DragItemsStarting"
+                                                  DragItemsCompleted="PluginList_DragItemsCompleted"
+                                                  ItemContainerStyle="{StaticResource ListRowContainerStyle}" Padding="0,4,0,4"
+                                                  ScrollViewer.VerticalScrollMode="Disabled" ScrollViewer.VerticalScrollBarVisibility="Disabled"
+                                                  ScrollViewer.HorizontalScrollMode="Disabled" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                                            <ListView.ItemTemplate>
+                                                <DataTemplate x:DataType="models:PluginEntry">
+                                                    <Grid x:Name="PluginRowRoot" ColumnSpacing="10" Padding="{StaticResource ListRowPadding}" KeyboardAcceleratorPlacementMode="Hidden">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="Auto" />
+                                                            <ColumnDefinition Width="*" MinWidth="140" />
+                                                            <ColumnDefinition Width="Auto" />
+                                                            <ColumnDefinition Width="44" />
+                                                            <ColumnDefinition Width="Auto" />
+                                                        </Grid.ColumnDefinitions>
+                                                        <Grid.KeyboardAccelerators>
+                                                            <KeyboardAccelerator Modifiers="Menu" Key="Up"
+                                                                                     ScopeOwner="{Binding ElementName=PluginRowRoot}"
+                                                                                     Invoked="MovePluginUp_Invoked" />
+                                                            <KeyboardAccelerator Modifiers="Menu" Key="Down"
+                                                                                     ScopeOwner="{Binding ElementName=PluginRowRoot}"
+                                                                                     Invoked="MovePluginDown_Invoked" />
+                                                        </Grid.KeyboardAccelerators>
+
+                                                        <TextBlock Text="{x:Bind Order, Mode=OneWay}" MinWidth="20"
+                                                                   Style="{StaticResource CaptionTextBlockStyle}"
+                                                                   Opacity="0.68" TextAlignment="Right" VerticalAlignment="Center" />
+                                                        <StackPanel Grid.Column="1" Spacing="3" VerticalAlignment="Center">
+                                                            <TextBlock FontWeight="SemiBold" TextTrimming="CharacterEllipsis" Text="{x:Bind FileName, Mode=OneWay}" />
+                                                            <TextBlock Opacity="0.62" TextTrimming="CharacterEllipsis"
+                                                                       Visibility="{x:Bind SourceFolderName, Converter={StaticResource NonNullToVisibilityConverter}}"
+                                                                       Text="{x:Bind SourceFolderName, Mode=OneWay}" />
+                                                        </StackPanel>
+                                                        <TextBlock Grid.Column="2" VerticalAlignment="Center" Opacity="0.62"
+                                                                   Text="Enabled"
+                                                                   Visibility="{x:Bind IsEnabled, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}" />
+                                                        <ToggleSwitch Grid.Column="3" VerticalAlignment="Center" OnContent="" OffContent=""
+                                                                       IsEnabled="{x:Bind BranchEnabled, Mode=OneWay}"
+                                                                       IsOn="{x:Bind IsEnabled, Mode=TwoWay}" Toggled="PluginEnabled_Toggled"
+                                                                       AutomationProperties.Name="Enable this plugin"
+                                                                       ToolTipService.ToolTip="Enable this plugin (asterisk in the list). Locked while the branch containing it is disabled." />
+                                                        <Button Grid.Column="4" Style="{StaticResource RowDeleteButtonStyle}"
+                                                                ToolTipService.ToolTip="Plugin actions"
+                                                                AutomationProperties.Name="Plugin actions">
+                                                            <FontIcon Glyph="&#xE712;" FontSize="14" />
+                                                            <Button.Flyout>
+                                                                <MenuFlyout>
+                                                                    <MenuFlyoutItem Text="Move up" Click="MovePluginUp_Click"
+                                                                                    KeyboardAcceleratorTextOverride="Alt+Up" />
+                                                                    <MenuFlyoutItem Text="Move down" Click="MovePluginDown_Click"
+                                                                                    KeyboardAcceleratorTextOverride="Alt+Down" />
+                                                                    <MenuFlyoutItem Text="Remove" Click="RemovePlugin_Click" />
+                                                                </MenuFlyout>
+                                                            </Button.Flyout>
+                                                        </Button>
+                                                    </Grid>
+                                                </DataTemplate>
+                                            </ListView.ItemTemplate>
+                                        </ListView>
+                                        <TextBlock x:Name="PluginListEmptyText" Opacity="0.68" TextWrapping="Wrap" Visibility="Collapsed"
+                                                   Text="No plugins are available in this profile's load order." />
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
+                        </ScrollViewer>
                     </Grid>
                 </Grid>
             </Border>

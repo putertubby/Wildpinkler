@@ -15,7 +15,11 @@ public sealed partial class Profile : ObservableObject
     private bool _isRunActive;
     private string _activeRunText = string.Empty;
 
-    public Profile() => LoadOrder.CollectionChanged += (_, _) => Normalize();
+    public Profile()
+    {
+        LoadOrder.CollectionChanged += (_, _) => Normalize();
+        PluginOrder.CollectionChanged += (_, _) => NormalizePluginOrder();
+    }
 
     public string Id { get; set; } = string.Empty;
     public string Name { get => _name; set => SetProperty(ref _name, value); }
@@ -54,6 +58,17 @@ public sealed partial class Profile : ObservableObject
 
     /// <summary>Profile-level merged views: added or overridden by name after the game's and tools'.</summary>
     public List<MergedView> MergedViews { get; set; } = new();
+
+    /// <summary>
+    /// The profile's authoritative plugin list (plugins.txt): the single source of truth for the
+    /// order plugins load and whether each is enabled (a leading asterisk). Empty until first used
+    /// - the plugins tab seeds it from the profile's effective mod load order, and a
+    /// plugin-sorting tool can rewrite it afterwards. Like <see cref="LoadOrder"/>, the property
+    /// is get-only so System.Text.Json populates this same instance in place on deserialize,
+    /// keeping the constructor's CollectionChanged subscription live.
+    /// </summary>
+    [JsonObjectCreationHandling(JsonObjectCreationHandling.Populate)]
+    public ObservableCollection<PluginEntry> PluginOrder { get; } = new();
 
     /// <summary>
     /// True when a plugin-sorting tool (e.g. LOOT) has established an optimized plugin load order
@@ -123,6 +138,15 @@ public sealed partial class Profile : ObservableObject
             LoadOrder[index].Order = index + 1;
 
         NotifySummaryChanged();
+    }
+
+    // Recomputes each plugin row's cached Order from its collection position (the authoritative
+    // order). The collection position itself is never changed here, so this can be called safely
+    // from the PluginOrder CollectionChanged hook without re-entering a ListView's drag bookkeeping.
+    private void NormalizePluginOrder()
+    {
+        for (var index = 0; index < PluginOrder.Count; index++)
+            PluginOrder[index].Order = index + 1;
     }
 
     /// <summary>

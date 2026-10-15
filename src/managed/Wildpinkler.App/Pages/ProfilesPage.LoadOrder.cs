@@ -113,6 +113,17 @@ public sealed partial class ProfilesPage
         // Enabling/disabling a folder changes which plugins load, so a sorted order no longer applies.
         profile.PluginListSorted = false;
 
+        // Branch state gates the plugin list regardless of which tab is showing (the branch rows are
+        // on the Views tab, so the Plugins tab is usually collapsed here): auto-disable a plugin
+        // whose branch was disabled (remembering its state) and re-enable it on restore. This only
+        // mutates the model; the on-disk plugins.txt is refreshed when the Plugins tab is visible.
+        if (profile.PluginOrder.Count > 0)
+        {
+            ApplyBranchState(profile);
+            if (PluginsTxtSection.Visibility == Visibility.Visible)
+                UiTask.Run(() => ApplyPluginsTxtChangeAsync(isReorder: false), nameof(FolderEnabled_Toggled), ShowLoadOrderError);
+        }
+
         // Toggling a local tool's output row is the same act as toggling its capture in the Tools card:
         // a row with no definition to lean on is only live when it captures.
         if (folder.Kind == ProfileFolderKind.ToolOutput && folder.ToolEntryId is { Length: > 0 })

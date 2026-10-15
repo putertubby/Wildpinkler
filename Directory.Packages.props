@@ -15,6 +15,14 @@
     <PackageVersion Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2705" />
     <PackageVersion Include="Microsoft.WindowsAppSDK" Version="1.7.260224002" />
     <PackageVersion Include="SixLabors.ImageSharp" Version="3.1.12" />
+    <!-- 4.x is the first ImageSharp line that fixes these advisories, but it requires a commercial
+         license for Release builds. Until a license is procured (or the decoder is migrated to
+         another library), suppress the known 3.1.12 advisories so builds pass. -->
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-gwg2-r3hj-4w44" PackageId="SixLabors.ImageSharp" />
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-j3p4-wp97-rph4" PackageId="SixLabors.ImageSharp" />
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-j9gm-c75j-xc9q" PackageId="SixLabors.ImageSharp" />
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-jjfr-hcj7-qf5w" PackageId="SixLabors.ImageSharp" />
+    <NuGetAuditSuppress Include="https://github.com/advisories/GHSA-wmxv-xphr-5c9g" PackageId="SixLabors.ImageSharp" />
     <PackageVersion Include="OpenAI" Version="2.13.0" />
     <PackageVersion Include="SharpCompress" Version="0.48.1" />
     <PackageVersion Include="SharpSevenZip" Version="2.0.128" />
