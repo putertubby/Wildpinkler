@@ -4,20 +4,34 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.WindowsRuntime;
 using System.Runtime.Versioning;
+using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
+using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.PixelFormats;
+using Windows.Storage;
+using Windows.Storage.FileProperties;
 
 namespace Wildpinkler.App.Services.Games;
 
 /// <summary>
 /// Extracts the icon embedded in a tool's executable so the toolset UI can show it. Results are
 /// cached by path and last-write time so a re-scanned tool does not re-enter COM.
-/// <see cref="PrivateExtractIconsW"/> asks the shell for a 32×32 face; <see cref="DrawIconEx"/>
-/// composites the HICON onto a 32-bit BI_BITFIELDS DIB section (CreateDIBSection), whose BGRA
-/// pixels are premultiplied and copied into a <see cref="WriteableBitmap"/> — no decode, no
-/// encode, no temp file.
+/// <para>
+/// Primary path: <c>StorageFile.GetThumbnailAsync(ThumbnailMode.SingleItem)</c> asks the Windows
+/// thumbnail compositor for a rendered file icon. The compositor ignores the icon's embedded
+/// alpha, so executables whose only icon resource has an all-transparent alpha channel (RGB
+/// present but alpha 0 everywhere) still produce a visible bitmap — e.g. Bethini.exe. The
+/// thumbnail is a BMP stream, decoded with ImageSharp into straight BGRA.
+/// </para>
+/// <para>
+/// Fallback path: <see cref="PrivateExtractIconsW"/> asks the shell for a 32×32 face;
+/// <see cref="DrawIconEx"/> composites the HICON onto a 32-bit BI_BITFIELDS DIB section
+/// (CreateDIBSection), whose BGRA pixels are premultiplied and copied into a
+/// <see cref="WriteableBitmap"/>. Used when the thumbnail path fails or is unavailable.
+/// </para>
 /// </summary>
 [SupportedOSPlatform("windows")]
 public sealed partial class ToolIconService
@@ -57,9 +71,68 @@ public sealed partial class ToolIconService
             if (_cache.TryGetValue(key, out var source))
                 return source;
 
-            ImageSource? loaded = TryLoadFromHandle(path);
+            ImageSource? loaded = TryLoadFromThumbnail(path);
+            loaded ??= TryLoadFromHandle(path);
             _cache[key] = loaded;
             return loaded;
+        }
+    }
+
+    /// <summary>
+    /// Returns the thumbnail-composited icon for <paramref name="path"/>, or <c>null</c>.
+    /// Must be called on the UI thread (the resulting <see cref="WriteableBitmap"/> is a
+    /// WinRT object owned by that thread).
+    /// </summary>
+    private ImageSource? TryLoadFromThumbnail(string path)
+    {
+        // Blocking on the WinRT storage API is safe: its continuation hops to a thread-pool
+        // thread, never back onto the UI thread, so .GetAwaiter().GetResult() cannot deadlock.
+        try
+        {
+            var file = StorageFile.GetFileFromPathAsync(path).AsTask().GetAwaiter().GetResult();
+            using var thumbnail = file.GetThumbnailAsync(ThumbnailMode.SingleItem, IconSize).AsTask().GetAwaiter().GetResult();
+            if (thumbnail is null)
+                return null;
+
+            // StorageItemThumbnail is an IRandomAccessStream; read the whole BMP into memory.
+            byte[] bytes;
+            using (var stream = thumbnail.AsStreamForRead())
+            using (var memory = new MemoryStream())
+            {
+                stream.CopyTo(memory);
+                bytes = memory.ToArray();
+            }
+
+            // The thumbnail is a straight (unpremultiplied) image; decode and hand it to the
+            // same premultiply + WriteableBitmap path used for the DIB fallback.
+            using var image = Image.Load<Bgra32>(bytes);
+            var bgra = new byte[image.Width * image.Height * 4];
+            image.ProcessPixelRows(ctx =>
+            {
+                for (var row = 0; row < ctx.Height; row++)
+                {
+                    var pixels = ctx.GetRowSpan(row);
+                    for (var col = 0; col < ctx.Width; col++)
+                    {
+                        var pixel = pixels[col];
+                        var offset = (row * ctx.Width + col) * 4;
+                        bgra[offset + 0] = pixel.B;
+                        bgra[offset + 1] = pixel.G;
+                        bgra[offset + 2] = pixel.R;
+                        bgra[offset + 3] = pixel.A;
+                    }
+                }
+            });
+
+            var source = CreateBitmapSourceFromBgra(bgra, image.Width, image.Height);
+            if (source is not null)
+                LogLoaded(path, image.Width, image.Height);
+            return source;
+        }
+        catch (Exception exception)
+        {
+            LogThumbnailFailed(path, exception);
+            return null;
         }
     }
 
@@ -227,6 +300,9 @@ public sealed partial class ToolIconService
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Tool icon skipped for '{Path}': path empty or file missing.")]
     private partial void LogSkipped(string path);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Tool thumbnail failed for '{Path}'.")]
+    private partial void LogThumbnailFailed(string path, Exception exception);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Tool icon failed at PrivateExtractIconsW for '{Path}': extracted={Extracted}.")]
     private partial void LogFailedPrivateExtractIcons(string path, uint extracted);
