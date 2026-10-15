@@ -21,6 +21,8 @@
 
             <StackPanel Spacing="12">
                 <TextBlock Style="{StaticResource SectionLabelStyle}" Text="GENERAL" />
+                <TextBox x:Name="DefinitionIdBox" Header="Definition id"
+                         PlaceholderText="my-game" TextChanged="Field_Changed" />
                 <TextBox x:Name="NameBox" Header="Name" TextChanged="Field_Changed" />
                 <TextBox x:Name="DescriptionBox" Header="Description" TextChanged="Field_Changed" />
                 <Grid ColumnSpacing="12">

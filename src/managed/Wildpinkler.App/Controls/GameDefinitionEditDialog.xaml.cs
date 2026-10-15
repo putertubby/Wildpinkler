@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -10,19 +11,50 @@ namespace Wildpinkler.App.Controls;
 public sealed partial class GameDefinitionEditDialog : ContentDialog
 {
     private readonly GameDefinition _source;
+    private readonly bool _isNew;
+    private readonly HashSet<string> _existingDefinitionIds;
 
+    /// <summary>Opens the dialog in edit mode; the id cannot be changed in place.</summary>
     public GameDefinitionEditDialog(GameDefinition definition)
+        : this(definition, existingDefinitionIds: null, isNew: false)
+    {
+    }
+
+    /// <summary>
+    /// When <paramref name="isNew"/> is true the dialog authors a new definition: the id is editable and
+    /// must not collide with any id in <paramref name="existingDefinitionIds"/> (built-in or user layer).
+    /// </summary>
+    public GameDefinitionEditDialog(
+        GameDefinition definition,
+        IReadOnlyCollection<string>? existingDefinitionIds,
+        bool isNew)
     {
         InitializeComponent();
         // ContentDialog subclasses don't reliably inherit the implicit style from XAML alone.
         Style = (Style)Application.Current.Resources["DefaultContentDialogStyle"];
 
         _source = definition;
+        _isNew = isNew;
+        _existingDefinitionIds = existingDefinitionIds is not null
+            ? new HashSet<string>(existingDefinitionIds, StringComparer.OrdinalIgnoreCase)
+            : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        DefinitionBar.Title = $"{definition.DefinitionId} (v{definition.DefinitionVersion})";
-        DefinitionBar.Message = definition.IsBuiltIn
-            ? "Saving stores a personal copy that overrides the built-in definition."
-            : $"Editing the imported definition '{definition.DefinitionId}'.";
+        if (_isNew)
+        {
+            Title = "Add definition";
+            DefinitionBar.Title = "New game definition";
+            DefinitionBar.Message = "The definition is created in your local library. Use Export definition to share it.";
+            DefinitionIdBox.PlaceholderText = "my-game";
+        }
+        else
+        {
+            DefinitionBar.Title = $"{definition.DefinitionId} (v{definition.DefinitionVersion})";
+            DefinitionBar.Message = definition.IsBuiltIn
+                ? "Saving stores a personal copy that overrides the built-in definition."
+                : $"Editing the imported definition '{definition.DefinitionId}'.";
+            DefinitionIdBox.Text = definition.DefinitionId;
+            DefinitionIdBox.IsEnabled = false;
+        }
 
         NameBox.Text = definition.Name;
         DescriptionBox.Text = definition.Description;
@@ -47,6 +79,7 @@ public sealed partial class GameDefinitionEditDialog : ContentDialog
     public GameDefinition BuildResult()
     {
         var result = _source.Clone();
+        result.DefinitionId = DefinitionIdBox.Text.Trim();
         result.Name = NameBox.Text.Trim();
         result.Description = DescriptionBox.Text.Trim();
         result.Author = AuthorBox.Text.Trim();
@@ -79,6 +112,10 @@ public sealed partial class GameDefinitionEditDialog : ContentDialog
 
     private string FindError()
     {
+        // A new definition's id is its identity (file name, override key); it must not collide.
+        if (_isNew && _existingDefinitionIds.Contains(DefinitionIdBox.Text.Trim()))
+            return "A definition with this id already exists.";
+
         // Duplicates collapse into the built collections, so they have to be caught before validating the draft.
         if (VariablesInput.FindError() is { } variableError)
             return variableError;

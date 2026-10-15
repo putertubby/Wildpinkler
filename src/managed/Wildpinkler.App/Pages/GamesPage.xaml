@@ -39,6 +39,8 @@
                 <AppBarButton x:Name="EditGameButton" Command="{x:Bind EditGameCommand}" Icon="Edit" Label="Edit"
                               ToolTipService.ToolTip="Edit the selected game" />
                 <CommandBar.SecondaryCommands>
+                    <AppBarButton x:Name="AddDefinitionButton" Command="{x:Bind AddDefinitionCommand}" Icon="Add" Label="Add definition"
+                                  ToolTipService.ToolTip="Create a new game definition in your local library" />
                     <AppBarButton x:Name="EditDefinitionButton" Command="{x:Bind EditDefinitionCommand}" Icon="Setting" Label="Edit definition"
                                   ToolTipService.ToolTip="Edit the selected game's definition" />
                     <AppBarButton x:Name="ImportDefinitionButton" Command="{x:Bind ImportDefinitionCommand}" Icon="Import" Label="Import definition"

@@ -554,6 +554,29 @@ public sealed partial class ToolsPage : PageBase
         Enqueue("Save tool", () => _store.SaveAsync(_allTools.ToList()));
     }
 
+    [RelayCommand]
+    private async Task AddDefinitionAsync()
+    {
+        var draft = new ToolDefinition();
+        var existingIds = _definitions.Select(definition => definition.DefinitionId).ToList();
+        var dialog = new ToolDefinitionEditDialog(draft, existingIds, isNew: true) { XamlRoot = XamlRoot };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+            return;
+
+        var definition = dialog.BuildResult();
+        Enqueue("Add definition", async () =>
+        {
+            await _definitionStore.SaveUserAsync(definition);
+            var catalog = await _definitionStore.LoadAsync();
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                _definitions = catalog.Definitions;
+                ApplyDefinitions();
+                RefreshTools();
+            });
+        });
+    }
+
     private bool CanEditDefinition() => ToolList.SelectedItems.Count == 1 && ToolList.SelectedItem is ToolEntry { Definition: not null };
 
     [RelayCommand(CanExecute = nameof(CanEditDefinition))]

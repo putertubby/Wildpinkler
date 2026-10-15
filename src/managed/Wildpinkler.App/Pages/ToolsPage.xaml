@@ -41,6 +41,8 @@
                 <CommandBar.SecondaryCommands>
                     <AppBarButton x:Name="SetGameAssociationButton" Command="{x:Bind SetGameAssociationCommand}" Label="Set game association..."
                                   ToolTipService.ToolTip="Associate the selected tool(s) with one or more games, or all games" />
+                    <AppBarButton x:Name="AddDefinitionButton" Command="{x:Bind AddDefinitionCommand}" Icon="Add" Label="Add definition"
+                                  ToolTipService.ToolTip="Create a new tool definition in your local library" />
                     <AppBarButton x:Name="EditDefinitionButton" Command="{x:Bind EditDefinitionCommand}" Icon="Setting" Label="Edit definition"
                                   ToolTipService.ToolTip="Edit the selected tool's definition" />
                     <AppBarButton x:Name="ImportDefinitionButton" Command="{x:Bind ImportDefinitionCommand}" Icon="Import" Label="Import definition"

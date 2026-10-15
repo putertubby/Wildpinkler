@@ -378,6 +378,29 @@ public sealed partial class GamesPage : PageBase
         Enqueue("Save game", () => _store.SaveAsync(_allGames.ToList()));
     }
 
+    [RelayCommand]
+    private async Task AddDefinitionAsync()
+    {
+        var draft = new GameDefinition();
+        var existingIds = _definitions.Select(definition => definition.DefinitionId).ToList();
+        var dialog = new GameDefinitionEditDialog(draft, existingIds, isNew: true) { XamlRoot = XamlRoot };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+            return;
+
+        var definition = dialog.BuildResult();
+        Enqueue("Add definition", async () =>
+        {
+            await _definitionStore.SaveUserAsync(definition);
+            var catalog = await _definitionStore.LoadAsync();
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                _definitions = catalog.Definitions;
+                ApplyDefinitions();
+                RefreshGames();
+            });
+        });
+    }
+
     private bool CanEditDefinition() => GameList.SelectedItems.Count == 1 && GameList.SelectedItem is GameEntry { Definition: not null };
 
     [RelayCommand(CanExecute = nameof(CanEditDefinition))]
