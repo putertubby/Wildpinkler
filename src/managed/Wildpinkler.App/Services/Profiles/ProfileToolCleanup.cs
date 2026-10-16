@@ -45,6 +45,25 @@ public static class ProfileToolCleanup
     }
 
     /// <summary>
+    /// Handles the user manually removing a tool's output branch from the load order: the branch's
+    /// tool's per-profile capture is disabled, so the branch is not recreated by the background
+    /// ensure pass and the tool's next run writes straight into the profile overlay.
+    /// Returns <c>true</c> when a capture flag was disabled.
+    /// </summary>
+    public static bool OnToolOutputBranchRemoved(Profile profile, ProfileFolder folder)
+    {
+        if (folder.Kind != ProfileFolderKind.ToolOutput || folder.ToolEntryId is not { Length: > 0 })
+            return false;
+
+        var binding = profile.Tools.FirstOrDefault(item => item.ToolEntryId == folder.ToolEntryId);
+        if (binding is null || !binding.CapturesOutput)
+            return false;
+
+        binding.CapturesOutput = false;
+        return true;
+    }
+
+    /// <summary>
     /// Disables every tool discovered from <paramref name="folderId"/>: drops its bindings and its
     /// tool-output folders, but keeps the local tool records so their role memory (name, args)
     /// survives a later re-enable of the folder.

@@ -333,6 +333,75 @@ public sealed class ProfileFolderServiceTests : IDisposable
     }
 
     [Fact]
+    public void EnsureToolOutputRow_LocalToolCaptureOff_NoRow_CreatesNoRow()
+    {
+        var (profile, binding, tool, service) = CreateProvisionedProfile();
+        binding.CapturesOutput = false;
+
+        var result = service.EnsureToolOutputRow(profile, binding, tool);
+
+        Assert.Null(result);
+        Assert.DoesNotContain(profile.LoadOrder, folder => folder.Kind == ProfileFolderKind.ToolOutput);
+    }
+
+    [Fact]
+    public void EnsureToolOutputRow_LocalToolCaptureOn_NoRow_CreatesEnabledRow()
+    {
+        var (profile, binding, tool, service) = CreateProvisionedProfile();
+        binding.CapturesOutput = true;
+
+        var folder = service.EnsureToolOutputRow(profile, binding, tool);
+
+        Assert.NotNull(folder);
+        Assert.True(folder!.IsEnabled);
+        Assert.Equal(binding.OutputFolderId, folder.Id);
+    }
+
+    [Fact]
+    public void EnsureToolOutputRow_ExistingLocalRowCaptureOff_KeepsIsEnabled()
+    {
+        var (profile, binding, tool, service) = CreateProvisionedProfile();
+        binding.CapturesOutput = true;
+        var folder = service.EnsureToolOutputRow(profile, binding, tool)!;
+        // The user manually disables the branch (independent of the capture flag).
+        folder.IsEnabled = false;
+
+        binding.CapturesOutput = false;
+        var rechecked = service.EnsureToolOutputRow(profile, binding, tool);
+
+        Assert.Same(folder, rechecked);
+        Assert.False(folder.IsEnabled, "An existing branch's enabled state must not be force-written.");
+    }
+
+    [Fact]
+    public void EnsureToolOutputRows_DoesNotResurrectRemovedLocalRow()
+    {
+        var (profile, binding, tool, service) = CreateProvisionedProfile();
+        binding.CapturesOutput = true;
+        service.EnsureToolOutputRow(profile, binding, tool);
+        // The user manually removes the branch and its capture is disabled accordingly.
+        profile.LoadOrder.Remove(GetToolOutputFolderEntry(profile));
+        binding.CapturesOutput = false;
+
+        service.EnsureToolOutputRows(profile, new[] { tool });
+
+        Assert.DoesNotContain(profile.LoadOrder, folder => folder.Kind == ProfileFolderKind.ToolOutput);
+    }
+
+    [Fact]
+    public void EnsureToolOutputRow_DefinitionTool_NeverCreatesRow()
+    {
+        // Definition-backed tools are always settings-only: no capture, no output branch.
+        var (profile, binding, tool, service) = CreateProvisionedProfile();
+        tool.Definition = new ToolDefinition { DefinitionId = "tool" };
+
+        var result = service.EnsureToolOutputRow(profile, binding, tool);
+
+        Assert.Null(result);
+        Assert.DoesNotContain(profile.LoadOrder, folder => folder.Kind == ProfileFolderKind.ToolOutput);
+    }
+
+    [Fact]
     public void ClearToolOutput_ResetsToVersionOne()
     {
         var (profile, binding, tool, service) = CreateProvisionedProfile();

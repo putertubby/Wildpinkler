@@ -162,7 +162,6 @@ public sealed class LaunchServiceTests : IDisposable
               "definitionVersion": 1,
               "author": "Wildpinkler",
               "description": "Test tool for sorted-flag behavior.",
-              "producesOutput": false,
               "sortsPluginList": __sorter__,
               "executableRelativePath": "tool.exe",
               "detectionMarkers": [
@@ -185,8 +184,8 @@ public sealed class LaunchServiceTests : IDisposable
             }
         });
 
-        // A settings-only tool: ProducesOutput=false means the page never creates a binding, so
-        // target.Id ("tool") is the only handle to the tool.
+        // A settings-only tool (definition-backed tools never capture) means the page never
+        // creates a binding, so target.Id ("tool") is the only handle to the tool.
         var target = new LaunchTarget(
             "tool", "Tool", LaunchTargetKind.Tool, executable, string.Empty, _root, executable, _root,
             Array.Empty<MergedView>(), new Dictionary<string, string>(), Array.Empty<string>(), "profile.tool.json", false, string.Empty,

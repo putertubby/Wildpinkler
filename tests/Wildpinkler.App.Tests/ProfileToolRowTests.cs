@@ -111,36 +111,25 @@ public sealed class ProfileToolRowTests
     }
 
     [Fact]
-    public void SettingsOnlyTool_OutputSectionHidden()
+    public void DefinitionTool_NeverCaptures_ToggleAndSectionHidden()
     {
+        // Definition-backed tools are always settings-only: the capture toggle and output
+        // section stay hidden even when a legacy binding carries a stale CapturesOutput=true.
+        // The effective capture decision (ProfileTool.EffectiveProducesOutput) is false for
+        // definition tools, which is what actually gates launch and load-order behavior.
         var tool = CreateTool("tool-h", "C:\\Tools", "run.exe");
         tool.Definition = new ToolDefinition
         {
             DefinitionId = "def-h",
-            ExecutableRelativePath = "run.exe",
-            ProducesOutput = false
-        };
-
-        var row = new ProfileToolRow(tool, null);
-
-        Assert.False(row.ProducesOutput);
-        Assert.Equal(Visibility.Collapsed, row.OutputSectionVisibility);
-    }
-
-    [Fact]
-    public void OutputProducingTool_OutputSectionVisible()
-    {
-        var tool = CreateTool("tool-i", "C:\\Tools", "run.exe");
-        tool.Definition = new ToolDefinition
-        {
-            DefinitionId = "def-i",
             ExecutableRelativePath = "run.exe"
         };
 
-        var row = new ProfileToolRow(tool, null);
+        var row = new ProfileToolRow(tool, new ProfileTool { CapturesOutput = true, IsEnabled = true });
 
-        Assert.True(row.ProducesOutput);
-        Assert.Equal(Visibility.Visible, row.OutputSectionVisibility);
+        Assert.False(ProfileTool.EffectiveProducesOutput(row.Tool, row.Binding));
+        Assert.Equal(Visibility.Collapsed, row.CaptureToggleVisibility);
+        Assert.Equal(Visibility.Collapsed, row.OutputSectionVisibility);
+        Assert.Equal("Tool \u00b7 settings only", row.KindText);
     }
 
     [Fact]
@@ -164,41 +153,22 @@ public sealed class ProfileToolRowTests
     }
 
     [Fact]
-    public void DefinitionTool_ProducesOutput_FlagCannotBeToggled()
+    public void DefinitionTool_CaptureToggleHidden_OutputSectionHidden_EvenWithStaleBindingFlag()
     {
-        var tool = CreateTool("tool-m", "C:\\Tools", "run.exe");
-        tool.Definition = new ToolDefinition
-        {
-            DefinitionId = "def-m",
-            ExecutableRelativePath = "run.exe",
-            ProducesOutput = true
-        };
-
-        var row = new ProfileToolRow(tool, new ProfileTool());
-
-        Assert.True(row.CapturesOutput);
-        row.CapturesOutput = false;
-
-        Assert.True(row.CapturesOutput);
-    }
-
-    [Fact]
-    public void DefinitionTool_SettingsOnly_FlagCannotBeToggled()
-    {
+        // Definition-backed tools never capture. A legacy binding may still carry a stale
+        // CapturesOutput=true, so the row must hide both the capture toggle and the output
+        // section regardless of what the binding says.
         var tool = CreateTool("tool-n", "C:\\Tools", "run.exe");
         tool.Definition = new ToolDefinition
         {
             DefinitionId = "def-n",
-            ExecutableRelativePath = "run.exe",
-            ProducesOutput = false
+            ExecutableRelativePath = "run.exe"
         };
 
-        var row = new ProfileToolRow(tool, new ProfileTool { CapturesOutput = true });
+        var row = new ProfileToolRow(tool, new ProfileTool { CapturesOutput = true, IsEnabled = true });
 
-        Assert.False(row.CapturesOutput);
-        row.CapturesOutput = true;
-
-        Assert.False(row.CapturesOutput);
+        Assert.Equal(Visibility.Collapsed, row.CaptureToggleVisibility);
+        Assert.Equal(Visibility.Collapsed, row.OutputSectionVisibility);
     }
 
     [Fact]

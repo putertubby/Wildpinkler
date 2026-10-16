@@ -24,9 +24,6 @@ public sealed class ToolDefinition : IDefinition
     /// <summary>Game definition ids this tool supports; empty means any game.</summary>
     public List<string> SupportedGameDefinitions { get; set; } = new();
 
-    /// <summary>False for a tool that only changes settings: it gets no per-profile output folder and adds nothing to the profile merged view.</summary>
-    public bool ProducesOutput { get; set; } = true;
-
     /// <summary>
     /// True when a completed run of this tool establishes an optimized plugin load order
     /// (e.g. LOOT writing the game's plugins.txt); Wildpinkler then considers the profile's
@@ -79,7 +76,6 @@ public sealed class ToolDefinition : IDefinition
         Author = Author,
         Description = Description,
         SupportedGameDefinitions = new List<string>(SupportedGameDefinitions),
-        ProducesOutput = ProducesOutput,
         SortsPluginList = SortsPluginList,
         ExecutableRelativePath = ExecutableRelativePath,
         WorkingDirectory = WorkingDirectory,
@@ -96,7 +92,6 @@ public sealed class ToolDefinition : IDefinition
         Name == other.Name &&
         Author == other.Author &&
         Description == other.Description &&
-        ProducesOutput == other.ProducesOutput &&
         SortsPluginList == other.SortsPluginList &&
         ExecutableRelativePath == other.ExecutableRelativePath &&
         WorkingDirectory == other.WorkingDirectory &&

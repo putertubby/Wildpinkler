@@ -59,6 +59,61 @@ public sealed class ProfileToolCleanupTests
         IsEnabled = true
     };
 
+    // ---- OnToolOutputBranchRemoved ----
+
+    [Fact]
+    public void OnToolOutputBranchRemoved_DisablesLocalToolCapture()
+    {
+        var profile = CreateProfile(Array.Empty<ProfileFolder>());
+        var binding = CreateBinding("tool-1");
+        binding.CapturesOutput = true;
+        profile.Tools.Add(binding);
+        var folder = CreateToolOutputFolder("tool-1");
+
+        var changed = ProfileToolCleanup.OnToolOutputBranchRemoved(profile, folder);
+
+        Assert.True(changed);
+        Assert.False(binding.CapturesOutput);
+    }
+
+    [Fact]
+    public void OnToolOutputBranchRemoved_AlreadyOff_ReturnsFalse()
+    {
+        var profile = CreateProfile(Array.Empty<ProfileFolder>());
+        var binding = CreateBinding("tool-1");
+        binding.CapturesOutput = false;
+        profile.Tools.Add(binding);
+
+        var changed = ProfileToolCleanup.OnToolOutputBranchRemoved(profile, CreateToolOutputFolder("tool-1"));
+
+        Assert.False(changed);
+        Assert.False(binding.CapturesOutput);
+    }
+
+    [Fact]
+    public void OnToolOutputBranchRemoved_NoBinding_ReturnsFalse()
+    {
+        var profile = CreateProfile(Array.Empty<ProfileFolder>());
+
+        var changed = ProfileToolCleanup.OnToolOutputBranchRemoved(profile, CreateToolOutputFolder("tool-1"));
+
+        Assert.False(changed);
+    }
+
+    [Fact]
+    public void OnToolOutputBranchRemoved_NonToolOutputFolder_ReturnsFalse()
+    {
+        var profile = CreateProfile(Array.Empty<ProfileFolder>());
+        var binding = CreateBinding("tool-1");
+        binding.CapturesOutput = true;
+        profile.Tools.Add(binding);
+
+        var changed = ProfileToolCleanup.OnToolOutputBranchRemoved(profile, CreateModFolder("mod-1", "MyMod", "C:\\mods\\MyMod"));
+
+        Assert.False(changed);
+        Assert.True(binding.CapturesOutput);
+    }
+
     // ---- RemoveToolsForFolder ----
 
     [Fact]

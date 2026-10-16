@@ -96,8 +96,9 @@ public sealed partial class ProfilesPage
 
     private void FolderEnabled_Toggled(object sender, RoutedEventArgs args)
     {
-        // Same same-event ordering hazard as ToolEnabled_Toggled: read the switch's own state directly
-        // rather than trusting the x:Bind TwoWay push has already landed on the model.
+        // The switch is bound OneWay, so this handler is the single writer of folder.IsEnabled -
+        // read the switch's own state directly so a container re-realization re-firing Toggled
+        // with the value the model already has can never be mistaken for a real change.
         if (SelectedProfile is not { } profile || !_runAccess.CanModify(profile))
             return;
 
@@ -124,18 +125,11 @@ public sealed partial class ProfilesPage
                 UiTask.Run(() => ApplyPluginsTxtChangeAsync(isReorder: false), nameof(FolderEnabled_Toggled), ShowLoadOrderError);
         }
 
-        // Toggling a local tool's output row is the same act as toggling its capture in the Tools card:
-        // a row with no definition to lean on is only live when it captures.
-        if (folder.Kind == ProfileFolderKind.ToolOutput && folder.ToolEntryId is { Length: > 0 })
-        {
-            var binding = profile.Tools.FirstOrDefault(item => item.ToolEntryId == folder.ToolEntryId);
-            if (binding is not null && binding.CapturesOutput != toggle.IsOn)
-            {
-                binding.CapturesOutput = toggle.IsOn;
-                RefreshTools(profile);
-            }
-        }
-
+        // A tool-output branch's toggle is independent of the tool's capture setting: it only
+        // decides whether already-captured output is included in the merged view for the game
+        // and other tools. Where a tool run's output goes (its own branch vs. the overlay) is
+        // decided by "Capture tool output" in the Tools card - and while the tool runs, its
+        // pending output version is always mounted on top and writable, regardless of this row.
         RefreshWorkspace();
         Save("Save load order");
         UiTask.Run(() => RefreshDependencyIssuesAsync(profile), nameof(FolderEnabled_Toggled), ShowLoadOrderError);
@@ -302,6 +296,15 @@ public sealed partial class ProfilesPage
         if ((sender as FrameworkElement)?.DataContext is ProfileFolder { IsLocked: false } folder)
         {
             var removedModId = folder.ModId;
+
+            // Manually removing a tool's output branch disables that tool's per-profile capture so
+            // the branch is not resurrected and future runs write to the overlay.
+            if (ProfileToolCleanup.OnToolOutputBranchRemoved(profile, folder))
+            {
+                RefreshTools(profile);
+                Save("Save profile tools");
+            }
+
             profile.LoadOrder.Remove(folder);
 
             // Tools discovered from this mod folder leave with it; otherwise they become ghost

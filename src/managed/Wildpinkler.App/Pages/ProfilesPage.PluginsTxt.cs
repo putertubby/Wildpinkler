@@ -254,7 +254,9 @@ public sealed partial class ProfilesPage
 
     private void PluginEnabled_Toggled(object sender, RoutedEventArgs args)
     {
-        // Read the switch's own state directly so a same-event ordering race can never read a stale value.
+        // The switch is bound OneWay, so this handler is the single writer of entry.IsEnabled -
+        // read the switch's own state directly so a container re-realization re-firing Toggled
+        // with the value the entry already has can never be mistaken for a real change.
         if (sender is not ToggleSwitch { DataContext: PluginEntry entry } toggle)
             return;
 

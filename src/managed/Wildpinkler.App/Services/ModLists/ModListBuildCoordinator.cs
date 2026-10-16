@@ -469,8 +469,6 @@ public sealed class ModListBuildCoordinator
                 MergedViewOverrides = requirement.MergedViewOverrides.Select(view => view.Clone()).ToList()
             };
             profile.Tools.Add(binding);
-            if (tool.Definition?.ProducesOutput == true)
-                _provisioner.EnableTool(profile, binding, tool);
         }
 
         // Assembling folders or tools changes the effective load order, so the profile's plugin

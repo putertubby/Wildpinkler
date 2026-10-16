@@ -82,7 +82,7 @@ public sealed partial class ProfilesPage
             var iconService = AppHost.Get<ToolIconService>();
             foreach (var row in _toolRows)
             {
-                if (row.ProducesOutput)
+                if (row.CapturesOutput)
                     row.SetOutputFolder(ProfileFolderService.GetToolOutputFolder(profile, row.Tool.Id, row.OutputVersion));
 
                 row.Icon = iconService.TryGetIcon(row.Tool.ExecutablePath);
@@ -136,8 +136,9 @@ public sealed partial class ProfilesPage
     // disabled until capture is turned on - the same ApplyToolBindings path the capture toggle uses.
     private void ToolEnabled_Toggled(object sender, RoutedEventArgs args)
     {
-        // Don't rely on the x:Bind TwoWay push having already run before this handler - read the
-        // switch's own state directly so a same-event ordering race can never read a stale IsEnabled.
+        // The switch is bound OneWay, so this handler is the single writer of row.IsEnabled -
+        // read the switch's own state directly so a container re-realization re-firing Toggled
+        // with the value the row already has can never be mistaken for a real change.
         if (sender is not ToggleSwitch { DataContext: ProfileToolRow row } toggle)
             return;
 
@@ -153,7 +154,9 @@ public sealed partial class ProfilesPage
 
     private void CaptureOutput_Toggled(object sender, RoutedEventArgs args)
     {
-        // Read the switch's own state directly for the same reason ToolEnabled_Toggled does.
+        // The switch is bound OneWay, so this handler is the single writer of row.CapturesOutput -
+        // read the switch's own state directly so a container re-realization re-firing Toggled
+        // with the value the row already has can never be mistaken for a real change.
         if (sender is not ToggleSwitch { DataContext: ProfileToolRow row } toggle)
             return;
 

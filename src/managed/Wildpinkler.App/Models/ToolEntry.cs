@@ -198,7 +198,9 @@ public sealed partial class ToolEntry : ObservableObject
     {
         get
         {
-            var baseKind = (Definition?.ProducesOutput ?? false) ? "Tool" : "Tool \u00b7 settings only";
+            // Every tool starts as "settings only"; a local (definition-less) tool that captures
+            // output flips this prefix back to "Tool" in its row.
+            var baseKind = "Tool \u00b7 settings only";
             if (SourceKind == ToolSourceKind.Discovered)
             {
                 if (string.IsNullOrEmpty(OriginModName))

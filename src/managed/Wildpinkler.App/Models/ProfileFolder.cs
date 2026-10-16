@@ -95,6 +95,16 @@ public sealed partial class ProfileFolder : ObservableObject
     [JsonIgnore]
     public bool IsModOrToolBranch => Kind == ProfileFolderKind.Mod || Kind == ProfileFolderKind.ToolOutput;
 
+    /// <summary>
+    /// The enable toggle's tooltip. A tool-output branch's toggle is independent of the tool's
+    /// capture setting: it only decides whether already-captured output is included in the merged
+    /// view for the game and other tools.
+    /// </summary>
+    [JsonIgnore]
+    public string ToggleTooltip => Kind == ProfileFolderKind.ToolOutput
+        ? "Include this tool's captured output in the merged view for the game and other tools. Where the tool's own runs write (its output branch or the profile overlay) is controlled by \"Capture tool output\" in the Tools card."
+        : "Include this branch in the merged view";
+
     // Drives the "Reveal folder" menu item's enabled state.
     [JsonIgnore]
     public bool HasPath => !string.IsNullOrWhiteSpace(Path) && System.IO.Directory.Exists(Path);

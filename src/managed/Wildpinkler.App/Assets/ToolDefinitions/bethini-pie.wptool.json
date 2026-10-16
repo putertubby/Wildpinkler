@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 2,
+  "definitionId": "bethini-pie",
+  "name": "Bethini Pie",
+  "definitionVersion": 1,
+  "author": "Wildpinkler",
+  "description": "Configuration tool for Bethesda game options (graphics, audio, etc.). Only changes settings; it writes nothing into the profile's merged view.",
+  "supportedGameDefinitions": [
+    "skyrim-se"
+  ],
+  "sortsPluginList": false,
+  "executableRelativePath": "Bethini.exe",
+  "workingDirectory": "",
+  "defaultLaunchArguments": "",
+  "detectionMarkers": [
+    "Bethini.exe"
+  ],
+  "variables": {},
+  "mergedViews": [ ]
+}

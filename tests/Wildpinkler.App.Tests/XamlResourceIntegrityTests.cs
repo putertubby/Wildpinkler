@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Reflection;
 using System.Text.RegularExpressions;
 using Xunit;
@@ -165,6 +166,81 @@ public sealed class XamlResourceIntegrityTests
 
         Assert.True(failures.Count == 0,
             "Removed output capture toggle still referenced in ProfilesPage.xaml:\n" + string.Join("\n", failures));
+    }
+
+    [Fact]
+    public void ProfilesPage_ToggleSwitches_Are_OneWay_With_Toggled_Handlers()
+    {
+        // The Toggled handlers are the single source of truth for the bound property. A TwoWay
+        // binding pushes IsOn into the model before Toggled fires, so the handlers'
+        // "skip if unchanged" guards swallow the first genuine toggle and the change is never
+        // committed (e.g. the tool output branch is never created on first launch).
+        var solutionRoot = FindSolutionRoot();
+        var pagePath = Path.Combine(solutionRoot, "src", "managed", "Wildpinkler.App", "Pages", "ProfilesPage.xaml");
+        Assert.True(File.Exists(pagePath), "ProfilesPage.xaml not found: " + pagePath);
+
+        var toggledHandlers = new[]
+        {
+            "FolderEnabled_Toggled",
+            "ToolEnabled_Toggled",
+            "CaptureOutput_Toggled",
+            "PluginEnabled_Toggled"
+        };
+
+        var lines = File.ReadAllLines(pagePath);
+        var failures = new List<string>();
+        foreach (var handler in toggledHandlers)
+        {
+            var line = lines.FirstOrDefault(l => l.Contains("Toggled=\"" + handler + "\"", StringComparison.Ordinal));
+            Assert.True(line is not null, "ToggleSwitch handler '" + handler + "' not found in ProfilesPage.xaml.");
+            if (line!.Contains("Mode=TwoWay", StringComparison.Ordinal))
+                failures.Add(line);
+            if (!line.Contains("Mode=OneWay", StringComparison.Ordinal))
+                failures.Add(line);
+        }
+
+        Assert.True(failures.Count == 0,
+            "ToggleSwitch handlers must be bound OneWay so Toggled is the single model writer:\n" +
+            string.Join("\n", failures));
+    }
+
+    [Fact]
+    public void BuiltInToolDefinitions_Dont_Use_Removed_ProducesOutput_Key()
+    {
+        // Output capture is a per-profile property of definition-less (local) tools only; the
+        // definition-level producesOutput flag was removed. Built-in definitions must not
+        // reintroduce it, and FNIS/BodySlide are no longer built-in (they ship inside mods and
+        // are discovered as local tools).
+        var solutionRoot = FindSolutionRoot();
+        var assetDirectory = Path.Combine(solutionRoot, "src", "managed", "Wildpinkler.App", "Assets", "ToolDefinitions");
+        Assert.True(Directory.Exists(assetDirectory), "Assets/ToolDefinitions not found: " + assetDirectory);
+
+        var definitions = Directory.GetFiles(assetDirectory, "*.wptool.json");
+        Assert.True(definitions.Length > 0, "No built-in tool definitions found.");
+
+        var failures = new List<string>();
+        foreach (var file in definitions)
+        {
+            var lines = File.ReadAllLines(file);
+            for (var lineIndex = 0; lineIndex < lines.Length; lineIndex++)
+            {
+                if (lines[lineIndex].Contains("producesOutput", StringComparison.Ordinal))
+                    failures.Add(Path.GetFileName(file) + ":" + (lineIndex + 1));
+            }
+        }
+
+        Assert.True(failures.Count == 0,
+            "Built-in tool definitions must not contain the removed producesOutput key:\n" +
+            string.Join("\n", failures));
+
+        // FNIS and BodySlide are mod-bundled tools, not built-in definitions.
+        Assert.DoesNotContain(definitions, file =>
+            Path.GetFileName(file).StartsWith("fnis.", StringComparison.OrdinalIgnoreCase)
+            || Path.GetFileName(file).StartsWith("bodyslide.", StringComparison.OrdinalIgnoreCase));
+
+        // Bethini Pie has a built-in definition.
+        Assert.Contains(definitions, file =>
+            Path.GetFileName(file) == "bethini-pie.wptool.json");
     }
 
     private static string FindSolutionRoot()

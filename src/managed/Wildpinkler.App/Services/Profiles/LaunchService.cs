@@ -198,9 +198,10 @@ public sealed partial class LaunchService
             if (succeeded && binding is not null && pendingRun is not null)
                 _provisioner.CompleteToolRun(profile, binding, target.Id, pendingRun);
 
-            // A settings-only tool (e.g. LOOT, producesOutput: false) has no binding or pending run,
-            // so the sorted flag is marked independently of them, keyed off the tool id. Without
-            // this, a plugin-sorting tool could never clear the "unsorted" warning.
+            // A settings-only tool (e.g. LOOT - definition-backed tools never capture) has no
+            // binding or pending run, so the sorted flag is marked independently of them, keyed
+            // off the tool id. Without this, a plugin-sorting tool could never clear the
+            // "unsorted" warning.
             if (succeeded)
             {
                 try

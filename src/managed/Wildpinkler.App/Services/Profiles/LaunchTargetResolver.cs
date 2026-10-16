@@ -227,9 +227,9 @@ public sealed class LaunchTargetResolver
         // Tools always use their own install path as the base; all paths must be absolute via variables or rooted.
         var toolViewBaseFolder = tool.InstallPath;
 
-        // A tool that produces no output writes nothing back into the profile, so it owns no
-        // output folder. Definition-backed tools follow their definition; definition-less tools
-        // follow the profile's per-tool capture flag.
+        // A tool that captures no output writes nothing back into the profile, so it owns no
+        // output folder. Only definition-less tools can capture; definition-backed tools are
+        // always settings-only.
         var producesOutput = ProfileTool.EffectiveProducesOutput(tool, binding);
 
         // While a tool runs it writes into the *next* output version, which is promoted afterwards.

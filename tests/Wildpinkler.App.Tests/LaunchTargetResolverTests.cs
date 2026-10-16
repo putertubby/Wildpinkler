@@ -122,35 +122,24 @@ public sealed class LaunchTargetResolverTests
     }
 
     [Fact]
-    public void ResolveTool_ProducesOutput_MountsPendingVersionAtTopAndSkipsOverlay()
+    public void ResolveTool_DefinitionBackedTool_NeverCaptures_KeepsOverlay()
     {
+        // Definition-backed tools are always settings-only: no capture, no pending version,
+        // and no output injection into their writable views.
         var game = CreateGame();
-        var tool = CreateTool("tool-1", "Sorter", "sorter.exe", "C:\\mods\\sorter", string.Empty, string.Empty);
-        tool.Definition = new ToolDefinition { DefinitionId = "tool-1", ExecutableRelativePath = "sorter.exe", ProducesOutput = true };
+        var tool = CreateTool("tool-1", "Settings tool", "settings.exe", "C:\\mods\\settings", string.Empty, string.Empty);
+        tool.Definition = new ToolDefinition
+        {
+            DefinitionId = "tool-1",
+            ExecutableRelativePath = "settings.exe",
+            MergedViews = new List<MergedView>
+            {
+                new() { Name = "Config", MountPath = "C:\\mods\\settings\\config", Branches = new List<string> { "C:\\mods\\settings\\config" }, IsWritable = true }
+            }
+        };
         var profile = CreateProfile(game);
         var binding = new ProfileTool { ToolEntryId = "tool-1", IsEnabled = true, OutputVersion = 1 };
         profile.Tools.Add(binding);
-        var overlay = new ProfileFolder { Id = "overlay", Name = "Profile overlay", Kind = ProfileFolderKind.Overlay, IsEnabled = true, Path = Path.Combine(profile.FolderPath, "overlay") };
-        profile.LoadOrder.Add(overlay);
-
-        var target = Assert.Single(new LaunchTargetResolver().Resolve(profile, game, new[] { tool }), item => item.Kind == LaunchTargetKind.Tool);
-
-        Assert.True(target.ProducesOutput);
-        var loadOrderView = Assert.Single(target.MergedViews, view => view.MountPath == game.InstallPath);
-        var pendingFolder = ProfileFolderService.GetToolOutputFolder(profile, tool.Id, binding.OutputVersion + 1);
-        Assert.Equal(pendingFolder, loadOrderView.Branches[0]);
-        Assert.DoesNotContain(overlay.Path, loadOrderView.Branches);
-        Assert.True(loadOrderView.IsWritable);
-    }
-
-    [Fact]
-    public void ResolveTool_SettingsOnly_ProducesNoOutputFolder()
-    {
-        var game = CreateGame();
-        var tool = CreateTool("tool-1", "Settings tool", "settings.exe", "C:\\mods\\settings", string.Empty, string.Empty);
-        tool.Definition = new ToolDefinition { DefinitionId = "tool-1", ExecutableRelativePath = "settings.exe", ProducesOutput = false };
-        var profile = CreateProfile(game);
-        profile.Tools.Add(new ProfileTool { ToolEntryId = "tool-1", IsEnabled = true });
         var overlay = new ProfileFolder { Id = "overlay", Name = "Profile overlay", Kind = ProfileFolderKind.Overlay, IsEnabled = true, Path = Path.Combine(profile.FolderPath, "overlay") };
         profile.LoadOrder.Add(overlay);
 
@@ -160,36 +149,8 @@ public sealed class LaunchTargetResolverTests
         var loadOrderView = Assert.Single(target.MergedViews, view => view.MountPath == game.InstallPath);
         Assert.Equal(overlay.Path, loadOrderView.Branches[0]);
         Assert.DoesNotContain("tool-output", string.Join('|', loadOrderView.Branches));
-    }
-
-    [Fact]
-    public void ResolveTool_InjectsOutputIntoWritableToolDefinitionViews()
-    {
-        var game = CreateGame();
-        var tool = CreateTool("tool-1", "Sorter", "sorter.exe", "C:\\mods\\sorter", string.Empty, string.Empty);
-        tool.Definition = new ToolDefinition
-        {
-            DefinitionId = "tool-1",
-            ExecutableRelativePath = "sorter.exe",
-            ProducesOutput = true,
-            MergedViews = new List<MergedView>
-            {
-                new() { Name = "Config", MountPath = "C:\\mods\\sorter\\config", Branches = new List<string> { "C:\\mods\\sorter\\config" }, IsWritable = true },
-                new() { Name = "ReadOnly", MountPath = "C:\\mods\\sorter\\data", Branches = new List<string> { "C:\\mods\\sorter\\data" }, IsWritable = false }
-            }
-        };
-        var profile = CreateProfile(game);
-        var binding = new ProfileTool { ToolEntryId = "tool-1", IsEnabled = true, OutputVersion = 1 };
-        profile.Tools.Add(binding);
-
-        var target = Assert.Single(new LaunchTargetResolver().Resolve(profile, game, new[] { tool }), item => item.Kind == LaunchTargetKind.Tool);
-
-        var pendingFolder = ProfileFolderService.GetToolOutputFolder(profile, tool.Id, binding.OutputVersion + 1);
-        var writableView = Assert.Single(target.MergedViews, view => view.MountPath == "C:\\mods\\sorter\\config");
-        Assert.Equal(pendingFolder, writableView.Branches[0]);
-        Assert.True(writableView.IsWritable);
-        var readOnlyView = Assert.Single(target.MergedViews, view => view.MountPath == "C:\\mods\\sorter\\data");
-        Assert.Equal("C:\\mods\\sorter\\data", Assert.Single(readOnlyView.Branches));
+        var writableView = Assert.Single(target.MergedViews, view => view.MountPath == "C:\\mods\\settings\\config");
+        Assert.Equal("C:\\mods\\settings\\config", Assert.Single(writableView.Branches));
     }
 
     [Fact]

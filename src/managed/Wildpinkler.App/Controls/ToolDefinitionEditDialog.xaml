@@ -43,10 +43,6 @@
 
             <StackPanel Spacing="12">
                 <TextBlock Style="{StaticResource SectionLabelStyle}" Text="LAUNCH" />
-                <ToggleSwitch x:Name="ProducesOutputSwitch" Header="Produces output" OnContent="Yes" OffContent="No"
-                              Toggled="ProducesOutput_Toggled" />
-                <TextBlock Opacity="0.72" TextWrapping="Wrap"
-                           Text="Turn this off for a tool that only changes settings and writes nothing into the profile's merged view, such as LOOT. It still becomes a launch target, but it is given no output folder and its writable views write straight to the branches declared below." />
                 <TextBox x:Name="ExecutableBox" Header="Executable, relative to the tool's install folder"
                          PlaceholderText="Tool.exe" TextChanged="Field_Changed" />
                 <TextBox x:Name="WorkingDirectoryBox" Header="Working directory (optional)"

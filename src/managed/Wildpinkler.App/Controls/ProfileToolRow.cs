@@ -52,7 +52,7 @@ public sealed partial class ProfileToolRow : ObservableObject
         {
             const string settingsOnly = "Tool \u00b7 settings only";
             var kind = Tool.KindText;
-            if (Tool.Definition is null && ProducesOutput && kind.StartsWith(settingsOnly, StringComparison.Ordinal))
+            if (Tool.Definition is null && _capturesOutput && kind.StartsWith(settingsOnly, StringComparison.Ordinal))
                 kind = "Tool" + kind[settingsOnly.Length..];
             return kind;
         }
@@ -76,22 +76,15 @@ public sealed partial class ProfileToolRow : ObservableObject
     /// <summary>The kind/origin line is replaced by the missing-executable warning.</summary>
     public Visibility KindTextVisibility => ExecutableMissing ? Visibility.Collapsed : Visibility.Visible;
 
-    // The effective "produces output" state: definition-backed tools follow their definition,
-    // definition-less tools follow the per-profile capture flag edited below in this row.
-    public bool ProducesOutput => Tool.Definition is { } def ? def.ProducesOutput : _capturesOutput;
-
     /// <summary>
-    /// The per-profile capture flag. Definition-backed tools report their definition's value and
-    /// ignore writes (the shared definition is the single source of truth); definition-less tools
-    /// read and write their own flag.
+    /// The per-profile capture flag. Only definition-less tools can capture output; definition-backed
+    /// tools are always settings-only.
     /// </summary>
     public bool CapturesOutput
     {
-        get => ProducesOutput;
+        get => _capturesOutput;
         set
         {
-            if (Tool.Definition is not null)
-                return;
             if (SetProperty(ref _capturesOutput, value))
             {
                 OnPropertyChanged(nameof(OutputSectionVisibility));
@@ -116,8 +109,15 @@ public sealed partial class ProfileToolRow : ObservableObject
     /// </summary>
     public Visibility RemoveVisibility => Visibility.Visible;
 
-    /// <summary>A <see cref="Visibility"/>, not a bool: this row is bound with classic {Binding}, which has no bool conversion.</summary>
-    public Visibility OutputSectionVisibility => ProducesOutput ? Visibility.Visible : Visibility.Collapsed;
+    /// <summary>
+    /// The output-folder section only shows for capture-enabled, definition-less tools. Definition-backed
+    /// tools never capture (a legacy binding may still carry a stale true flag, so the definition check
+    /// is required).
+    /// </summary>
+    /// <remarks>A <see cref="Visibility"/>, not a bool: this row is bound with classic {Binding}, which has no bool conversion.</remarks>
+    public Visibility OutputSectionVisibility => Tool.Definition is null && _capturesOutput
+        ? Visibility.Visible
+        : Visibility.Collapsed;
 
     public bool IsEnabled
     {

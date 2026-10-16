@@ -109,36 +109,35 @@ public sealed class ProfileFolderService
     }
 
     /// <summary>
-    /// Materializes (or finds) the load-order row a tool's output lives in, so the branch is always
-    /// visible and reorderable in the load order. A definition-backed settings-only tool owns no
-    /// branch and gets no row; a local tool always gets one while it is enabled - disabled until
-    /// its capture flag is turned on. Returns <see langword="null"/> when no row is owned.
+    /// Materializes (or finds) the load-order row a tool's output lives in, so the branch is
+    /// visible and reorderable in the load order. Only a local (definition-less) tool with capture
+    /// on owns a branch; definition-backed tools and local tools with capture off get no row. A
+    /// branch the user manually removed is not resurrected while capture is off. A row that is
+    /// created is created enabled; an existing row's enabled state is the user's independent
+    /// choice and is never rewritten here. Returns <see langword="null"/> when no row is owned.
     /// </summary>
     public ProfileFolder? EnsureToolOutputRow(Profile profile, ProfileTool binding, ToolEntry tool)
     {
-        var isLocal = tool.Definition is null;
         var producesOutput = ProfileTool.EffectiveProducesOutput(tool, binding);
 
-        if (!isLocal && !producesOutput)
+        var existing = profile.LoadOrder.FirstOrDefault(folder => folder.ToolEntryId == tool.Id);
+        if (existing is not null && tool.Definition is null)
+        {
+            // A local tool that already owns a branch keeps it even when capture is off (the
+            // branch's enabled state is the user's independent choice); only re-point the path
+            // and record the row id.
+            existing.Path = GetToolOutputFolder(profile, tool.Id, binding.OutputVersion);
+            binding.OutputFolderId = existing.Id;
+            return existing;
+        }
+
+        if (!producesOutput)
             return null;
 
         var path = GetToolOutputFolder(profile, tool.Id, binding.OutputVersion);
         Directory.CreateDirectory(path);
 
-        var existing = profile.LoadOrder.FirstOrDefault(folder => folder.ToolEntryId == tool.Id);
-        if (existing is not null)
-        {
-            existing.Path = path;
-            // A local tool's row enabled state mirrors its capture flag; a definition-backed row's
-            // toggle is the user's include/exclude choice and is never rewritten here.
-            if (isLocal)
-                existing.IsEnabled = producesOutput;
-
-            binding.OutputFolderId = existing.Id;
-            return existing;
-        }
-
-        var folder = CreateToolOutputRow(profile, binding, tool, isEnabled: producesOutput);
+        var folder = CreateToolOutputRow(profile, binding, tool, isEnabled: true);
         binding.OutputFolderId = folder.Id;
         return folder;
     }

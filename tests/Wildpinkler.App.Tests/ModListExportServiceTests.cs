@@ -154,9 +154,9 @@ public sealed class ModListExportServiceTests
         var game = new GameEntry { Id = "game", DefinitionId = "skyrim-se" };
         var definition = new GameDefinition { DefinitionId = "skyrim-se", DefinitionVersion = 1, Name = "Skyrim SE" };
         var outputTool = new ToolEntry { Id = "output-tool", Name = "Sorter", DefinitionId = "sorter", DefinitionVersion = 2 };
-        outputTool.Definition = new ToolDefinition { DefinitionId = "sorter", ExecutableRelativePath = "sorter.exe", ProducesOutput = true };
+        outputTool.Definition = new ToolDefinition { DefinitionId = "sorter", ExecutableRelativePath = "sorter.exe" };
         var settingsTool = new ToolEntry { Id = "settings-tool", Name = "Settings tool", DefinitionId = "settings", DefinitionVersion = 1 };
-        settingsTool.Definition = new ToolDefinition { DefinitionId = "settings", ExecutableRelativePath = "settings.exe", ProducesOutput = false };
+        settingsTool.Definition = new ToolDefinition { DefinitionId = "settings", ExecutableRelativePath = "settings.exe" };
         var disabledTool = new ToolEntry { Id = "disabled-tool", Name = "Disabled" };
 
         var result = await new ModListExportService().CreateAsync(

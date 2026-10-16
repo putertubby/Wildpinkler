@@ -394,9 +394,9 @@
                                                             </StackPanel>
                                                             <ToggleSwitch Grid.Column="3" VerticalAlignment="Center" OnContent="" OffContent=""
                                                                           Visibility="{x:Bind IsLocked, Converter={StaticResource InverseBoolToVisibilityConverter}}"
-                                                                          IsOn="{x:Bind IsEnabled, Mode=TwoWay}" Toggled="FolderEnabled_Toggled"
+                                                                          IsOn="{x:Bind IsEnabled, Mode=OneWay}" Toggled="FolderEnabled_Toggled"
                                                                           AutomationProperties.Name="Include this branch in the merged view"
-                                                                          ToolTipService.ToolTip="Include this branch in the merged view" />
+                                                                          ToolTipService.ToolTip="{x:Bind ToggleTooltip}" />
                                                             <Button Grid.Column="4" Style="{StaticResource RowDeleteButtonStyle}"
                                                                     Visibility="{x:Bind IsLocked, Converter={StaticResource InverseBoolToVisibilityConverter}}"
                                                                     ToolTipService.ToolTip="Branch actions"
@@ -545,7 +545,7 @@
                                                             <ToggleSwitch Grid.Column="2" VerticalAlignment="Center" OnContent="" OffContent=""
                                                                           AutomationProperties.Name="Enable this tool for the profile"
                                                                           IsEnabled="{x:Bind ToggleEnabled, Mode=OneWay}"
-                                                                          IsOn="{x:Bind IsEnabled, Mode=TwoWay}" Toggled="ToolEnabled_Toggled" />
+                                                                          IsOn="{x:Bind IsEnabled, Mode=OneWay}" Toggled="ToolEnabled_Toggled" />
                                                             <Button Grid.Column="3" VerticalAlignment="Center"
                                                                     Style="{StaticResource SubtleButtonStyle}"
                                                                     Visibility="{x:Bind RemoveVisibility, Mode=OneWay}"
@@ -570,7 +570,7 @@
                                                             <TextBlock Style="{StaticResource SectionLabelStyle}" Text="OUTPUT CAPTURE" />
                                                             <ToggleSwitch Header="Capture tool output" OnContent="On" OffContent="Off"
                                                                           IsEnabled="{Binding ToggleEnabled, Mode=OneWay}"
-                                                                          IsOn="{Binding CapturesOutput, Mode=TwoWay}" Toggled="CaptureOutput_Toggled" />
+                                                                          IsOn="{Binding CapturesOutput, Mode=OneWay}" Toggled="CaptureOutput_Toggled" />
                                                             <TextBlock Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.72" TextWrapping="Wrap"
                                                                        Text="Stores this tool's writes in a separate, versioned folder below the overlay, so its output overrides mod files. Each launch writes a new version; successful runs are kept automatically and can be discarded from the status bar." />
                                                             <Border Style="{StaticResource CardSeparatorStyle}" />
@@ -707,7 +707,7 @@
                                                                    Visibility="{x:Bind IsEnabled, Mode=OneWay, Converter={StaticResource BoolToVisibilityConverter}}" />
                                                         <ToggleSwitch Grid.Column="3" VerticalAlignment="Center" OnContent="" OffContent=""
                                                                        IsEnabled="{x:Bind BranchEnabled, Mode=OneWay}"
-                                                                       IsOn="{x:Bind IsEnabled, Mode=TwoWay}" Toggled="PluginEnabled_Toggled"
+                                                                       IsOn="{x:Bind IsEnabled, Mode=OneWay}" Toggled="PluginEnabled_Toggled"
                                                                        AutomationProperties.Name="Enable this plugin"
                                                                        ToolTipService.ToolTip="Enable this plugin (asterisk in the list). Locked while the branch containing it is disabled." />
                                                         <Button Grid.Column="4" Style="{StaticResource RowDeleteButtonStyle}"

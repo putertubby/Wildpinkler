@@ -66,7 +66,6 @@ public sealed partial class ToolDefinitionEditDialog : ContentDialog
         DetectionMarkersInput.SetTags(definition.DetectionMarkers);
         VariablesInput.SetVariables(definition.Variables);
         MergedViewsInput.SetViews(definition.MergedViews);
-        ProducesOutputSwitch.IsOn = definition.ProducesOutput;
 
         Validate();
     }
@@ -80,7 +79,6 @@ public sealed partial class ToolDefinitionEditDialog : ContentDialog
         result.Description = DescriptionBox.Text.Trim();
         result.Author = AuthorBox.Text.Trim();
         result.SupportedGameDefinitions = SupportedGamesInput.Tags.Select(tag => tag.Trim()).ToList();
-        result.ProducesOutput = ProducesOutputSwitch.IsOn;
         result.ExecutableRelativePath = ExecutableBox.Text.Trim();
         result.WorkingDirectory = WorkingDirectoryBox.Text.Trim();
         result.DefaultLaunchArguments = LaunchArgumentsBox.Text.Trim();
@@ -104,8 +102,6 @@ public sealed partial class ToolDefinitionEditDialog : ContentDialog
     private void Tags_Changed(object sender, EventArgs args) => Validate();
 
     private void Editor_Changed(object sender, EventArgs args) => Validate();
-
-    private void ProducesOutput_Toggled(object sender, RoutedEventArgs args) => Validate();
 
     private string FindError()
     {

@@ -885,10 +885,11 @@ public sealed partial class ProfilesPage : PageBase
             binding.VariableOverrides = new Dictionary<string, string>(row.VariableOverrides);
             binding.MergedViewOverrides = row.MergedViewOverrides.Select(view => view.Clone()).ToList();
 
-            // A tool that produces no output is still a launch target, it just owns no output branch.
-            // Local tools always own a branch while enabled (disabled until capture is on), so the
-            // row is materialized rather than deleted when capture is off.
-            if (row.Tool.Definition is null || ProfileTool.EffectiveProducesOutput(row.Tool, binding))
+            // A tool that captures no output is still a launch target, it just owns no output branch.
+            // Local tools own a branch while capture is on; toggling capture off keeps an existing
+            // branch in place (removing it manually is the only way to drop it), and turning it on
+            // again recreates it. Definition-backed tools are settings-only and own no branch.
+            if (ProfileTool.EffectiveProducesOutput(row.Tool, binding))
                 _provisioner.EnsureToolOutputRow(profile, binding, row.Tool);
             else
                 _provisioner.DisableTool(profile, binding);
