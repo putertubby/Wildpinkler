@@ -471,10 +471,8 @@ public sealed class ModListBuildCoordinator
             profile.Tools.Add(binding);
         }
 
-        // Assembling folders or tools changes the effective load order, so the profile's plugin
-        // list can no longer be considered sorted. Idempotent: re-running on an already-assembled
-        // profile only re-asserts the same value.
-        profile.PluginListSorted = false;
+        // The staged profile is freshly created, so its plugin list is already unsorted (the
+        // default); no reset is needed here.
     }
 
     private static ModListModEntry GetMod(ModListManifest manifest, string entryId) =>

@@ -991,7 +991,9 @@ public sealed partial class ProfilesPage : PageBase
         _provisioner.DisableTool(profile, binding);
         profile.Tools.Remove(binding);
         profile.NotifySummaryChanged();
-        profile.PluginListSorted = false;
+        // Removing a tool can only remove plugins, never add them, so the sorted order is
+        // preserved (the central decision is a no-op here).
+        InvalidatePluginSortedIfPluginsAdded(profile);
         RefreshProfiles();
         RefreshWorkspace();
         Save("Save profile tools");

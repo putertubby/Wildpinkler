@@ -32,6 +32,23 @@ public sealed partial class ProfilesPage
     private string _pluginOrderStatusText = string.Empty;
 
     /// <summary>
+    /// The single call site for the "run a sorting tool" warning on any load-order mutation. Uses
+    /// the profile's authoritative list as the baseline and the game's plugin config to decide
+    /// whether a plugin file was actually <i>added</i>; a pure removal or enable/disable leaves
+    /// the sorted flag untouched.
+    /// </summary>
+    private void InvalidatePluginSortedIfPluginsAdded(Profile profile)
+    {
+        if (GameFor(profile) is not { Definition: { PluginList: { } cfg } })
+            return;
+
+        var baselineNames = profile.PluginOrder
+            .Select(entry => entry.FileName)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        _pluginsTxt.InvalidateSortedIfPluginsAdded(profile, baselineNames, cfg);
+    }
+
+    /// <summary>
     /// Entry point from the tab selection. Seeds (first time) or reconciles the authoritative list
     /// against the effective mod load order, refreshes the sorting-tool buttons and the status.
     /// </summary>
@@ -65,9 +82,18 @@ public sealed partial class ProfilesPage
 
         if (setChanged)
         {
+            // The authoritative list is the effective set as it was before this change, so it is
+            // the "before" snapshot for the additions decision (a pure removal keeps the flag).
+            var beforeNames = profile.PluginOrder
+                .Select(entry => entry.FileName)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            // Seed on first use; afterwards reconcile - new plugins are appended at the end in
+            // branch-then-scan order, and the surviving order is preserved.
             var reconciled = profile.PluginOrder.Count == 0
                 ? _pluginsTxt.SeedFromEffectiveOrder(profile, cfg)
-                : _pluginsTxt.Reconcile(profile.PluginOrder.ToList(), effective);
+                : _pluginsTxt.Reconcile(profile.PluginOrder.ToList(), effective, profile.LoadOrder);
+
             _pluginsTxtProgrammatic = true;
             CollectionReconciler.Reconcile(profile.PluginOrder, reconciled, entry => entry.FileName,
                 (current, desired) =>
@@ -79,8 +105,9 @@ public sealed partial class ProfilesPage
                     current.RememberedEnabled ??= desired.RememberedEnabled;
                 });
             _pluginsTxtProgrammatic = false;
-            // A changed mod set (added/removed plugins) invalidates a previously sorted list.
-            profile.PluginListSorted = false;
+
+            // Only a genuine addition of plugins invalidates a previously sorted list.
+            _pluginsTxt.InvalidateSortedIfPluginsAdded(profile, beforeNames, cfg);
         }
 
         // Apply branch state again: newly added entries (from Reconcile) still carry the default
@@ -187,15 +214,15 @@ public sealed partial class ProfilesPage
         }
     }
 
-    // Fingerprint of the effective plugin set (names + enabled), used to detect a changed mod set.
+    // Fingerprint of the effective plugin name set. It deliberately ignores the enabled state,
+    // so toggling a branch or plugin does not count as a changed mod set - only a genuine
+    // addition or removal of a plugin file does.
     private static long EffectiveRevision(IReadOnlyList<PluginRecord> effective)
     {
         long hash = 17;
         foreach (var record in effective.OrderBy(record => record.FileName, StringComparer.OrdinalIgnoreCase))
         {
             hash = (hash * 31) + (record.FileName.GetHashCode(StringComparison.OrdinalIgnoreCase));
-            if (record.Enabled)
-                hash = (hash * 31) + 1;
         }
 
         return hash;

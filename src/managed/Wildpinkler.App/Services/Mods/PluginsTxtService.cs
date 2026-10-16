@@ -52,6 +52,7 @@ public sealed partial class PluginsTxtService
             var folder = modFolders[branchIndex];
             var dataFolder = Path.Combine(folder.Path, cfg.PluginDataFolder);
 
+            var scanOrdinal = 0;
             foreach (var file in EnumerateFilesSafe(dataFolder))
             {
                 if (!PluginMasterInspector.IsPluginFile(file))
@@ -69,6 +70,7 @@ public sealed partial class PluginsTxtService
                     BranchIndex = branchIndex,
                     SourceFolderId = folder.Id,
                     Enabled = folder.IsEnabled,
+                    ScanOrdinal = scanOrdinal++,
                     Masters = new List<string>(PluginMasterInspector.ReadMasters(file))
                 };
             }
@@ -250,16 +252,26 @@ public sealed partial class PluginsTxtService
     /// <summary>
     /// Merges the profile's authoritative list against the set of plugins that are currently
     /// installed (effective mod load order): entries for plugins whose owning mod has left the
-    /// load order are dropped, new plugins are inserted at their derived default position, and
-    /// the user's existing order and enabled state are kept for plugins that are still present.
-    /// Returns the reconciled list (the caller assigns it to <see cref="Profile.PluginOrder"/> and
-    /// persists it); the caller is responsible for resetting <see cref="Profile.PluginListSorted"/>
-    /// when the set changed.
+    /// load order are dropped, the user's existing order and enabled state are kept for plugins
+    /// that are still present, and any newly installed plugins are appended at the <b>end</b> in
+    /// this order - the owning branch's position in the profile's load order, then the file's
+    /// scan order within that branch.
     /// </summary>
-    public IReadOnlyList<PluginEntry> Reconcile(IReadOnlyList<PluginEntry> authoritative, IReadOnlyList<PluginRecord> effective)
+    /// <param name="authoritative">The profile's current authoritative plugin list.</param>
+    /// <param name="effective">The plugins currently installed, in their effective order.</param>
+    /// <param name="loadOrder">The profile's load order, used to rank newly added plugins by branch.</param>
+    /// <returns>
+    /// The reconciled list (the caller assigns it to <see cref="Profile.PluginOrder"/> and persists
+    /// it). Whether a previously sorted list should be invalidated is decided separately by
+    /// <see cref="InvalidateSortedIfPluginsAdded"/>, which compares the effective name set before
+    /// and after the mutation.
+    /// </returns>
+    public IReadOnlyList<PluginEntry> Reconcile(
+        IReadOnlyList<PluginEntry> authoritative,
+        IReadOnlyList<PluginRecord> effective,
+        IReadOnlyList<ProfileFolder> loadOrder)
     {
         var effectiveNames = effective.Select(record => record.FileName).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var newRecords = ResolveOrder(effective, new GamePluginList());
 
         // Keep the user's order and enabled state for plugins that are still installed.
         var kept = authoritative
@@ -273,18 +285,39 @@ public sealed partial class PluginsTxtService
             })
             .ToList();
 
-        // Append plugins that are newly installed (e.g. a mod was added) at their derived position.
+        // Append plugins that are newly installed (e.g. a mod was added) at the end, ranked by the
+        // owning branch's position in the load order, then by the file's scan order within it.
         var keptNames = kept.Select(entry => entry.FileName).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        var additions = newRecords
+        var additions = effective
             .Where(record => !keptNames.Contains(record.FileName))
+            .OrderBy(record => LoadOrderPosition(loadOrder, record))
+            .ThenBy(record => record.ScanOrdinal)
+            .ThenBy(record => record.FileName, StringComparer.OrdinalIgnoreCase)
             .Select(record => new PluginEntry
             {
                 FileName = record.FileName,
                 IsEnabled = record.Enabled,
                 SourceFolderId = record.SourceFolderId
-            });
+            })
+            .ToList();
 
         return kept.Concat(additions).ToList();
+    }
+
+    /// <summary>
+    /// The position of a plugin's owning branch within the profile's load order, or a large
+    /// value when the branch is not present (so orphaned additions sort after all known branches).
+    /// </summary>
+    private static int LoadOrderPosition(IReadOnlyList<ProfileFolder> loadOrder, PluginRecord record)
+    {
+        var folder = FindSourceFolder(loadOrder, record.SourceFolderId);
+        if (folder is null)
+            return int.MaxValue;
+
+        for (var i = 0; i < loadOrder.Count; i++)
+            if (ReferenceEquals(loadOrder[i], folder))
+                return i;
+        return int.MaxValue;
     }
 
     /// <summary>
@@ -413,6 +446,36 @@ public sealed partial class PluginsTxtService
     /// <summary>Whether a launch should prompt the user that the load order is still the default.</summary>
     public bool NeedsPluginListWarning(Profile profile, GameEntry game) =>
         game.Definition?.PluginList is not null && !profile.PluginListSorted;
+
+    /// <summary>
+    /// The single decision point for the "run a sorting tool" warning. Resets
+    /// <see cref="Profile.PluginListSorted"/> only when the profile's effective plugin set now
+    /// <i>contains</i> a plugin file that is absent from <paramref name="baselineNames"/> (the
+    /// authoritative list as it was before the mutation - typically
+    /// <see cref="Profile.PluginOrder"/>, which lags the disk-effective set until the plugins tab
+    /// next reconciles). A pure removal, or a change in enabled state, leaves the flag untouched,
+    /// so the warning reflects an actual plugin addition and never a removal or a toggle. When the
+    /// baseline is empty (the authoritative list has never been materialized) no change can be
+    /// detected and the flag is left as-is. Returns true when the flag was reset.
+    /// </summary>
+    public bool InvalidateSortedIfPluginsAdded(
+        Profile profile,
+        IReadOnlySet<string> baselineNames,
+        GamePluginList cfg)
+    {
+        if (!profile.PluginListSorted || baselineNames.Count == 0)
+            return false; // Already unsorted, or no baseline yet - the first reconcile establishes it.
+
+        var effectiveNames = ScanEffectivePlugins(profile, cfg)
+            .Select(record => record.FileName)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        if (!effectiveNames.Except(baselineNames, StringComparer.OrdinalIgnoreCase).Any())
+            return false; // No net addition (removal-only or unchanged).
+
+        profile.PluginListSorted = false;
+        return true;
+    }
 
     /// <summary>
     /// Expands the game definition's plugin list path against the definition's variables (plus

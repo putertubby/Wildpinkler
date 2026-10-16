@@ -21,6 +21,13 @@ public sealed class PluginRecord
     /// <summary>Zero-based position of the winning branch inside the load-order view.</summary>
     public int BranchIndex { get; init; }
 
+    /// <summary>
+    /// Zero-based order in which the file was enumerated within its owning branch's data folder.
+    /// Used as the secondary ordering key when appending newly added plugins (after the owning
+    /// branch's position in the profile's load order).
+    /// </summary>
+    public int ScanOrdinal { get; init; }
+
     /// <summary>The owning load-order folder's id (any toggleable kind: Mod, ToolOutput, or Unmanaged).</summary>
     public string? SourceFolderId { get; init; }
 

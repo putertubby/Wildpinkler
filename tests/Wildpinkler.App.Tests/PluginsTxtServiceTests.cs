@@ -700,12 +700,89 @@ public sealed class PluginsTxtServiceTests : IDisposable
             new() { FileName = "Beta.esp", BranchIndex = 1, SourceFolderId = "mod-b", Enabled = true },
             new() { FileName = "New.esp", BranchIndex = 2, SourceFolderId = "mod-c", Enabled = true }
         };
+        var loadOrder = new List<ProfileFolder>
+        {
+            new() { Id = "mod-a", Name = "A" },
+            new() { Id = "mod-b", Name = "B" },
+            new() { Id = "mod-c", Name = "C" }
+        };
 
-        var reconciled = _service.Reconcile(authoritative, effective);
+        var reconciled = _service.Reconcile(authoritative, effective, loadOrder);
 
-        // Old is dropped; the user's order for Alpha (first) and Beta is kept; New is appended.
+        // Old is dropped; the user's order for Alpha (first) and Beta is kept; New is appended last.
         Assert.Equal(new[] { "Alpha.esp", "Beta.esp", "New.esp" }, reconciled.Select(entry => entry.FileName));
         Assert.Equal(new[] { true, false, true }, reconciled.Select(entry => entry.IsEnabled));
+    }
+
+    [Fact]
+    public void Reconcile_AddsAppendedByBranchThenScanOrder()
+    {
+        // Authoritative has only Alpha; three new plugins are added across branches.
+        var authoritative = new List<PluginEntry>
+        {
+            new() { FileName = "Alpha.esp", IsEnabled = true, SourceFolderId = "mod-a" }
+        };
+
+        // Two new plugins on mod-b (ScanOrdinal 0 and 1), one on mod-c. Expected additions order:
+        // mod-b first (branch before mod-c), then by scan ordinal within mod-b, then mod-c.
+        var effective = new List<PluginRecord>
+        {
+            new() { FileName = "Alpha.esp", BranchIndex = 0, SourceFolderId = "mod-a", Enabled = true, ScanOrdinal = 0 },
+            new() { FileName = "C1.esp", BranchIndex = 2, SourceFolderId = "mod-c", Enabled = true, ScanOrdinal = 0 },
+            new() { FileName = "B2.esp", BranchIndex = 1, SourceFolderId = "mod-b", Enabled = true, ScanOrdinal = 1 },
+            new() { FileName = "B1.esp", BranchIndex = 1, SourceFolderId = "mod-b", Enabled = true, ScanOrdinal = 0 }
+        };
+        var loadOrder = new List<ProfileFolder>
+        {
+            new() { Id = "mod-a", Name = "A" },
+            new() { Id = "mod-b", Name = "B" },
+            new() { Id = "mod-c", Name = "C" }
+        };
+
+        var reconciled = _service.Reconcile(authoritative, effective, loadOrder);
+
+        // Alpha stays first; additions appended last, ordered by branch (mod-b before mod-c) then
+        // scan ordinal within the branch.
+        Assert.Equal(new[] { "Alpha.esp", "B1.esp", "B2.esp", "C1.esp" },
+            reconciled.Select(entry => entry.FileName));
+    }
+
+    [Fact]
+    public void InvalidateSortedIfPluginsAdded_AdditionResets_RemovalDoesNot()
+    {
+        var modData = Path.Combine(_root, "mod-a", "Data");
+        WritePlugin(modData, "Alpha.esp");
+
+        var profile = BuildProfile((Path.Combine(_root, "mod-a"), "mod-a"));
+        profile.PluginListSorted = true;
+        var cfg = new GamePluginList();
+
+        // Removal only: baseline has both Alpha and Beta, but only Alpha is on disk - no addition,
+        // so the sorted flag is preserved.
+        var baselineAfterRemoval = new HashSet<string>(new[] { "Alpha.esp", "Beta.esp" }, StringComparer.OrdinalIgnoreCase);
+        Assert.False(_service.InvalidateSortedIfPluginsAdded(profile, baselineAfterRemoval, cfg));
+        Assert.True(profile.PluginListSorted);
+
+        // Addition: New.esp appears on disk that is not in the baseline - the flag is reset.
+        WritePlugin(modData, "New.esp");
+        var baseline = new HashSet<string>(new[] { "Alpha.esp" }, StringComparer.OrdinalIgnoreCase);
+        Assert.True(_service.InvalidateSortedIfPluginsAdded(profile, baseline, cfg));
+        Assert.False(profile.PluginListSorted);
+    }
+
+    [Fact]
+    public void InvalidateSortedIfPluginsAdded_EmptyBaselineIsNoOp()
+    {
+        var modData = Path.Combine(_root, "mod-a", "Data");
+        WritePlugin(modData, "Alpha.esp");
+
+        var profile = BuildProfile((Path.Combine(_root, "mod-a"), "mod-a"));
+        profile.PluginListSorted = true;
+
+        // No baseline yet (the authoritative list has never been materialized): even though there
+        // are plugins on disk, no change can be detected, so the flag is left as-is.
+        Assert.False(_service.InvalidateSortedIfPluginsAdded(profile, new HashSet<string>(), new GamePluginList()));
+        Assert.True(profile.PluginListSorted);
     }
 
     [Fact]
@@ -722,8 +799,9 @@ public sealed class PluginsTxtServiceTests : IDisposable
         {
             new() { FileName = "Alpha.esp", BranchIndex = 0, SourceFolderId = "mod-a", Enabled = true }
         };
+        var loadOrder = new List<ProfileFolder> { new() { Id = "mod-a", Name = "A" } };
 
-        var reconciled = _service.Reconcile(authoritative, effective);
+        var reconciled = _service.Reconcile(authoritative, effective, loadOrder);
 
         var alpha = Assert.Single(reconciled, entry => entry.FileName == "Alpha.esp");
         Assert.False(alpha.IsEnabled);

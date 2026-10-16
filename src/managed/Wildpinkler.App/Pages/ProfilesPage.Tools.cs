@@ -124,9 +124,9 @@ public sealed partial class ProfilesPage
         }
 
         profile.NotifySummaryChanged();
-        // Enabling or disabling a tool (e.g. a plugin sorter) changes what runs against the game,
-        // so a previously sorted plugin list no longer reflects the current setup.
-        profile.PluginListSorted = false;
+        // Enabling or disabling a tool can change which plugins a tool produces; only an actual
+        // addition invalidates the sorted order (decided centrally).
+        InvalidatePluginSortedIfPluginsAdded(profile);
         RefreshProfiles();
         RefreshWorkspace();
         Save("Save profile tools");
@@ -363,7 +363,9 @@ public sealed partial class ProfilesPage
         }
 
         profile.NotifySummaryChanged();
-        profile.PluginListSorted = false;
+        // Removing a tool can only remove plugins, never add them, so the sorted order is
+        // preserved (the central decision is a no-op here).
+        InvalidatePluginSortedIfPluginsAdded(profile);
         RefreshTools(profile);
         RefreshProfiles();
         RefreshWorkspace();

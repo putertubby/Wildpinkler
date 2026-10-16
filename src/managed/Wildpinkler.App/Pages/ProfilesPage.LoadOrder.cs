@@ -66,9 +66,9 @@ public sealed partial class ProfilesPage
             return;
 
         profile.NotifySummaryChanged();
-        // Any change to the load order invalidates a previously sorted plugin list; the user must
-        // re-run a sorting tool before the new order is considered authoritative.
-        profile.PluginListSorted = false;
+        // Only the addition of a plugin file invalidates a previously sorted list; a pure removal
+        // or reorder keeps the surviving order authoritative (the warning is reset centrally).
+        InvalidatePluginSortedIfPluginsAdded(profile);
         UpdateProfileViewBranchCount(profile);
 
         // A pure reorder (drag, Alt+Up/Down, the "more" menu) changes branch order only - it never
@@ -111,8 +111,8 @@ public sealed partial class ProfilesPage
             return;
 
         folder.IsEnabled = toggle.IsOn;
-        // Enabling/disabling a folder changes which plugins load, so a sorted order no longer applies.
-        profile.PluginListSorted = false;
+        // Enabling/disabling a folder only changes which plugins are *enabled* (the asterisk), not
+        // the set of plugin names or their order, so the sorted flag is left untouched here.
 
         // Branch state gates the plugin list regardless of which tab is showing (the branch rows are
         // on the Views tab, so the Plugins tab is usually collapsed here): auto-disable a plugin
@@ -670,8 +670,9 @@ public sealed partial class ProfilesPage
         }
 
         profile.NotifySummaryChanged();
-        // Re-assigning roles can change which plugins a tool produces, so a sorted order no longer applies.
-        profile.PluginListSorted = false;
+        // Re-assigning roles can change which plugins a tool produces; only an actual addition
+        // invalidates the sorted order (decided centrally).
+        InvalidatePluginSortedIfPluginsAdded(profile);
         RefreshTools(profile);
         RefreshWorkspace();
         Save("Save load order");
