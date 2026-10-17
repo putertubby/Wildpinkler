@@ -733,6 +733,18 @@ public sealed class ModInstallService
         string archivePath, string sourceRoot, string destinationRoot, ArchiveExtractionLimits? limits = null,
         IProgress<ExtractionProgress>? progress = null, CancellationToken cancellationToken = default)
     {
+        // 7z fast path: a solid 7z archive must be decoded from the head to reach any entry, so the
+        // per-entry SharpCompress path below re-decodes a large block for EVERY entry - the dominant
+        // cost for big plain (non-FOMOD) archives, slow enough to take hours. Instead, let the
+        // native 7z backend decode the distinct selected entries ONCE in archive order into a
+        // staging folder, then relocate the staged files to their destinations. The SharpCompress
+        // path (single decode per entry, cheap for zip) is unchanged.
+        if (IsSevenZipArchive(archivePath))
+        {
+            ExtractWholeArchiveSevenZip(archivePath, sourceRoot, destinationRoot, limits, progress, cancellationToken);
+            return;
+        }
+
         using var archive = ArchiveFactory.OpenArchive(archivePath);
         var work = new List<(IArchiveEntry Entry, string RelativePath)>();
         foreach (var entry in archive.Entries.Where(item => !item.IsDirectory))
@@ -754,6 +766,106 @@ public sealed class ModInstallService
         }
 
         reporter.Finish();
+    }
+
+    /// <summary>
+    /// Unpacks every entry below <paramref name="sourceRoot"/> of a 7z archive through the native
+    /// 7z backend in a single archive-order decode (no per-entry re-decode of solid blocks). Runs
+    /// the same safety checks as <see cref="ExtractEntry"/>: declared-size and ratio pre-checks,
+    /// link rejection, path containment, directory-link avoidance, byte budget, and written-file
+    /// verification. Staged files are relocated to their final destinations in sourceRoot-relative
+    /// order so cancellation and progress behave like the SharpCompress path.
+    /// </summary>
+    private static void ExtractWholeArchiveSevenZip(
+        string archivePath, string sourceRoot, string destinationRoot, ArchiveExtractionLimits? limits,
+        IProgress<ExtractionProgress>? progress, CancellationToken cancellationToken)
+    {
+        var budget = new ArchiveExtractionBudget(limits);
+        var verifiedDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        string stagingDir;
+
+        using (var extractor = new SharpSevenZipExtractor(archivePath))
+        {
+            var fileData = extractor.ArchiveFileData;
+            if (fileData.Count == 0)
+                throw new InvalidOperationException("The 7z archive contains no entries.");
+            if (extractor.ErrorFlags != ArchiveErrorFlags.None)
+                throw new InvalidOperationException($"The 7z archive could not be opened: {extractor.ErrorMessage}");
+
+            // Plan the work: every non-directory entry below the source root. The source root is
+            // normalized once and matched as a case-insensitive archive-relative prefix.
+            var prefix = sourceRoot.Length == 0 ? string.Empty : NormalizeKey(sourceRoot) + "/";
+            var work = new List<(int ArchiveIndex, string ArchivePath, string RelativePath, ArchiveEntryMetadata Metadata)>();
+            var bytesTotal = 0L;
+            for (var i = 0; i < fileData.Count; i++)
+            {
+                var info = fileData[i];
+                if (info.IsDirectory)
+                    continue;
+
+                var key = NormalizeKey(info.FileName);
+                if (key.Length == 0 || !key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                var relativePath = key[prefix.Length..];
+                if (relativePath.Length == 0)
+                    continue;
+
+                work.Add((info.Index, info.FileName.Replace('\\', '/'), relativePath,
+                    new ArchiveEntryMetadata(key, (long)info.Size, 0L, (uint)info.Attributes, null)));
+                bytesTotal += (long)info.Size;
+            }
+
+            // Run the per-entry pre-checks and link rejections in plan order, so an oversized or
+            // malicious entry aborts the install exactly as the SharpCompress path would.
+            foreach (var (_, _, _, metadata) in work)
+            {
+                ArchiveExtractionBudget.RejectLinkEntry(metadata);
+                budget.AccountForEntry(metadata);
+            }
+
+            // Canonicalize the extraction root ONCE, and pre-resolve/containment-check every
+            // planned destination, so the relocation loop never re-canonicalizes or re-checks
+            // containment per file.
+            var destinationRootFull = Path.TrimEndingDirectorySeparator(Path.GetFullPath(destinationRoot));
+            var resolvedDestinations = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var (_, _, relativePath, _) in work)
+                resolvedDestinations[relativePath] = ResolveSafeDestination(destinationRootFull, relativePath);
+
+            stagingDir = Path.Combine(destinationRoot, "__sevenzip_staging__");
+            // A crashed earlier run can leave the staging folder behind; remove it so this run
+            // starts from a clean tree.
+            DeleteDirectoryBestEffort(stagingDir);
+            Directory.CreateDirectory(stagingDir);
+            try
+            {
+                // ONE archive-order native decode of every selected entry: 7-Zip streams the solid
+                // blocks once and writes each selected file. No per-entry re-decode.
+                var distinctIndexes = work.Select(item => item.ArchiveIndex).Distinct().OrderBy(x => x).ToArray();
+                if (distinctIndexes.Length > 0)
+                    extractor.ExtractFiles(stagingDir, distinctIndexes);
+
+                var reporter = new ExtractionReporter(progress, work.Count, bytesTotal, "Extracting");
+                var bytesWritten = 0L;
+                for (var i = 0; i < work.Count; i++)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var (_, stagedArchivePath, relativePath, metadata) = work[i];
+                    var destinationPath = resolvedDestinations[relativePath];
+                    var stagedPath = Path.Combine(stagingDir, stagedArchivePath.Replace('/', Path.DirectorySeparatorChar));
+                    var written = RelocateStagedFile(
+                        stagedPath, destinationPath, metadata.Key, destinationRootFull, budget, verifiedDirectories, cancellationToken);
+                    bytesWritten += written;
+                    reporter.Report(i + 1, work.Count, bytesWritten, bytesTotal, relativePath);
+                }
+
+                reporter.Finish();
+            }
+            finally
+            {
+                DeleteDirectoryBestEffort(stagingDir);
+            }
+        }
     }
 
     /// <summary>

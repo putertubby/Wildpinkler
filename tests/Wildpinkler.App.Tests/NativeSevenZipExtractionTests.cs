@@ -448,6 +448,75 @@ public sealed class NativeSevenZipExtractionTests
         Assert.Equal(SnapshotTree(nativeRoot), SnapshotTree(sharpRoot));
     }
 
+    [Fact]
+    public void ExtractWholeArchive_SevenZip_ExtractsAllEntriesBelowSourceRoot()
+    {
+        using var fixture = new SevenZipFixture(
+            ("Data/Alpha.esp", "alpha"),
+            ("Data/Sub/Gamma.esp", "gamma"),
+            ("Extra/Unused.txt", "unused"),
+            ("fomod/Install.xml", "<xml>install</xml>"));
+        var destination = fixture.CreateDirectory("install");
+
+        ModInstallService.ExtractWholeArchive(
+            fixture.ArchivePath, "Data", destination, cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal("alpha", File.ReadAllText(Path.Combine(destination, "Alpha.esp")));
+        Assert.Equal("gamma", File.ReadAllText(Path.Combine(destination, "Sub", "Gamma.esp")));
+        // Entries outside the selected source root must not be written.
+        Assert.False(Directory.Exists(Path.Combine(destination, "Extra")));
+        Assert.False(Directory.Exists(Path.Combine(destination, "fomod")));
+        // The staging folder is cleaned up.
+        Assert.False(Directory.Exists(Path.Combine(destination, "__sevenzip_staging__")));
+    }
+
+    [Fact]
+    public void ExtractWholeArchive_SevenZip_MatchesSharpCompressOutputByteForByte()
+    {
+        using var fixture = new SevenZipFixture(
+            ("Data/Alpha.esp", "alpha"),
+            ("Data/Sub/Gamma.esp", "gamma"),
+            ("Top.txt", "top"));
+        var sevenRoot = fixture.CreateDirectory("seven");
+        var sharpRoot = fixture.CreateDirectory("sharp");
+
+        ModInstallService.ExtractWholeArchive(
+            fixture.ArchivePath, string.Empty, sevenRoot, cancellationToken: TestContext.Current.CancellationToken);
+        ModInstallService.ExtractWholeArchive(
+            fixture.ArchivePath, string.Empty, sharpRoot, cancellationToken: TestContext.Current.CancellationToken);
+
+        Assert.Equal(SnapshotTree(sevenRoot), SnapshotTree(sharpRoot));
+    }
+
+    [Fact]
+    public async Task ExtractWholeArchive_SevenZip_ReportsProgress()
+    {
+        using var fixture = new SevenZipFixture(
+            ("Data/Alpha.esp", "alpha"),
+            ("Data/Sub/Gamma.esp", "gamma"));
+        var destination = fixture.CreateDirectory("install");
+        const int fileCount = 2;
+
+        var updates = new Queue<ExtractionProgress>();
+        var progress = new Progress<ExtractionProgress>(update =>
+        {
+            lock (updates)
+            {
+                updates.Enqueue(update);
+            }
+        });
+
+        ModInstallService.ExtractWholeArchive(
+            fixture.ArchivePath, "Data", destination, null, progress, TestContext.Current.CancellationToken);
+
+        var last = await DrainProgressAsync(updates, fileCount, TestContext.Current.CancellationToken);
+
+        Assert.NotNull(last);
+        Assert.Equal(fileCount, last.FilesTotal);
+        Assert.Equal(fileCount, last.FilesDone);
+        Assert.True(last.BytesWritten > 0);
+    }
+
     private static async Task<ExtractionProgress?> DrainProgressAsync(
         Queue<ExtractionProgress> updates, int fileCount, CancellationToken cancellationToken)
     {
