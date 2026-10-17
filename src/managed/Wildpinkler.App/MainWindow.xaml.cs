@@ -149,12 +149,12 @@ public sealed partial class MainWindow : Window
     // the title bar's Back button (Frame.CanGoBack) to return, same as any other in-page detail.
     public void NavigateToModDependencyGraph(string? focusModId = null) => ContentFrame.Navigate(typeof(ModDependencyGraphPage), focusModId);
 
-    public void NavigateToSection(string tag)
+    public void NavigateToSection(string tag, object? parameter = null)
     {
         if (!_pagesByTag.TryGetValue(tag, out var pageType))
             return;
         NavView.SelectedItem = FindMenuItem(tag);
-        ContentFrame.Navigate(pageType);
+        ContentFrame.Navigate(pageType, parameter);
     }
 
     // Unpackaged WinUI 3 pickers must be bound to a window handle before they can be shown.

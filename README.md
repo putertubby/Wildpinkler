@@ -72,10 +72,11 @@ category, upload date - and matched against a local game through the `remoteGame
 definition, so an unrecognised game is reported while abandoning the download is still cheap. Confirm
 the pre-filled record and the transfer starts; the confirmation can be turned off.
 
-A link Wildpinkler cannot download - a collection, or a malformed URI - is refused with an
-explanation rather than silently ignored. So are an expired link, a link created under a different
-account, and a non-premium account with no site-issued download key, since Nexus only issues those
-from the mod page.
+A link Wildpinkler cannot download - a malformed URI, or a collection whose game does not match an
+installed game - is refused with an explanation rather than silently ignored. So are an expired
+link, a link created under a different account, and a non-premium account with no site-issued
+download key, since Nexus only issues those from the mod page. A `nxm:` collection link that does
+map to a local game is instead imported as a mod list (see Mod lists below).
 
 If an `nxm:` link does not reach the download confirmation, try it once with Wildpinkler closed and
 once with Wildpinkler already running. Startup, activation, and preview failures are recorded in
@@ -121,8 +122,13 @@ version failures prevent publication; load-order/conflict advisories require ack
 profile is added to the Profiles page only after validation and commit. Discard removes only its
 unpublished profile folder; verified archives and shared installations remain reusable.
 
-Wildpinkler mod lists are independent of Nexus Collections. Nexus collection links remain recognised
-and refused; Wildpinkler does not import that format or redistribute mod archives.
+Wildpinkler mod lists are not the same as Nexus Collections, but a `nxm://<game>/collections/...`
+link is translated into one: the collection (including nested sub-collections) is flattened into an
+ordered, revision-pinned list of exact mod files and saved to the mod-list catalog, then built
+through the normal mod-list pipeline. The collection's SHA-256 hashes are not published, so each
+imported archive carries the site's MD5 and an empty SHA-256 that is computed and verified on the
+first download and backfilled. The import is refused when the collection's game does not map to an
+installed game. Wildpinkler does not redistribute mod archives.
 
 ## Clarifications
 

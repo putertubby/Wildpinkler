@@ -115,7 +115,9 @@ public static partial class ModListManifestValidator
 
         if (Path.GetFileName(mod.Archive.FileName) != mod.Archive.FileName || string.IsNullOrWhiteSpace(mod.Archive.FileName))
             errors.Add($"Mod '{mod.EntryId}' archive file name is invalid.");
-        if (!IsHash(mod.Archive.Sha256, 64) && (mod.Source is not null || !string.IsNullOrWhiteSpace(mod.AcquisitionInstructions)))
+        var shaRequired = mod.Source is not null || !string.IsNullOrWhiteSpace(mod.AcquisitionInstructions);
+        var shaValid = mod.Archive.Sha256Pending ? string.IsNullOrEmpty(mod.Archive.Sha256) : IsHash(mod.Archive.Sha256, 64);
+        if (!shaValid && shaRequired)
             errors.Add($"Mod '{mod.EntryId}' archive SHA-256 is invalid.");
         if (mod.Archive.Md5 is { Length: > 0 } md5 && !IsHash(md5, 32))
             errors.Add($"Mod '{mod.EntryId}' archive MD5 is invalid.");

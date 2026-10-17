@@ -56,15 +56,16 @@ public class NxmProtocolHandlerTests
     }
 
     [Fact]
-    public void Parse_CollectionLink_IsRecognisedAndExplained()
+    public void Parse_CollectionLink_IsRecognisedAndImportable()
     {
         var link = _handler.Parse(new Uri("nxm://skyrimspecialedition/collections/abcdef/revisions/3"));
 
         Assert.Equal(RemoteLinkKind.Collection, link.Kind);
         Assert.Equal("abcdef", link.CollectionSlug);
         Assert.Equal(3, link.RevisionNumber);
+        // Collections route to the import flow rather than a direct download or a refusal.
         Assert.False(link.IsDownloadable);
-        Assert.False(string.IsNullOrWhiteSpace(link.UnsupportedReason));
+        Assert.Null(link.UnsupportedReason);
     }
 
     [Theory]

@@ -51,8 +51,8 @@ public sealed partial class NxmProtocolHandler : IRemoteProtocolHandler
             var revision = segments.Length >= 4 && segments[2].Equals("revisions", StringComparison.OrdinalIgnoreCase) && TryPositiveInt(segments[3], out var parsed)
                 ? parsed
                 : (int?)null;
-            return RemoteLink.ForCollection(SiteId, gameKey, segments[1], revision,
-                "Nexus Mods collections are not supported yet. Download the individual mods instead.");
+            // Collections are now importable; the link routes to the collection import flow.
+            return RemoteLink.ForCollection(SiteId, gameKey, segments[1], revision, null);
         }
 
         return RemoteLink.ForUnsupported(SiteId, "This Nexus Mods link points at something Wildpinkler cannot download.");

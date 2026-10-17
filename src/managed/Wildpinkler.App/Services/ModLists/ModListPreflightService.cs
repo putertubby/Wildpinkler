@@ -57,25 +57,7 @@ public sealed class ModListPreflightService
             }
 
             var mod = (ModListModEntry)content;
-            var local = mods.FirstOrDefault(candidate =>
-                !string.IsNullOrWhiteSpace(mod.Archive.Sha256) &&
-                string.Equals(candidate.Sha256, mod.Archive.Sha256, StringComparison.OrdinalIgnoreCase));
-            if (local is null && !string.IsNullOrWhiteSpace(mod.Archive.Sha256))
-            {
-                // SHA-256 is computed lazily, so locally imported mods may not have it yet. Resolve
-                // it for any candidate whose archive file exists; the digest is cached on the entry.
-                foreach (var candidate in mods.Where(candidate =>
-                             string.IsNullOrWhiteSpace(candidate.Sha256) &&
-                             File.Exists(candidate.ArchivePath)))
-                {
-                    var resolved = await VerifyLocalSha256Async(candidate, cancellationToken);
-                    if (resolved is not null && string.Equals(resolved, mod.Archive.Sha256, StringComparison.OrdinalIgnoreCase))
-                    {
-                        local = candidate;
-                        break;
-                    }
-                }
-            }
+            var local = await FindLocalArchiveAsync(mod, mods, cancellationToken);
             var artifact = new ModListBuildArtifact
             {
                 EntryId = mod.EntryId,
@@ -105,7 +87,7 @@ public sealed class ModListPreflightService
 
             var reusable = local is null ? null : installations.FirstOrDefault(installation =>
                 installation.ModId == local.Id &&
-                string.Equals(installation.SourceArchiveSha256, mod.Archive.Sha256, StringComparison.OrdinalIgnoreCase) &&
+                MatchesRequirement(installation.SourceArchiveSha256, mod.Archive) &&
                 RecipesMatch(installation.Recipe, mod.Installation) && Directory.Exists(installation.FolderPath));
             if (reusable is not null)
             {
@@ -173,6 +155,42 @@ public sealed class ModListPreflightService
         {
             return null;
         }
+    }
+
+    // A local archive satisfies a requirement when its SHA-256 matches a known requirement, or, for
+    // a pending requirement (imported from a collection that only published an MD5), when its MD5
+    // matches. Pending requirements never match on SHA-256 because none is known yet.
+    private async Task<ModEntry?> FindLocalArchiveAsync(
+        ModListModEntry mod, IReadOnlyList<ModEntry> mods, CancellationToken cancellationToken)
+    {
+        if (!mod.Archive.Sha256Pending)
+        {
+            var bySha = mods.FirstOrDefault(candidate =>
+                !string.IsNullOrWhiteSpace(mod.Archive.Sha256) &&
+                string.Equals(candidate.Sha256, mod.Archive.Sha256, StringComparison.OrdinalIgnoreCase));
+            if (bySha is not null)
+                return bySha;
+            foreach (var candidate in mods.Where(candidate =>
+                         string.IsNullOrWhiteSpace(candidate.Sha256) &&
+                         File.Exists(candidate.ArchivePath)))
+            {
+                var resolved = await VerifyLocalSha256Async(candidate, cancellationToken);
+                if (resolved is not null && string.Equals(resolved, mod.Archive.Sha256, StringComparison.OrdinalIgnoreCase))
+                    return candidate;
+            }
+            return null;
+        }
+
+        return mods.FirstOrDefault(candidate =>
+            !string.IsNullOrWhiteSpace(mod.Archive.Md5) &&
+            string.Equals(candidate.Md5, mod.Archive.Md5, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool MatchesRequirement(string? sourceSha256, ModListArchiveRequirement archive)
+    {
+        if (archive.Sha256Pending)
+            return true; // SHA-256 is not yet known; reuse is decided at install time by recipe match.
+        return string.Equals(sourceSha256, archive.Sha256, StringComparison.OrdinalIgnoreCase);
     }
 
     private static ModListBuildTask Task(string id, ModListBuildTaskKind kind, string? entryId, string name,

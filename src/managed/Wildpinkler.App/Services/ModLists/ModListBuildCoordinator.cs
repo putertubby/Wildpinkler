@@ -25,6 +25,8 @@ public sealed class ModListBuildCoordinator
     private readonly LaunchService _launcher;
     private readonly DependencyGraphService _dependencies;
     private readonly ModListDependencyMapper _dependencyMapper;
+    private readonly ModListCatalogStore? _catalog;
+    private readonly ModListManifestSerializer? _serializer;
 
     public ModListBuildCoordinator(
         ModListBuildStore builds,
@@ -39,7 +41,9 @@ public sealed class ModListBuildCoordinator
         LaunchTargetResolver targetResolver,
         LaunchService launcher,
         DependencyGraphService dependencies,
-        ModListDependencyMapper dependencyMapper)
+        ModListDependencyMapper dependencyMapper,
+        ModListCatalogStore? catalog = null,
+        ModListManifestSerializer? serializer = null)
     {
         _builds = builds;
         _preflight = preflight;
@@ -54,6 +58,8 @@ public sealed class ModListBuildCoordinator
         _launcher = launcher;
         _dependencies = dependencies;
         _dependencyMapper = dependencyMapper;
+        _catalog = catalog;
+        _serializer = serializer;
     }
 
     public event EventHandler<ModListBuild>? BuildChanged;
@@ -348,9 +354,14 @@ public sealed class ModListBuildCoordinator
             task.Progress = update.TotalBytes is > 0 ? (double)update.BytesDownloaded / update.TotalBytes.Value : 0;
             task.StatusText = update.Phase.ToString();
         });
+        // A pending requirement has no SHA-256 yet, so acquisition verifies against the site's MD5
+        // and computes the SHA-256, which is then backfilled so later builds are reproducible.
+        var expectedSha256 = mod.Archive.Sha256Pending ? null : mod.Archive.Sha256;
         var result = await _acquisition.AcquireAsync(
-            link, mod.Archive.Sha256, confirmedGameIds: new[] { build.GameId }, progress: progress, cancellationToken: cancellationToken);
+            link, expectedSha256, confirmedGameIds: new[] { build.GameId }, progress: progress, cancellationToken: cancellationToken);
         SetArchiveArtifact(build, mod.EntryId, result.Entry);
+        if (mod.Archive.Sha256Pending && !string.IsNullOrWhiteSpace(result.Entry.Sha256))
+            await BackfillSha256Async(build, manifest, mod.EntryId, result.Entry.Sha256, cancellationToken);
         Complete(task, "Archive downloaded and verified.");
     }
 
@@ -494,6 +505,42 @@ public sealed class ModListBuildCoordinator
         var artifact = build.Artifacts.Single(item => item.EntryId == entryId);
         artifact.ModId = entry.Id;
         artifact.ArchivePath = entry.ArchivePath;
+    }
+
+    /// <summary>
+    /// After the first verified download of a pending archive, fills in the computed SHA-256 on the
+    /// in-memory requirement (so this build's later steps can verify against it) and, when the
+    /// list came from the catalog, persists a refreshed copy back so future imports/builds are
+    /// reproducible. Catalog persistence is best-effort: a failure here must not fail the build.
+    /// </summary>
+    private async Task BackfillSha256Async(
+        ModListBuild build, ModListManifest manifest, string entryId, string sha256, CancellationToken cancellationToken)
+    {
+        var mod = GetMod(manifest, entryId);
+        mod.Archive.Sha256 = sha256;
+        mod.Archive.Sha256Pending = false;
+
+        if (_catalog is null || _serializer is null || manifest.SourceCollection is null)
+            return;
+
+        try
+        {
+            var target = (await _catalog.LoadAsync(cancellationToken)).FirstOrDefault(entry =>
+                string.Equals(entry.Manifest.ListId, build.ListId, StringComparison.Ordinal) &&
+                entry.Manifest.Revision == build.ListRevision);
+            if (target is null)
+                return;
+
+            var refreshed = await _serializer.LoadAsync(target.FilePath, cancellationToken);
+            var refreshedMod = refreshed.Content.OfType<ModListModEntry>().Single(candidate => candidate.EntryId == entryId);
+            refreshedMod.Archive.Sha256 = sha256;
+            refreshedMod.Archive.Sha256Pending = false;
+            await _catalog.SaveAsync(refreshed, replace: true, cancellationToken);
+        }
+        catch (Exception)
+        {
+            // Best-effort: the in-memory manifest already carries the digest for this build.
+        }
     }
 
     private static void Complete(ModListBuild build, string taskId, string status) =>

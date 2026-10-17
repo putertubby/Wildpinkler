@@ -114,7 +114,23 @@ public static class ServiceRegistration
         services.AddSingleton<ModListDependencyMapper>();
         services.AddSingleton<ModListBuildStore>();
         services.AddSingleton<ModListPreflightService>();
-        services.AddSingleton<ModListBuildCoordinator>();
+        services.AddSingleton<ModListBuildCoordinator>(provider => new ModListBuildCoordinator(
+            provider.GetRequiredService<ModListBuildStore>(),
+            provider.GetRequiredService<ModListPreflightService>(),
+            provider.GetRequiredService<ProfileFolderService>(),
+            provider.GetRequiredService<RemoteArchiveAcquisitionService>(),
+            provider.GetRequiredService<ModInstallService>(),
+            provider.GetRequiredService<ModStore>(),
+            provider.GetRequiredService<ModInstallationStore>(),
+            provider.GetRequiredService<ProfileStore>(),
+            provider.GetRequiredService<ToolStore>(),
+            provider.GetRequiredService<LaunchTargetResolver>(),
+            provider.GetRequiredService<LaunchService>(),
+            provider.GetRequiredService<DependencyGraphService>(),
+            provider.GetRequiredService<ModListDependencyMapper>(),
+            provider.GetRequiredService<ModListCatalogStore>(),
+            provider.GetRequiredService<ModListManifestSerializer>()));
+        services.AddSingleton<RemoteCollectionImportService>();
         return services;
     }
 

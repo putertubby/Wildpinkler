@@ -82,8 +82,11 @@ public sealed partial class ModListsPage : PageBase
     protected override void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
+        _pendingAutoBuildKey = e.Parameter as string;
         UiTask.Run(LoadAsync, nameof(OnNavigatedTo), ShowLoadFailure);
     }
+
+    private string? _pendingAutoBuildKey;
 
     private void ShowLoadFailure(Exception exception)
     {
@@ -106,6 +109,13 @@ public sealed partial class ModListsPage : PageBase
             _all = await _store.LoadAsync();
             _builds = await _buildStore.LoadAsync();
             await LoadGameAndToolCatalogsAsync();
+            if (_pendingAutoBuildKey is { } key)
+            {
+                _pendingAutoBuildKey = null;
+                RefreshVisible(key);
+                _ = AutoBuildAsync(key);
+                return;
+            }
             RefreshVisible();
         }
         catch (Exception exception)
@@ -346,6 +356,52 @@ public sealed partial class ModListsPage : PageBase
         catch (Exception exception)
         {
             ShowInfo($"Unable to create the build plan. {exception.Message}", InfoBarSeverity.Error);
+        }
+    }
+
+    // Called when a collection deep link navigated here with a pending list: select the freshly
+    // imported list, pick a target game for its definition, and start the build automatically.
+    private async Task AutoBuildAsync(string entryKey)
+    {
+        if (_all.FirstOrDefault(entry => entry.Key == entryKey) is not { } entry)
+            return;
+        var game = _games.FirstOrDefault(candidate =>
+            string.Equals(candidate.DefinitionId, entry.Manifest.Game.DefinitionId, StringComparison.OrdinalIgnoreCase));
+        if (game is null)
+        {
+            ShowInfo("No local game matches this collection, so a build could not be started. Choose a game to import it manually.", InfoBarSeverity.Warning);
+            return;
+        }
+        try
+        {
+            var profileName = entry.Manifest.Name;
+            var build = await _coordinator.CreateAsync(entry.Manifest, profileName, game, _tools);
+            _builds = await _buildStore.LoadAsync();
+            ShowBuild(build);
+            DetailsSelector.SelectedItem = DetailsSelector.Items.OfType<SelectorBarItem>().First(item => (string)item.Tag == "Builds");
+            if (build.State == ModListBuildState.Ready && _buildCancellation is null)
+            {
+                _buildCancellation = new CancellationTokenSource();
+                try
+                {
+                    await _coordinator.ResumeAsync(build, entry.Manifest, game, _tools, _buildCancellation.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    ShowInfo("Build paused. Completed work was saved.", InfoBarSeverity.Informational);
+                }
+                finally
+                {
+                    _buildCancellation.Dispose();
+                    _buildCancellation = null;
+                    ShowBuild(build);
+                }
+            }
+            ShowInfo("Collection imported and build started.", InfoBarSeverity.Success);
+        }
+        catch (Exception exception)
+        {
+            ShowInfo($"Unable to start the build. {exception.Message}", InfoBarSeverity.Error);
         }
     }
 

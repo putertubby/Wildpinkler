@@ -75,7 +75,7 @@ public sealed record RemoteLink
     public static RemoteLink ForMod(string siteId, string gameKey, string modKey) =>
         new(RemoteLinkKind.Mod, siteId) { GameKey = gameKey, ModKey = modKey };
 
-    public static RemoteLink ForCollection(string siteId, string gameKey, string slug, int? revision, string reason) =>
+    public static RemoteLink ForCollection(string siteId, string gameKey, string slug, int? revision, string? reason) =>
         new(RemoteLinkKind.Collection, siteId)
         {
             GameKey = gameKey,

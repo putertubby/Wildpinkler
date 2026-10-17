@@ -8,7 +8,7 @@ using System.Threading.Tasks;
 
 namespace Wildpinkler.Remote.Nexus;
 
-public sealed class NexusSiteProvider : IRemoteSiteProvider, IDisposable
+public sealed class NexusSiteProvider : IRemoteSiteProvider, IRemoteCollectionProvider, IDisposable
 {
     public const string Id = "nexus";
 
@@ -39,7 +39,8 @@ public sealed class NexusSiteProvider : IRemoteSiteProvider, IDisposable
         SupportsTracking: true,
         SupportsHashLookup: true,
         SupportsBrowserFallback: true,
-        SupportsGameCatalog: true);
+        SupportsGameCatalog: true,
+        SupportsCollections: true);
 
     public RemoteRateLimit LastRateLimit => _transport.LastRateLimit;
 
@@ -238,6 +239,58 @@ public sealed class NexusSiteProvider : IRemoteSiteProvider, IDisposable
 
     private static DateTimeOffset? ParseDate(string? raw) =>
         DateTimeOffset.TryParse(raw, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var value) ? value : null;
+
+    public async Task<RemoteCollection> GetCollectionAsync(RemoteCollectionRef reference, RemoteCredential credential, CancellationToken cancellationToken = default)
+    {
+        // NOTE: the exact endpoint and payload shape must be verified against a live Nexus
+        // account before shipping; all collection reads require an API key.
+        var path = reference.Revision is { } revision
+            ? $"games/{Escape(reference.GameKey)}/collections/{Escape(reference.CollectionKey)}/revisions/{revision}.json"
+            : $"games/{Escape(reference.GameKey)}/collections/{Escape(reference.CollectionKey)}.json";
+
+        var dto = await _transport.GetAsync<NexusCollectionDto>(path, credential, cancellationToken).ConfigureAwait(false);
+
+        var entries = new List<RemoteCollectionEntry>();
+        if (dto.Files is not null)
+        {
+            foreach (var file in dto.Files)
+            {
+                var fileKey = file.FileKey.ToString(CultureInfo.InvariantCulture);
+                var modKey = file.ModKey.ToString(CultureInfo.InvariantCulture);
+                entries.Add(new RemoteCollectionModFileEntry(
+                    new RemoteRef(Id, reference.GameKey, modKey, fileKey),
+                    string.IsNullOrWhiteSpace(file.Name) ? fileKey : file.Name,
+                    file.Version,
+                    file.Md5,
+                    file.SizeInBytes,
+                    file.UploadedTimestamp is > 0 ? DateTimeOffset.FromUnixTimeSeconds(file.UploadedTimestamp.Value) : null,
+                    MapCategory(file.CategoryName),
+                    file.IsPrimary));
+            }
+        }
+        if (dto.Collections is not null)
+        {
+            foreach (var sub in dto.Collections)
+            {
+                entries.Add(new RemoteCollectionSubCollectionEntry(
+                    reference.GameKey,
+                    sub.Key.ToString(CultureInfo.InvariantCulture),
+                    sub.Name,
+                    sub.Summary ?? sub.Description));
+            }
+        }
+
+        return new RemoteCollection(
+            Id,
+            reference.GameKey,
+            reference.CollectionKey,
+            dto.Name,
+            dto.Summary ?? dto.Description,
+            dto.Revision,
+            entries,
+            dto.Author,
+            ParseDate(dto.UpdatedTime));
+    }
 
     private static string Escape(string value) => Uri.EscapeDataString(value);
 

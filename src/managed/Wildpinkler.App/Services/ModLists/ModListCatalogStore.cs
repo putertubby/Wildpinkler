@@ -83,6 +83,27 @@ public sealed class ModListCatalogStore : IDisposable
         }
     }
 
+    /// <summary>
+    /// Returns the stored manifest for an exact list id and revision, or null when no such revision
+    /// is in the catalog. Used to preserve provenance (e.g. the first import time) on re-import.
+    /// </summary>
+    public async Task<ModListManifest?> TryFindAsync(
+        string listId,
+        int revision,
+        CancellationToken cancellationToken = default)
+    {
+        await _catalogLock.WaitAsync(cancellationToken);
+        try
+        {
+            var path = Path.Combine(_catalogRoot, listId, $"{revision}{ModListManifestSerializer.FileExtension}");
+            return File.Exists(path) ? await _serializer.LoadAsync(path, cancellationToken) : null;
+        }
+        finally
+        {
+            _catalogLock.Release();
+        }
+    }
+
     public async Task DeleteAsync(ModListCatalogEntry entry, CancellationToken cancellationToken = default)
     {
         await _catalogLock.WaitAsync(cancellationToken);

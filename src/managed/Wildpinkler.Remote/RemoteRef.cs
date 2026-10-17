@@ -28,3 +28,14 @@ public sealed record RemoteRef(
         string.Equals(GameKey, other.GameKey, StringComparison.OrdinalIgnoreCase) &&
         string.Equals(ModKey, other.ModKey, StringComparison.Ordinal);
 }
+
+/// <summary>
+/// Identity of a collection on a site. The key is the site's numeric/identifier for the collection;
+/// the slug is the human-readable form used in deep links.
+/// </summary>
+public sealed record RemoteCollectionRef(
+    string SiteId,
+    string GameKey,
+    string CollectionKey,
+    string? Slug = null,
+    int? Revision = null);

@@ -373,7 +373,7 @@ of a silently ignored click:
 | --- | --- |
 | `nxm://<game>/mods/<id>/files/<id>?key&expires&user_id` | Downloadable |
 | `nxm://<game>/mods/<id>` | Downloadable; resolves to the mod's primary file |
-| `nxm://<game>/collections/<slug>/revisions/<n>` | Recognised, refused with an explanation |
+| `nxm://<game>/collections/<slug>/revisions/<n>` | Recognised; imported as a mod list (refused if the collection's game does not map to an installed game) |
 | anything else | Refused with an explanation |
 
 Before any bytes move, the link is resolved into a preview: mod and file metadata from the site, plus
@@ -505,7 +505,13 @@ profile, then synchronizes mod associations; a failed commit remains resumable. 
 the unpublished profile directory. Archives/installations remain shared and garbage collection treats
 installation ids referenced by active journals as live.
 
-Nexus Collections are a separate unsupported format and their protocol links remain recognised and
-refused. Also out of scope: the Nexus v2 GraphQL API, browser extensions/userscripts, archive
-redistribution, arbitrary scripts, mutable profile-state backup bundles, list marketplaces/signing,
-and automatic installation of third-party tools.
+Nexus Collections are imported, not stored as a native format: a `nxm://<game>/collections/...` link
+is resolved through the site connector into a revision-pinned, ordered list of mod files (nested
+sub-collections are flattened in order, deduplicated by file identity), translated into a
+`ModListManifest`, and saved to the mod-list catalog. Collection-sourced archives carry the site's
+MD5 with an empty SHA-256 flagged `Sha256Pending`; the SHA-256 is computed and verified on first
+download and backfilled into the catalog. The import is refused with an explanation when the
+collection's game does not map to any installed game, since a mod list is anchored to a concrete
+local game definition. Also out of scope: the Nexus v2 GraphQL API, browser extensions/userscripts,
+archive redistribution, arbitrary scripts, mutable profile-state backup bundles, list
+marketplaces/signing, and automatic installation of third-party tools.

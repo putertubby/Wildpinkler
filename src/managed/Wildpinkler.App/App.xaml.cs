@@ -164,6 +164,12 @@ public partial class App : Application
         Post(() =>
         {
             _window?.Activate();
+            if (link.Kind == RemoteLinkKind.Collection)
+            {
+                _ = ImportCollectionAsync(link);
+                return;
+            }
+
             if (!link.IsDownloadable)
             {
                 RejectLink(link);
@@ -178,6 +184,66 @@ public partial class App : Application
 
             _ = ConfirmAndEnqueueAsync(link);
         });
+    }
+
+    // A collection deep link is imported as a native mod list, saved to the catalog, and the user is
+    // taken to the Mod lists page where the new list appears and can be built. When the collection's
+    // game does not map to any installed game the import is refused with an explanation.
+    private async Task ImportCollectionAsync(RemoteLink link)
+    {
+        var root = (_window?.Content as FrameworkElement)?.XamlRoot;
+        if (root is null)
+        {
+            AppDiagnostics.Write("The collection import dialog had no XAML root.");
+            RejectLink(RemoteLink.ForUnsupported(link.SiteId, "Wildpinkler could not display the collection import. Try the link again."));
+            return;
+        }
+
+        try
+        {
+            var reference = new RemoteCollectionRef(
+                link.SiteId,
+                link.GameKey!,
+                link.CollectionSlug!,
+                link.CollectionSlug,
+                link.RevisionNumber);
+
+            if (!AppServices.RemoteSiteRegistry.TryGet(link.SiteId, out var provider) ||
+                !provider.Capabilities.SupportsCollections)
+            {
+                RejectLink(RemoteLink.ForUnsupported(link.SiteId,
+                    $"Site '{provider?.DisplayName ?? link.SiteId}' does not expose collections."));
+                return;
+            }
+
+            var result = await AppHost.Get<RemoteCollectionImportService>().ImportAsync(reference);
+            var modCount = result.Manifest.Content.Count;
+            var gradeLabel = result.Grade.Grade.ToString();
+            var listKey = $"{result.Manifest.ListId}@{result.Manifest.Revision}";
+
+            var message = $"Imported collection '{result.Manifest.Name}' as a mod list with {modCount} mod(s) (grade: {gradeLabel}).\n\n" +
+                          "A build will be started automatically for your local game.";
+
+            var dialog = new ContentDialog
+            {
+                XamlRoot = root,
+                Title = "Import collection",
+                Content = message,
+                PrimaryButtonText = "Build now",
+                CloseButtonText = "Close"
+            };
+            if (await dialog.ShowAsync() == ContentDialogResult.Primary)
+                MainWindow.Instance?.NavigateToSection(NavigationCatalog.ModListsTag, listKey);
+        }
+        catch (RemoteSiteException exception)
+        {
+            RejectLink(RemoteLink.ForUnsupported(link.SiteId, $"{exception.Message} {exception.Remedy}"));
+        }
+        catch (Exception exception)
+        {
+            AppDiagnostics.Write("NXM collection import failed.", exception);
+            RejectLink(RemoteLink.ForUnsupported(link.SiteId, "Wildpinkler could not import that collection. Check the diagnostics log for details."));
+        }
     }
 
     // Confirmation is opted out of entirely here, so this applies the same default the dialog would

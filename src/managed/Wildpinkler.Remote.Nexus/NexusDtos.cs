@@ -90,3 +90,38 @@ internal sealed class NexusMd5ResultDto
     public NexusModDto? Mod { get; set; }
     public NexusFileDto? FileDetails { get; set; }
 }
+
+// ---------------------------------------------------------------------------
+// Collections. The exact wire shape of the v1 collection endpoints has not
+// been verified against a live response (all collection reads require an
+// API key). Property names below follow the same snake_case convention as
+// the rest of the file and must be confirmed against a real payload before
+// shipping; the mapping in NexusSiteProvider is the single place to adjust.
+// ---------------------------------------------------------------------------
+
+internal sealed class NexusCollectionDto
+{
+    public long Key { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string? Slug { get; set; }
+    public string? Summary { get; set; }
+    public string? Description { get; set; }
+    public int Revision { get; set; }
+    public string? Author { get; set; }
+    public string? UpdatedTime { get; set; }
+    public List<NexusCollectionFileDto>? Files { get; set; }
+    public List<NexusCollectionDto>? Collections { get; set; }
+}
+
+internal sealed class NexusCollectionFileDto
+{
+    public int ModKey { get; set; }
+    public int FileKey { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string? Version { get; set; }
+    public long? SizeInBytes { get; set; }
+    public string? Md5 { get; set; }
+    public string? CategoryName { get; set; }
+    public bool IsPrimary { get; set; }
+    public long? UploadedTimestamp { get; set; }
+}

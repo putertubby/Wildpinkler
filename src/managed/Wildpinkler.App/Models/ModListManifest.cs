@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
 using Wildpinkler.Remote;
@@ -21,6 +22,23 @@ public sealed class ModListManifest
 
     /// <summary>Dependency edges between content entries, so a shared list keeps its declared relationships.</summary>
     public List<ModListDependency> Dependencies { get; set; } = new();
+
+    /// <summary>
+    /// Optional provenance: the remote collection this list was imported from. Present when the
+    /// list originated from a site collection so a newer revision of the same collection can be
+    /// recognized and re-imported on top of the existing list id.
+    /// </summary>
+    public ModListCollectionSource? SourceCollection { get; set; }
+}
+
+public sealed class ModListCollectionSource
+{
+    public string SiteId { get; set; } = string.Empty;
+    public string GameKey { get; set; } = string.Empty;
+    public string CollectionKey { get; set; } = string.Empty;
+    public string? Slug { get; set; }
+    public int? Revision { get; set; }
+    public DateTimeOffset? ImportedAt { get; set; }
 }
 
 public sealed class ModListDependency
@@ -92,6 +110,13 @@ public sealed class ModListArchiveRequirement
     public string Sha256 { get; set; } = string.Empty;
     public string? Md5 { get; set; }
     public long? SizeInBytes { get; set; }
+
+    /// <summary>
+    /// True when the archive's SHA-256 is not yet known and will be computed and verified on the
+    /// first download (e.g. an entry imported from a collection whose site publishes only an MD5).
+    /// When set, the manifest is accepted with an empty SHA-256 and the build backfills it.
+    /// </summary>
+    public bool Sha256Pending { get; set; }
 }
 
 public sealed class ModListToolRequirement
