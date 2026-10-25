@@ -7,6 +7,7 @@ using Wildpinkler.App.Services;
 using Wildpinkler.Remote;
 
 using Wildpinkler.App.Formatting;
+using Wildpinkler.App.Pages;
 
 namespace Wildpinkler.App.Controls;
 
@@ -66,6 +67,24 @@ public sealed partial class RemoteDownloadDialog : ContentDialog
         SiteText.Text = $"{preview.SiteName} \u00b7 {preview.Account.Name} ({(preview.Account.IsPremium ? "Premium" : "Free")})";
 
         ApplyGameMapping(preview, mapping);
+
+        // One-click dependency entry point for the single-profile case (multi-profile downloads stay
+        // manual: the user picks the profile when the archive is added).
+        if (mapping?.Profiles.Count == 1)
+        {
+            SecondaryButtonText = "Install with dependencies";
+            SecondaryButtonClick += (_, _) =>
+            {
+                if (MainWindow.Instance is not { } window)
+                    return;
+                var request = new DependencyPlanPage.PlanRequest(
+                    preview.Link.SiteId,
+                    preview.Link.GameKey ?? string.Empty,
+                    preview.Link.ModKey ?? string.Empty,
+                    mapping!.Profiles[0].Id, mapping.Profiles[0].Name);
+                window.NavigateToDependencyPlan(request);
+            };
+        }
     }
 
     public bool SuppressFutureConfirmations => DoNotAskCheckBox.IsChecked == true;

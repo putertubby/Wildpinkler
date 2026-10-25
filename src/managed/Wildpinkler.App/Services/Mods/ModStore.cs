@@ -8,6 +8,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Wildpinkler.App.Models;
+using Wildpinkler.Remote.Nexus;
 
 namespace Wildpinkler.App.Services;
 
@@ -35,12 +36,160 @@ public sealed class ModStore : IDisposable
         _archivePath = Path.Combine(_rootPath, "archives");
     }
 
+    private async Task<IReadOnlyList<ModEntry>> ReadAndRepairCurrentAsync()
+    {
+        var (loadedEntries, loadedFromBackup) = await ReadCurrentAsync();
+        var entries = loadedEntries.ToList();
+        var changed = false;
+        var unresolved = new List<string>();
+
+        foreach (var entry in entries)
+        {
+            if (entry.Remote is { } remote &&
+                string.Equals(remote.SiteId, "nexus", StringComparison.OrdinalIgnoreCase))
+            {
+                if (NexusModIdentity.TryNormalizeModKey(remote.ModKey, out var normalized))
+                {
+                    if (!string.Equals(normalized, remote.ModKey, StringComparison.Ordinal))
+                    {
+                        entry.Remote = remote with { ModKey = normalized };
+                        changed = true;
+                    }
+                }
+                else
+                {
+                    var candidateKeys = new HashSet<string>(StringComparer.Ordinal);
+                    foreach (var url in new[] { entry.Website, remote.PageUrl })
+                    {
+                        if (NexusModIdentity.TryGetModKeyFromPageUrl(url, out var modKey))
+                            candidateKeys.Add(modKey);
+                    }
+
+                    if (candidateKeys.Count == 1 && !string.IsNullOrWhiteSpace(remote.GameKey))
+                    {
+                        var modKey = candidateKeys.Single();
+                        entry.Remote = remote with
+                        {
+                            ModKey = modKey,
+                            PageUrl = NexusModIdentity.BuildModPageUrl(remote.GameKey, modKey)
+                        };
+                        changed = true;
+                    }
+                    else
+                    {
+                        unresolved.Add($"{entry.Id} ('{entry.Name}')");
+                    }
+                }
+            }
+
+            if (entry.Dependencies is null)
+                continue;
+            foreach (var dependency in entry.Dependencies)
+            {
+                if (dependency.Target?.RemoteRef is not { } dependencyRef ||
+                    !string.Equals(dependencyRef.SiteId, "nexus", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                if (NexusModIdentity.TryNormalizeModKey(dependencyRef.ModKey, out var dependencyKey))
+                {
+                    if (!string.Equals(dependencyKey, dependencyRef.ModKey, StringComparison.Ordinal))
+                    {
+                        dependency.Target = dependency.Target with
+                        {
+                            RemoteRef = dependencyRef with { ModKey = dependencyKey }
+                        };
+                        changed = true;
+                    }
+                    continue;
+                }
+
+                if (NexusModIdentity.TryGetModKeyFromPageUrl(dependencyRef.PageUrl, out var dependencyKeyFromUrl) &&
+                    !string.IsNullOrWhiteSpace(dependencyRef.GameKey))
+                {
+                    dependency.Target = dependency.Target with
+                    {
+                        RemoteRef = dependencyRef with
+                        {
+                            ModKey = dependencyKeyFromUrl,
+                            PageUrl = NexusModIdentity.BuildModPageUrl(dependencyRef.GameKey, dependencyKeyFromUrl)
+                        }
+                    };
+                    changed = true;
+                }
+                else
+                {
+                    unresolved.Add($"{entry.Id} dependency '{dependency.Id}'");
+                }
+            }
+        }
+
+        if (changed)
+            await WriteAsync(entries, preserveBackup: loadedFromBackup);
+
+        if (unresolved.Count > 0)
+            AppDiagnostics.Write($"Could not safely repair Nexus identity for library entries: {string.Join(", ", unresolved)}. Review their Website and remote page URL.");
+
+        return entries;
+    }
+
+    private static void ValidateNexusReferences(IEnumerable<ModEntry> entries, IReadOnlyList<ModEntry> current)
+    {
+        var existingById = current.ToDictionary(entry => entry.Id, StringComparer.Ordinal);
+        foreach (var entry in entries)
+        {
+            if (entry.Remote is { } remote &&
+                string.Equals(remote.SiteId, "nexus", StringComparison.OrdinalIgnoreCase))
+            {
+                if (NexusModIdentity.TryNormalizeModKey(remote.ModKey, out var normalized))
+                {
+                    if (!string.Equals(normalized, remote.ModKey, StringComparison.Ordinal))
+                        entry.Remote = remote with { ModKey = normalized };
+                }
+                else if (!existingById.TryGetValue(entry.Id, out var existing) || !Equals(existing.Remote, remote))
+                {
+                    throw new InvalidOperationException(
+                        $"Cannot save '{entry.Name}' because its Nexus mod ID '{remote.ModKey}' is invalid. Use a positive numeric Nexus mod ID or remove the incorrect site identity.");
+                }
+            }
+
+            if (entry.Dependencies is null)
+                continue;
+            foreach (var dependency in entry.Dependencies)
+            {
+                if (dependency.Target?.RemoteRef is not { } dependencyRef ||
+                    !string.Equals(dependencyRef.SiteId, "nexus", StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                if (NexusModIdentity.TryNormalizeModKey(dependencyRef.ModKey, out var dependencyKey))
+                {
+                    if (!string.Equals(dependencyKey, dependencyRef.ModKey, StringComparison.Ordinal))
+                    {
+                        dependency.Target = dependency.Target with
+                        {
+                            RemoteRef = dependencyRef with { ModKey = dependencyKey }
+                        };
+                    }
+                    continue;
+                }
+
+                var existingDependency = existingById.TryGetValue(entry.Id, out var existingEntry)
+                    ? existingEntry.Dependencies?.FirstOrDefault(candidate => candidate.Id == dependency.Id)
+                    : null;
+                if (existingDependency is not null && Equals(existingDependency.Target?.RemoteRef, dependencyRef))
+                    continue;
+
+                throw new InvalidOperationException(
+                    $"Cannot save '{entry.Name}' because dependency '{dependency.Id}' has an invalid Nexus mod ID '{dependencyRef.ModKey}'. Use a positive numeric Nexus mod ID or remove the incorrect site identity.");
+            }
+        }
+    }
+
     public async Task<IReadOnlyList<ModEntry>> LoadAsync()
     {
         await _databaseLock.WaitAsync();
         try
         {
-            return await ReadCurrentAsync();
+            return await ReadAndRepairCurrentAsync();
         }
         finally
         {
@@ -54,6 +203,8 @@ public sealed class ModStore : IDisposable
         await _databaseLock.WaitAsync();
         try
         {
+            var current = await ReadAndRepairCurrentAsync();
+            ValidateNexusReferences(snapshot, current);
             await WriteAsync(snapshot);
         }
         finally
@@ -62,22 +213,22 @@ public sealed class ModStore : IDisposable
         }
     }
 
-    private async Task<IReadOnlyList<ModEntry>> ReadCurrentAsync()
+    private async Task<(IReadOnlyList<ModEntry> Entries, bool LoadedFromBackup)> ReadCurrentAsync()
     {
         if (!File.Exists(_databasePath))
-            return Array.Empty<ModEntry>();
+            return (Array.Empty<ModEntry>(), false);
 
         try
         {
-            return await ReadEntriesAsync(_databasePath);
+            return (await ReadEntriesAsync(_databasePath), false);
         }
         catch (JsonException) when (File.Exists(_backupPath))
         {
-            return await ReadEntriesAsync(_backupPath);
+            return (await ReadEntriesAsync(_backupPath), true);
         }
     }
 
-    private async Task WriteAsync(List<ModEntry> snapshot)
+    private async Task WriteAsync(List<ModEntry> snapshot, bool preserveBackup = false)
     {
         Directory.CreateDirectory(_rootPath);
         await using (var stream = new FileStream(_temporaryPath, FileMode.Create, FileAccess.Write, FileShare.None, 4096, FileOptions.Asynchronous))
@@ -86,7 +237,7 @@ public sealed class ModStore : IDisposable
             await stream.FlushAsync();
         }
 
-        AtomicFile.Publish(_temporaryPath, _databasePath, _backupPath);
+        AtomicFile.Publish(_temporaryPath, _databasePath, preserveBackup ? null : _backupPath);
     }
 
     /// <summary>
@@ -98,7 +249,8 @@ public sealed class ModStore : IDisposable
         await _databaseLock.WaitAsync();
         try
         {
-            var entries = (await ReadCurrentAsync()).ToList();
+            var entries = (await ReadAndRepairCurrentAsync()).ToList();
+            ValidateNexusReferences(new[] { entry }, entries);
             var index = entries.FindIndex(item => item.Id == entry.Id);
             if (index >= 0)
                 entries[index] = entry;

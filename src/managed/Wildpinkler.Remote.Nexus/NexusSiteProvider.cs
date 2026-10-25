@@ -14,6 +14,10 @@ public sealed class NexusSiteProvider : IRemoteSiteProvider, IRemoteCollectionPr
 
     private readonly NexusApiTransport _transport;
 
+    // The GraphQL v2 API takes numeric game/mod ids, while the app works with the site's domain
+    // keys. This cache maps domain key -> numeric game id, loaded once from REST games.json.
+    private readonly Dictionary<string, int> _gameIdByDomain = new(StringComparer.OrdinalIgnoreCase);
+
     public NexusSiteProvider(
         IRemoteCredentialProvider credentialProvider,
         string applicationName = "Wildpinkler",
@@ -40,7 +44,9 @@ public sealed class NexusSiteProvider : IRemoteSiteProvider, IRemoteCollectionPr
         SupportsHashLookup: true,
         SupportsBrowserFallback: true,
         SupportsGameCatalog: true,
-        SupportsCollections: true);
+        SupportsCollections: true,
+        SupportsRequirements: true,
+        SupportsModDetails: true);
 
     public RemoteRateLimit LastRateLimit => _transport.LastRateLimit;
 
@@ -57,6 +63,8 @@ public sealed class NexusSiteProvider : IRemoteSiteProvider, IRemoteCollectionPr
 
     public async Task<RemoteModMetadata> GetModAsync(RemoteRef reference, RemoteCredential credential, CancellationToken cancellationToken = default)
     {
+        var normalizedKey = RequireModKey(reference.ModKey);
+        reference = reference with { ModKey = normalizedKey };
         var dto = await _transport.GetAsync<NexusModDto>(
             $"games/{Escape(reference.GameKey)}/mods/{Escape(reference.ModKey)}.json", credential, cancellationToken).ConfigureAwait(false);
         return MapMod(dto, reference);
@@ -64,6 +72,8 @@ public sealed class NexusSiteProvider : IRemoteSiteProvider, IRemoteCollectionPr
 
     public async Task<RemoteFileMetadata> GetFileAsync(RemoteRef reference, RemoteCredential credential, CancellationToken cancellationToken = default)
     {
+        var normalizedKey = RequireModKey(reference.ModKey);
+        reference = reference with { ModKey = normalizedKey };
         if (string.IsNullOrWhiteSpace(reference.FileKey))
             throw new RemoteSiteException(RemoteErrorKind.NotFound, "No file was specified for this mod.", Id);
 
@@ -74,9 +84,224 @@ public sealed class NexusSiteProvider : IRemoteSiteProvider, IRemoteCollectionPr
 
     public async Task<RemoteFileListing> GetModFilesAsync(RemoteRef reference, RemoteCredential credential, CancellationToken cancellationToken = default)
     {
+        var normalizedKey = RequireModKey(reference.ModKey);
+        _ = TryParseModId(normalizedKey, out var modId);
+        reference = reference with { ModKey = normalizedKey };
+        try
+        {
+            var gameId = await ResolveGameIdAsync(reference.GameKey, credential, cancellationToken).ConfigureAwait(false);
+            var files = await QueryModFilesAsync(modId, gameId, credential, cancellationToken).ConfigureAwait(false);
+            if (files is not null)
+                return new RemoteFileListing(SortFiles(files));
+        }
+        catch (RemoteSiteException)
+        {
+            // GraphQL failed (schema change, missing game id, ...): degrade to the REST list.
+        }
+
         var dto = await _transport.GetAsync<NexusFileListDto>(
             $"games/{Escape(reference.GameKey)}/mods/{Escape(reference.ModKey)}/files.json", credential, cancellationToken).ConfigureAwait(false);
-        return new RemoteFileListing(dto.Files.Select(MapFile).ToList());
+        return new RemoteFileListing(SortFiles(dto.Files.Select(MapFile).ToList()));
+    }
+
+    /// <summary>
+    /// Rich mod details and its files in a single GraphQL call. The Nexus schema has no
+    /// per-version file grouping, so <c>LatestFiles</c> is the full flat file list (primary
+    /// first, then newest) and <c>LatestVersion</c> is the mod-level version label.
+    /// </summary>
+    public async Task<RemoteModDetails> GetModDetailsAsync(RemoteRef reference, RemoteCredential credential, CancellationToken cancellationToken = default)
+    {
+        var normalizedKey = RequireModKey(reference.ModKey);
+        _ = TryParseModId(normalizedKey, out var modId);
+        reference = reference with { ModKey = normalizedKey };
+
+        var gameId = await ResolveGameIdAsync(reference.GameKey, credential, cancellationToken).ConfigureAwait(false);
+        var variables = new { modId = modId.ToString(CultureInfo.InvariantCulture), gameId = gameId.ToString(CultureInfo.InvariantCulture) };
+        var query = await _transport.PostGraphQLAsync<NexusModDetailsQueryDto>(ModDetailsQuery, variables, credential, cancellationToken).ConfigureAwait(false);
+        var details = query.Mod
+            ?? throw new RemoteSiteException(RemoteErrorKind.NotFound, $"Nexus Mods does not have mod {reference.ModKey}.", Id);
+
+        var files = query.ModFiles is { } raw
+            ? raw.Where(file => file.Name is not null).Select(MapGraphQlFile).ToList()
+            : new List<RemoteFileMetadata>();
+
+        return new RemoteModDetails(
+            reference,
+            details.Name,
+            details.Summary,
+            details.Author,
+            details.Uploader?.Name,
+            details.Version,
+            details.Endorsements,
+            details.Downloads,
+            ParseDate(details.CreatedAt),
+            ParseDate(details.UpdatedAt),
+            details.FileSize is { } kb ? kb * 1024L : null,
+            SortFiles(files));
+    }
+
+    private const string ModDetailsQuery = """
+        query ModDetails($modId: ID!, $gameId: ID!) {
+          mod(modId: $modId, gameId: $gameId) {
+            id
+            name
+            version
+            summary
+            endorsements
+            downloads
+            pictureUrl
+            author
+            uploader { name }
+            createdAt
+            updatedAt
+            fileSize
+          }
+          modFiles(modId: $modId, gameId: $gameId) {
+            fileId
+            name
+            version
+            sizeInBytes
+            primary
+            category
+            date
+            description
+          }
+        }
+        """;
+
+    private const string ModFilesQuery = """
+        query ModFiles($modId: ID!, $gameId: ID!) {
+          modFiles(modId: $modId, gameId: $gameId) {
+            fileId
+            name
+            version
+            sizeInBytes
+            primary
+            category
+            date
+            description
+          }
+        }
+        """;
+
+    private static bool TryParseModId(string modKey, out int modId)
+    {
+        modId = 0;
+        return NexusModIdentity.TryNormalizeModKey(modKey, out var normalized) &&
+               int.TryParse(normalized, NumberStyles.None, CultureInfo.InvariantCulture, out modId);
+    }
+
+    private static string RequireModKey(string? modKey) =>
+        NexusModIdentity.TryNormalizeModKey(modKey, out var normalized)
+            ? normalized
+            : throw new RemoteSiteException(RemoteErrorKind.NotFound, "This Nexus mod identifier must be a positive numeric mod ID.", Id);
+
+    private async Task<List<RemoteFileMetadata>?> QueryModFilesAsync(int modId, int gameId, RemoteCredential credential, CancellationToken cancellationToken)
+    {
+        var variables = new { modId = modId.ToString(CultureInfo.InvariantCulture), gameId = gameId.ToString(CultureInfo.InvariantCulture) };
+        var query = await _transport.PostGraphQLAsync<NexusModFilesQueryDto>(ModFilesQuery, variables, credential, cancellationToken).ConfigureAwait(false);
+        if (query.ModFiles is not { } files)
+            return null;
+        return files.Where(file => file.Name is not null).Select(MapGraphQlFile).ToList();
+    }
+
+    private static List<RemoteFileMetadata> SortFiles(List<RemoteFileMetadata> files) =>
+        files
+            .OrderByDescending(file => file.IsPrimary)
+            .ThenByDescending(file => file.UploadedAt)
+            .ToList();
+
+    /// <summary>
+    /// The mods a mod requires, fetched from the GraphQL v2 API. The REST API exposes no
+    /// requirements endpoint (the old <c>requirements.json</c> path 404s for every mod), so this
+    /// queries <c>mod.modRequirements.nexusRequirements</c>. Nexus does not classify a requirement
+    /// as required/recommended/incompatible, so every edge is reported as <c>Required</c>.
+    /// </summary>
+    public async Task<IReadOnlyList<RemoteRequirement>> GetRequirementsAsync(RemoteRef reference, RemoteCredential credential, CancellationToken cancellationToken = default)
+    {
+        var normalizedKey = RequireModKey(reference.ModKey);
+        _ = TryParseModId(normalizedKey, out var modId);
+
+        var gameId = await ResolveGameIdAsync(reference.GameKey, credential, cancellationToken).ConfigureAwait(false);
+
+        // Pages are small by design (a mod realistically has at most a handful of requirements);
+        // loop until totalCount is reached in case a mod does list more.
+        const int pageSize = 50;
+        var offset = 0;
+        var result = new List<RemoteRequirement>();
+        while (true)
+        {
+            var variables = new { modId = modId.ToString(CultureInfo.InvariantCulture), gameId = gameId.ToString(CultureInfo.InvariantCulture), reqOff = offset, reqCnt = pageSize };
+            var query = await _transport.PostGraphQLAsync<NexusRequirementQueryDto>(RequirementsQuery, variables, credential, cancellationToken).ConfigureAwait(false);
+            var page = query.Mod?.ModRequirements?.NexusRequirements;
+            var nodes = page?.Nodes is { } list ? list : new List<NexusRequirementNodeDto>();
+
+            foreach (var node in nodes)
+            {
+                // External requirements name a mod that is not hosted on Nexus; the app cannot
+                // resolve or install them, so they are surfaced by name only, with the external
+                // link when the site supplies one.
+                if (node.ExternalRequirement || node.ModId <= 0)
+                {
+                    if (!string.IsNullOrWhiteSpace(node.ModName))
+                        result.Add(new RemoteRequirement(
+                            RemoteRequirementKind.Required,
+                            node.ModName,
+                            Notes: node.Notes,
+                            ExternalUrl: string.IsNullOrWhiteSpace(node.Url) ? null : node.Url));
+                    continue;
+                }
+                result.Add(new RemoteRequirement(
+                    RemoteRequirementKind.Required,
+                    string.IsNullOrWhiteSpace(node.ModName) ? $"Nexus mod {node.ModId}" : node.ModName,
+                    node.ModId.ToString(CultureInfo.InvariantCulture),
+                    Notes: node.Notes));
+            }
+
+            var total = page?.TotalCount ?? nodes.Count;
+            offset += nodes.Count;
+            if (nodes.Count < pageSize || offset >= total)
+                break;
+        }
+
+        return result;
+    }
+
+    private const string RequirementsQuery = """
+        query ModRequirements($modId: ID!, $gameId: ID!, $reqOff: Int!, $reqCnt: Int!) {
+          mod(modId: $modId, gameId: $gameId) {
+            modRequirements {
+              nexusRequirements(offset: $reqOff, count: $reqCnt) {
+                totalCount
+                nodes {
+                  modId
+                  modName
+                  notes
+                  externalRequirement
+                  url
+                  gameId
+                }
+              }
+            }
+          }
+        }
+        """;
+
+    private async Task<int> ResolveGameIdAsync(string domain, RemoteCredential credential, CancellationToken cancellationToken)
+    {
+        if (_gameIdByDomain.TryGetValue(domain, out var cached))
+            return cached;
+
+        var games = await _transport.GetAsync<List<NexusGameDto>>("games.json", credential, cancellationToken).ConfigureAwait(false);
+        foreach (var game in games)
+        {
+            if (string.Equals(game.DomainName, domain, StringComparison.OrdinalIgnoreCase))
+            {
+                _gameIdByDomain[domain] = game.Id;
+                return game.Id;
+            }
+        }
+        throw new RemoteSiteException(RemoteErrorKind.NotFound, $"Nexus does not know about the game '{domain}'.", Id);
     }
 
     public async Task<IReadOnlyList<RemoteDownloadSource>> GetDownloadSourcesAsync(
@@ -85,6 +310,7 @@ public sealed class NexusSiteProvider : IRemoteSiteProvider, IRemoteCollectionPr
         if (link.Kind != RemoteLinkKind.ModFile || string.IsNullOrWhiteSpace(link.FileKey))
             throw new RemoteSiteException(RemoteErrorKind.NotFound, "This link does not identify a downloadable file.", Id);
 
+        var modKey = RequireModKey(link.ModKey);
         if (link.IsExpired)
             throw new RemoteSiteException(RemoteErrorKind.KeyExpired, "This Nexus Mods download link has expired.", Id);
 
@@ -104,7 +330,7 @@ public sealed class NexusSiteProvider : IRemoteSiteProvider, IRemoteCollectionPr
             ? string.Empty
             : $"?key={Uri.EscapeDataString(link.DownloadKey)}&expires={link.Expires!.Value.ToUnixTimeSeconds()}";
 
-        var path = $"games/{Escape(link.GameKey!)}/mods/{Escape(link.ModKey!)}/files/{Escape(link.FileKey)}/download_link.json{query}";
+        var path = $"games/{Escape(link.GameKey!)}/mods/{modKey}/files/{Escape(link.FileKey)}/download_link.json{query}";
 
         List<NexusDownloadLinkDto> links;
         try
@@ -188,7 +414,7 @@ public sealed class NexusSiteProvider : IRemoteSiteProvider, IRemoteCollectionPr
     }
 
     public string BuildModPageUrl(RemoteRef reference) =>
-        $"{BaseUrl}/{Uri.EscapeDataString(reference.GameKey)}/mods/{Uri.EscapeDataString(reference.ModKey)}";
+        NexusModIdentity.BuildModPageUrl(reference.GameKey, RequireModKey(reference.ModKey));
 
     private RemoteModMetadata MapMod(NexusModDto dto, RemoteRef reference)
     {
@@ -225,6 +451,20 @@ public sealed class NexusSiteProvider : IRemoteSiteProvider, IRemoteCollectionPr
         dto.IsPrimary,
         dto.Description,
         dto.ChangelogHtml);
+
+    // GraphQL ModFile shares the REST mapper's category vocabulary (SCREAMING_SNAKE strings).
+    private static RemoteFileMetadata MapGraphQlFile(NexusModFileDto dto) => new(
+        dto.FileId.ToString(CultureInfo.InvariantCulture),
+        dto.Name!,
+        dto.Name,
+        dto.Version,
+        dto.SizeInBytes,
+        null,
+        dto.Date > 0 ? DateTimeOffset.FromUnixTimeSeconds(dto.Date) : null,
+        MapCategory(dto.Category),
+        dto.Primary == 1,
+        dto.Description,
+        null);
 
     private static RemoteFileCategory MapCategory(string? category) => category?.ToUpperInvariant() switch
     {

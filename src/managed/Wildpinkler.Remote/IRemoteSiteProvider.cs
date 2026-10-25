@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -32,6 +34,37 @@ public interface IRemoteSiteProvider
     Task<RemoteFileMetadata> GetFileAsync(RemoteRef reference, RemoteCredential credential, CancellationToken cancellationToken = default);
 
     Task<RemoteFileListing> GetModFilesAsync(RemoteRef reference, RemoteCredential credential, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The mods a mod requires. A provider without requirements support (see
+    /// <see cref="RemoteSiteCapabilities.SupportsRequirements"/>) leaves the default empty result.
+    /// </summary>
+    Task<IReadOnlyList<RemoteRequirement>> GetRequirementsAsync(RemoteRef reference, RemoteCredential credential, CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<RemoteRequirement>>(Array.Empty<RemoteRequirement>());
+
+    /// <summary>
+    /// The mod's display details (summary, author, latest version, endorsement, downloads,
+    /// dates) together with its latest downloadable files, in one call. A provider without
+    /// rich-details support (see <see cref="RemoteSiteCapabilities.SupportsModDetails"/>)
+    /// derives the result from <see cref="GetModAsync"/> and <see cref="GetModFilesAsync"/>.
+    /// Providers that expose a dedicated single-call endpoint override this.
+    /// </summary>
+    Task<RemoteModDetails> GetModDetailsAsync(RemoteRef reference, RemoteCredential credential, CancellationToken cancellationToken = default)
+    {
+        if (!Capabilities.SupportsModDetails)
+            return Task.FromException<RemoteModDetails>(
+                new NotImplementedException($"The site '{SiteId}' does not support mod details."));
+
+        async Task<RemoteModDetails> Derive()
+        {
+            var (metadata, files) = (await GetModAsync(reference, credential, cancellationToken), await GetModFilesAsync(reference, credential, cancellationToken));
+            return new RemoteModDetails(
+                reference, metadata.Name, metadata.Summary, metadata.Author, metadata.Uploader,
+                metadata.Version, TotalFileSizeBytes: null,
+                LatestFiles: files.Files.OrderBy(candidate => candidate.IsPrimary ? 0 : 1).ToList());
+        }
+        return Derive();
+    }
 
     /// <summary>
     /// Resolves the mirrors a file can be fetched from. <paramref name="link"/> carries the

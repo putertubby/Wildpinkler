@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Wildpinkler.App.Models;
 using Wildpinkler.Remote;
+using Wildpinkler.Remote.Nexus;
 
 namespace Wildpinkler.App.Services;
 
@@ -59,7 +60,15 @@ public sealed class RemoteMetadataService
     /// <summary>Applies an identification to the entry. Never called without the user accepting it.</summary>
     public static void Apply(ModEntry entry, RemoteIdentification identification, IReadOnlyList<string>? confirmedGameIds = null)
     {
-        entry.Remote = identification.Mod.Ref with { FileKey = identification.File.FileKey };
+        var remote = identification.Mod.Ref;
+        if (string.Equals(remote.SiteId, NexusSiteProvider.Id, StringComparison.OrdinalIgnoreCase))
+        {
+            if (!NexusModIdentity.TryNormalizeModKey(remote.ModKey, out var normalized))
+                throw new InvalidOperationException("Nexus returned an invalid mod identity; the library entry was not changed.");
+            remote = remote with { ModKey = normalized };
+        }
+
+        entry.Remote = remote with { FileKey = identification.File.FileKey };
         entry.Name = identification.Mod.Name;
         if (confirmedGameIds is not null)
             entry.GameIds = confirmedGameIds.ToList();

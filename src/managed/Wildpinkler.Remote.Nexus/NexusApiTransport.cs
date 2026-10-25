@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
@@ -41,13 +42,29 @@ internal sealed class NexusApiTransport : IDisposable
         NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowReadingFromString
     };
 
+    /// <summary>GraphQL v2 responses use the field names the query requested (camelCase), not the REST snake_case wire shape.</summary>
+    public static readonly JsonSerializerOptions GraphQLJsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true,
+        NumberHandling = System.Text.Json.Serialization.JsonNumberHandling.AllowReadingFromString
+    };
+
+    private static readonly Uri GraphQlAddress = new("https://api.nexusmods.com/v2/graphql");
+
     private readonly HttpClient _client;
     private readonly bool _ownsClient;
     private readonly NexusThrottle _throttle;
+    private readonly Uri _graphQlAddress;
 
-    public NexusApiTransport(string applicationName, string applicationVersion, HttpClient? client = null, NexusThrottle? throttle = null)
+    public NexusApiTransport(
+        string applicationName,
+        string applicationVersion,
+        HttpClient? client = null,
+        NexusThrottle? throttle = null,
+        Uri? graphQlAddress = null)
     {
         _ownsClient = client is null;
+        _graphQlAddress = graphQlAddress ?? GraphQlAddress;
         _client = client ?? new HttpClient(SharedHandler, disposeHandler: false)
         {
             BaseAddress = ApiBaseAddress,
@@ -108,7 +125,87 @@ internal sealed class NexusApiTransport : IDisposable
             }
             catch (JsonException exception)
             {
-                throw new RemoteSiteException(RemoteErrorKind.Server, "Nexus Mods returned a response this version cannot read.", NexusSiteProvider.Id, LastRateLimit, innerException: exception);
+                throw new RemoteSiteException(
+                    RemoteErrorKind.Server,
+                    $"Nexus Mods returned a response this version cannot read (REST {path}): {exception.Message}",
+                    NexusSiteProvider.Id, LastRateLimit, innerException: exception);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Runs a GraphQL v2 query against the Nexus GraphQL endpoint. The same API key,
+    /// application headers, throttling and rate-limit accounting apply as to the REST calls.
+    /// Both HTTP failures and the GraphQL <c>errors</c> envelope are surfaced as
+    /// <see cref="RemoteSiteException"/>; only <c>data</c> is returned, already deserialised.
+    /// </summary>
+    public async Task<T> PostGraphQLAsync<T>(string query, object variables, RemoteCredential credential, CancellationToken cancellationToken)
+    {
+        if (!credential.IsUsable)
+            throw new RemoteSiteException(RemoteErrorKind.Unauthorized, "No Nexus Mods API key is configured.", NexusSiteProvider.Id);
+
+        await _throttle.WaitAsync(cancellationToken).ConfigureAwait(false);
+
+        var payload = JsonSerializer.Serialize(new { query, variables }, GraphQLJsonOptions);
+
+        HttpResponseMessage response;
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, _graphQlAddress)
+            {
+                Content = new StringContent(payload, System.Text.Encoding.UTF8, "application/json")
+            };
+            request.Headers.TryAddWithoutValidation("apikey", credential.Value);
+            response = await _client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
+        }
+        catch (HttpRequestException exception)
+        {
+            throw new RemoteSiteException(RemoteErrorKind.Network, "Could not reach Nexus Mods.", NexusSiteProvider.Id, LastRateLimit, innerException: exception);
+        }
+        catch (TaskCanceledException exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new RemoteSiteException(RemoteErrorKind.Network, "The request to Nexus Mods timed out.", NexusSiteProvider.Id, LastRateLimit, innerException: exception);
+        }
+
+        using (response)
+        {
+            LastRateLimit = ReadRateLimit(response);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+                throw Translate(response.StatusCode, body, LastRateLimit);
+            }
+
+            try
+            {
+                using var document = JsonDocument.Parse(await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false));
+                var root = document.RootElement;
+
+                // 200 responses can still carry GraphQL errors (e.g. a field name the server no
+                // longer knows) with a null data payload; surface them as a server error.
+                if (root.TryGetProperty("errors", out var errors) && errors.ValueKind == JsonValueKind.Array)
+                {
+                    var messages = new List<string>();
+                    foreach (var error in errors.EnumerateArray())
+                        if (error.TryGetProperty("message", out var message) && message.ValueKind == JsonValueKind.String)
+                            messages.Add(message.GetString()!);
+                    throw new RemoteSiteException(
+                        RemoteErrorKind.Server,
+                        messages.Count > 0 ? string.Join(" ", messages) : "Nexus Mods rejected the query.",
+                        NexusSiteProvider.Id, LastRateLimit);
+                }
+                if (!root.TryGetProperty("data", out var data) || data.ValueKind == JsonValueKind.Null)
+                    throw new RemoteSiteException(RemoteErrorKind.Server, "Nexus Mods returned an empty response.", NexusSiteProvider.Id, LastRateLimit);
+                return data.Deserialize<T>(GraphQLJsonOptions)
+                       ?? throw new RemoteSiteException(RemoteErrorKind.Server, "Nexus Mods returned an empty response.", NexusSiteProvider.Id, LastRateLimit);
+            }
+            catch (JsonException exception)
+            {
+                throw new RemoteSiteException(
+                    RemoteErrorKind.Server,
+                    $"Nexus Mods returned a response this version cannot read (GraphQL {query}): {exception.Message}",
+                    NexusSiteProvider.Id, LastRateLimit, innerException: exception);
             }
         }
     }

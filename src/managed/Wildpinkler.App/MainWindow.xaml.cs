@@ -149,6 +149,9 @@ public sealed partial class MainWindow : Window
     // the title bar's Back button (Frame.CanGoBack) to return, same as any other in-page detail.
     public void NavigateToModDependencyGraph(string? focusModId = null) => ContentFrame.Navigate(typeof(ModDependencyGraphPage), focusModId);
 
+    // A drill-in from Profiles or the remote-link flow, not a nav-pane destination.
+    public void NavigateToDependencyPlan(DependencyPlanPage.PlanRequest request) => ContentFrame.Navigate(typeof(DependencyPlanPage), request);
+
     public void NavigateToSection(string tag, object? parameter = null)
     {
         if (!_pagesByTag.TryGetValue(tag, out var pageType))

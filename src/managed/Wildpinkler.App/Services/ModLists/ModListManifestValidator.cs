@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using Wildpinkler.App.Models;
+using Wildpinkler.Remote.Nexus;
 
 namespace Wildpinkler.App.Services;
 
@@ -108,10 +109,13 @@ public static partial class ModListManifestValidator
             if (string.IsNullOrWhiteSpace(mod.Source.SiteId) || string.IsNullOrWhiteSpace(mod.Source.GameKey) ||
                 string.IsNullOrWhiteSpace(mod.Source.ModKey) || string.IsNullOrWhiteSpace(mod.Source.FileKey))
                 errors.Add($"Mod '{mod.EntryId}' remote source must identify an exact file.");
+            else if (string.Equals(mod.Source.SiteId, NexusSiteProvider.Id, StringComparison.OrdinalIgnoreCase) &&
+                     !NexusModIdentity.TryNormalizeModKey(mod.Source.ModKey, out _))
+                errors.Add($"Mod '{mod.EntryId}' Nexus source must use a positive numeric mod ID.");
             if (mod.Source.PageUrl is { Length: > 0 } pageUrl && !IsStableHttpUrl(pageUrl))
                 errors.Add($"Mod '{mod.EntryId}' page URL must be HTTP(S) without credentials, query, or fragment.");
         }
-            ValidateText(mod.AcquisitionInstructions, $"Mod '{mod.EntryId}' acquisition instructions", required: false, errors);
+        ValidateText(mod.AcquisitionInstructions, $"Mod '{mod.EntryId}' acquisition instructions", required: false, errors);
 
         if (Path.GetFileName(mod.Archive.FileName) != mod.Archive.FileName || string.IsNullOrWhiteSpace(mod.Archive.FileName))
             errors.Add($"Mod '{mod.EntryId}' archive file name is invalid.");

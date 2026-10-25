@@ -29,6 +29,26 @@ public sealed record RemoteModMetadata(
     bool IsEndorsed = false,
     DateTimeOffset? UpdatedAt = null);
 
+/// <summary>
+/// Rich mod details fetched in a single call (e.g. one GraphQL <c>mod { ... }</c> query).
+/// <see cref="LatestVersion"/> is the site's own latest-version label; <see cref="LatestFiles"/>
+/// carries the site files for that version (or, where the site has no version grouping,
+/// the full flat file list) so the consumer can pick a download target.
+/// </summary>
+public sealed record RemoteModDetails(
+    RemoteRef Ref,
+    string Name,
+    string? Summary = null,
+    string? Author = null,
+    string? Uploader = null,
+    string? LatestVersion = null,
+    int? Endorsements = null,
+    long? Downloads = null,
+    DateTimeOffset? CreatedAt = null,
+    DateTimeOffset? UpdatedAt = null,
+    long? TotalFileSizeBytes = null,
+    IReadOnlyList<RemoteFileMetadata>? LatestFiles = null);
+
 public sealed record RemoteFileMetadata(
     string FileKey,
     string FileName,
@@ -69,10 +89,43 @@ public sealed record RemoteSiteCapabilities(
     bool SupportsHashLookup = false,
     bool SupportsBrowserFallback = true,
     bool SupportsGameCatalog = false,
-    bool SupportsCollections = false)
+    bool SupportsCollections = false,
+    bool SupportsRequirements = false,
+    bool SupportsModDetails = false)
 {
     public static RemoteSiteCapabilities BrowserOnly { get; } = new();
 }
+
+/// <summary>How the site classifies a requirement of a mod on another mod.</summary>
+public enum RemoteRequirementKind
+{
+    /// <summary>The mod is required by the owning mod.</summary>
+    Required,
+
+    /// <summary>The mod is recommended but not required; treated as optional.</summary>
+    Recommended,
+
+    /// <summary>The mod is incompatible with the owning mod; they should not both be installed.</summary>
+    Incompatible,
+
+    /// <summary>The site used a classification this version does not understand.</summary>
+    Unknown
+}
+
+/// <summary>
+/// One requirement another mod has on a mod. <see cref="ModKey"/> is null when the site only
+/// identifies the requirement by name, in which case the consumer must resolve the name itself.
+/// <see cref="FileKey"/> is null when no specific file is pinned. <see cref="ExternalUrl"/> is
+/// set when the requirement points outside the site (the requirement cannot be resolved or
+/// installed through the site). Both keys live in the same game domain as the owning mod.
+/// </summary>
+public sealed record RemoteRequirement(
+    RemoteRequirementKind Kind,
+    string ModName,
+    string? ModKey = null,
+    string? FileKey = null,
+    string? Notes = null,
+    string? ExternalUrl = null);
 
 /// <summary>Result of listing a mod's files, kept as a type so a provider can add paging later.</summary>
 public sealed record RemoteFileListing(IReadOnlyList<RemoteFileMetadata> Files);

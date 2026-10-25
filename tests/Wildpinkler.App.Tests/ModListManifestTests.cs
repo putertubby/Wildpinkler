@@ -62,6 +62,16 @@ public sealed class ModListManifestTests : IDisposable
     }
 
     [Fact]
+    public void Validate_RejectsNonNumericNexusSourceKey()
+    {
+        var manifest = CreateValidManifest();
+        var mod = Assert.IsType<ModListModEntry>(Assert.Single(manifest.Content));
+        mod.Source = mod.Source! with { ModKey = "Skyrim Script Extender" };
+
+        Assert.Contains(ModListManifestValidator.Validate(manifest), error => error.Contains("positive numeric mod ID", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Validate_RejectsDuplicateOrNonContiguousOrder()
     {
         var manifest = CreateValidManifest();

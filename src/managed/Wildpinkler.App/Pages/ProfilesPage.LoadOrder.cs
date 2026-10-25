@@ -326,6 +326,56 @@ public sealed partial class ProfilesPage
         }
     }
 
+    /// <summary>
+    /// One-click rollback of the most recent "install with dependencies" run: removes every mod
+    /// that run added (that is still present), cleans up its tools, fixes mod associations, and
+    /// refreshes plugins.txt if the tab is open. Other mods in the profile are untouched.
+    /// </summary>
+    private async void RemovePlanInstall_Click(object sender, RoutedEventArgs args)
+    {
+        if (SelectedProfile is not { } profile || !_runAccess.CanModify(profile))
+            return;
+        if (profile.LatestPlanInstall is not { } record || record.ModIds.Count == 0)
+            return;
+
+        var toRemove = profile.LoadOrder
+            .Where(folder => folder.ModId is { } modId && record.ModIds.Contains(modId))
+            .ToList();
+        if (toRemove.Count == 0)
+        {
+            // Nothing left to remove: the mods were already deleted individually.
+            profile.PlanInstalls.Remove(record);
+            Save("Save profile plan install");
+            UpdateSelectedProfileDetails();
+            return;
+        }
+
+        foreach (var folder in toRemove)
+        {
+            if (ProfileToolCleanup.OnToolOutputBranchRemoved(profile, folder))
+                RefreshTools(profile);
+
+            profile.LoadOrder.Remove(folder);
+
+            if (folder.Kind == ProfileFolderKind.Mod)
+                ProfileToolCleanup.RemoveToolsForFolder(profile, folder.Id);
+        }
+
+        profile.PlanInstalls.Remove(record);
+        RefreshTools(profile);
+        RefreshProfiles();
+        Save("Save profile after plan rollback");
+        await UpdateModAssociationsAsync(
+            profile.Id,
+            new HashSet<string>(record.ModIds),
+            profile.LoadOrder.Where(folder => folder.ModId is not null).Select(folder => folder.ModId!).ToHashSet());
+
+        if (PluginsTxtSection.Visibility == Visibility.Visible)
+            UiTask.Run(() => ApplyPluginsTxtChangeAsync(isReorder: false), nameof(RemovePlanInstall_Click), ShowLoadOrderError);
+
+        ShowInfo($"Removed {toRemove.Count} mod(s) from the '{record.RootModName}' install.", InfoBarSeverity.Success);
+    }
+
     private async void AddFolder_Click(object sender, RoutedEventArgs args)
     {
         if (SelectedProfile is not { } profile || !_runAccess.CanModify(profile))

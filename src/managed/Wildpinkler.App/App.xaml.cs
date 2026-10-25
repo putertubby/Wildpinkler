@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
@@ -64,7 +65,7 @@ public partial class App : Application
         if (root is null)
             return;
 
-        _ = new ContentDialog
+        var dialog = new ContentDialog
         {
             XamlRoot = root,
             Title = "Something went wrong",
@@ -72,7 +73,20 @@ public partial class App : Application
             PrimaryButtonText = "Open log folder",
             CloseButtonText = "Close",
             DefaultButton = ContentDialogButton.Close
-        }.ShowAsync();
+        };
+        dialog.PrimaryButtonClick += (_, _) =>
+        {
+            try
+            {
+                System.IO.Directory.CreateDirectory(AppDiagnostics.LogDirectory);
+                _ = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(AppDiagnostics.LogDirectory) { UseShellExecute = true });
+            }
+            catch (Exception folderException)
+            {
+                AppDiagnostics.Write("Could not open the log folder.", folderException);
+            }
+        };
+        _ = dialog.ShowAsync();
     }
 
     /// <summary>Raised for a link that arrived but cannot be downloaded, so the shell can explain it.</summary>
@@ -176,6 +190,17 @@ public partial class App : Application
                 return;
             }
 
+            // Free-tier browser relay: if an open dependency plan is waiting for this exact mod,
+            // hand the link straight to that plan rather than the confirmation dialog. The plan
+            // then enqueues it against the right profile and flips the row to downloading.
+            if (link.ModKey is { } modKey
+                && Pages.DependencyPlanSessionRegistry.FindByModKey(modKey) is { } session
+                && session.SiteId == link.SiteId)
+            {
+                _ = RelayLinkToPlanAsync(session, link);
+                return;
+            }
+
             if (!AppServices.AppSettings.ConfirmRemoteDownloads)
             {
                 _ = EnqueueWithDefaultMappingAsync(link);
@@ -184,6 +209,37 @@ public partial class App : Application
 
             _ = ConfirmAndEnqueueAsync(link);
         });
+    }
+
+    /// <summary>
+    /// The free-tier relay: a link that arrives while an open dependency plan is waiting for this
+    /// mod is matched to that plan's row and enqueued against the profile's game mapping, instead
+    /// of going through the ordinary confirmation dialog.
+    /// </summary>
+    private async Task RelayLinkToPlanAsync(Pages.DependencyPlanSession session, RemoteLink link)
+    {
+        try
+        {
+            List<string>? gameIds = null;
+            try
+            {
+                var mapping = await AppServices.RemoteGameMapper.ResolveAsync(link.ToRef());
+                gameIds = mapping?.Games.Select(game => game.Id).ToList();
+            }
+            catch
+            {
+                // No local game mapping; enqueue unassociated.
+            }
+
+            AppServices.DownloadQueueCoordinator.Enqueue(link, gameIds);
+            var dispatcher = _window?.DispatcherQueue;
+            session.MarkDownloadStarted(link.ModKey!, link.FileKey);
+            dispatcher?.TryEnqueue(() => _window?.Activate());
+        }
+        catch (RemoteSiteException exception)
+        {
+            RejectLink(RemoteLink.ForUnsupported(link.SiteId, $"{exception.Message} {exception.Remedy}"));
+        }
     }
 
     // A collection deep link is imported as a native mod list, saved to the catalog, and the user is

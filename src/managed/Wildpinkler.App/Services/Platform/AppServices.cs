@@ -1,4 +1,5 @@
 using System.Threading.Tasks;
+using Wildpinkler.App.Services.Mods;
 using Wildpinkler.Remote;
 
 namespace Wildpinkler.App.Services;
@@ -13,6 +14,7 @@ public static class AppServices
     public static AppSettings AppSettings => AppHost.Get<AppSettings>();
     public static ThemeService ThemeService => AppHost.Get<ThemeService>();
     public static ModStore ModStore => AppHost.Get<ModStore>();
+    public static ModMatchStore ModMatchStore => AppHost.Get<ModMatchStore>();
     public static ModListManifestSerializer ModListManifestSerializer => AppHost.Get<ModListManifestSerializer>();
     public static ModListCatalogStore ModListCatalogStore => AppHost.Get<ModListCatalogStore>();
     public static ModListExportService ModListExportService => AppHost.Get<ModListExportService>();

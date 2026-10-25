@@ -5,6 +5,7 @@ using Wildpinkler.App.Agent;
 using Wildpinkler.App.Commands;
 using Wildpinkler.App.Services.Diagnostics;
 using Wildpinkler.App.Services.Games;
+using Wildpinkler.App.Services.Mods;
 using Wildpinkler.Remote;
 using Wildpinkler.Remote.Nexus;
 
@@ -93,6 +94,7 @@ public static class ServiceRegistration
         services.AddSingleton<FomodMetadataReader>();
         services.AddSingleton<FomodImageService>();
         services.AddSingleton<ModStore>();
+        services.AddSingleton<ModMatchStore>();
         services.AddSingleton<ModInstallationStore>();
         services.AddSingleton<ModInstallService>();
         services.AddSingleton<ModInstallQueue>();
@@ -103,6 +105,10 @@ public static class ServiceRegistration
         services.AddSingleton<DependencyCatalogValidator>();
         services.AddSingleton<GraphLayoutStore>();
         services.AddSingleton<DependencyPresetStore>();
+        services.AddSingleton<DependencyPlanResolver>(provider => new DependencyPlanResolver(
+            provider.GetRequiredService<RemoteSiteRegistry>(),
+            (site, cancellationToken) => provider.GetRequiredService<RemoteSiteContext>().AuthenticateAsync(site, cancellationToken),
+            provider.GetService<ILogger<DependencyPlanResolver>>()));
         return services;
     }
 

@@ -175,11 +175,149 @@ public class NexusSiteProviderTests
     }
 
     [Fact]
+    public async Task RequirementsComeFromTheGraphQLNexusRequirementsNode()
+    {
+        using var provider = CreateProvider(request =>
+        {
+            // The flow is two calls: REST games.json (domain -> numeric id) then the GraphQL query.
+            if (request.Method == HttpMethod.Get)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""[{"id":36,"domain_name":"skyrimspecialedition","name":"Skyrim"}]""")
+                };
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""
+                    {
+                      "data": { "mod": { "modRequirements": { "nexusRequirements": {
+                        "totalCount": 3,
+                        "nodes": [
+                          {"modId":1,"modName":"SKSE64","notes":null,"externalRequirement":false},
+                          {"modId":2,"modName":"MCM Pack","notes":"optional","externalRequirement":false},
+                          {"modId":99,"modName":"Steam Workshop Pack","notes":null,"externalRequirement":true}
+                        ] } } } }
+                    }
+                    """)
+            };
+        });
+
+        var requirements = await provider.GetRequirementsAsync(
+            new RemoteRef("nexus", "skyrimspecialedition", "12"), Key, TestContext.Current.CancellationToken);
+
+        Assert.Equal(3, requirements.Count);
+
+        // Nexus does not classify requirement kinds; every edge is Required.
+        Assert.All(requirements, requirement => Assert.Equal(RemoteRequirementKind.Required, requirement.Kind));
+
+        Assert.Equal("1", requirements[0].ModKey);
+        Assert.Equal("SKSE64", requirements[0].ModName);
+        Assert.Equal("2", requirements[1].ModKey);
+        Assert.Equal("optional", requirements[1].Notes);
+
+        // External requirements have no installable Nexus id, so they carry no ModKey.
+        Assert.Null(requirements[2].ModKey);
+        Assert.Equal("Steam Workshop Pack", requirements[2].ModName);
+    }
+
+    [Fact]
+    public async Task ModWithNoRequirementsYieldsAnEmptyResult()
+    {
+        using var provider = CreateProvider(request =>
+        {
+            if (request.Method == HttpMethod.Get)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""[{"id":36,"domain_name":"skyrimspecialedition","name":"Skyrim"}]""")
+                };
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"data":{"mod":{"modRequirements":{"nexusRequirements":{"totalCount":0,"nodes":[]}}}}}""")
+            };
+        });
+
+        var requirements = await provider.GetRequirementsAsync(
+            new RemoteRef("nexus", "skyrimspecialedition", "12"), Key, TestContext.Current.CancellationToken);
+
+        Assert.Empty(requirements);
+    }
+
+    [Fact]
+    public async Task GraphQlErrorEnvelopeIsReportedAsAServerError()
+    {
+        using var provider = CreateProvider(request =>
+        {
+            if (request.Method == HttpMethod.Get)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK)
+                {
+                    Content = new StringContent("""[{"id":36,"domain_name":"skyrimspecialedition","name":"Skyrim"}]""")
+                };
+            }
+
+            return new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("""{"errors":[{"message":"Field 'nexusRequirements' is not defined"}],"data":null}""")
+            };
+        });
+
+        var exception = await Assert.ThrowsAsync<RemoteSiteException>(
+            () => provider.GetRequirementsAsync(new RemoteRef("nexus", "skyrimspecialedition", "12"), Key, TestContext.Current.CancellationToken));
+
+        Assert.Equal(RemoteErrorKind.Server, exception.Kind);
+        Assert.Contains("nexusRequirements", exception.Message);
+    }
+
+    [Fact]
+    public async Task NonNumericModKeyIsRejected()
+    {
+        using var provider = CreateProvider(_ => new HttpResponseMessage(HttpStatusCode.OK));
+
+        var exception = await Assert.ThrowsAsync<RemoteSiteException>(
+            () => provider.GetRequirementsAsync(new RemoteRef("nexus", "skyrimspecialedition", "not-a-number"), Key, TestContext.Current.CancellationToken));
+
+        Assert.Equal(RemoteErrorKind.NotFound, exception.Kind);
+    }
+
+    [Fact]
+    public async Task GetModRejectsNonNumericKeyBeforeMakingRequest()
+    {
+        var sent = false;
+        using var provider = CreateProvider(_ =>
+        {
+            sent = true;
+            return new HttpResponseMessage(HttpStatusCode.OK);
+        });
+
+        var exception = await Assert.ThrowsAsync<RemoteSiteException>(
+            () => provider.GetModAsync(new RemoteRef("nexus", "skyrimspecialedition", "mod-title"), Key, TestContext.Current.CancellationToken));
+
+        Assert.Equal(RemoteErrorKind.NotFound, exception.Kind);
+        Assert.False(sent);
+    }
+
+    [Fact]
     public void BuildModPageUrlUsesTheSiteHost() =>
         Assert.Equal(
             "https://www.nexusmods.com/skyrimspecialedition/mods/12",
             CreateProvider(_ => new HttpResponseMessage(HttpStatusCode.OK))
                 .BuildModPageUrl(new RemoteRef("nexus", "skyrimspecialedition", "12")));
+
+    [Fact]
+    public void BuildModPageUrlRejectsNonNumericKeys()
+    {
+        using var provider = CreateProvider(_ => new HttpResponseMessage(HttpStatusCode.OK));
+
+        var exception = Assert.Throws<RemoteSiteException>(
+            () => provider.BuildModPageUrl(new RemoteRef("nexus", "skyrimspecialedition", "mod-title")));
+
+        Assert.Equal(RemoteErrorKind.NotFound, exception.Kind);
+    }
 
     private static RemoteAccount Premium => new("42", "Ada", IsPremium: true);
 

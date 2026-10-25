@@ -78,6 +78,14 @@ public sealed partial class ProfilesPage : PageBase
     public string ProfileViewBranchCountText { get => _profileViewBranchCountText; private set => SetProperty(ref _profileViewBranchCountText, value); }
     public bool ProfileViewIsExpanded { get => _profileViewIsExpanded; set => SetProperty(ref _profileViewIsExpanded, value); }
     public bool IsSelectedProfileModifiable => _runAccess.CanModify(SelectedProfile);
+
+    /// <summary>Whether the selected profile has a dependency-plan install run to roll back.</summary>
+    public bool IsLatestPlanInstallPresent
+    {
+        get => _isLatestPlanInstallPresent;
+        private set { if (SetProperty(ref _isLatestPlanInstallPresent, value)) OnPropertyChanged(nameof(IsLatestPlanInstallPresent)); }
+    }
+    private bool _isLatestPlanInstallPresent;
     public string SelectedProfileRunText => SelectedProfile?.ActiveRunText ?? string.Empty;
     public Visibility SelectedProfileRunVisibility => SelectedProfile?.IsRunActive == true ? Visibility.Visible : Visibility.Collapsed;
 
@@ -131,10 +139,16 @@ public sealed partial class ProfilesPage : PageBase
         _ = LoadAsync();
     }
 
+    // The plan-install run whose site-derived edges are still pending. Set when the run is
+    // queued, consumed once the run's batch finishes so the edges can be written to the
+    // installed mods' persisted dependency lists (origin "nexus").
+    private (Profile Profile, PlanInstall Record)? _pendingPlanInstall;
+
     private void InstallQueue_JobChanged(object? sender, ModInstallJob job) => DispatcherQueue.TryEnqueue(() =>
     {
         UpdateInstallQueueStatus();
         UpdateModInstallStatusChips();
+        FinalizePlanInstallIfFinished();
     });
 
     // The row status chip shows while a job is queued or installing; finished jobs clear it.
@@ -385,6 +399,140 @@ public sealed partial class ProfilesPage : PageBase
         ApplyGameNames();
         RefreshProfiles();
         UpdateSelectedProfileDetails();
+
+        // If a dependency plan handed its downloaded mods to a profile, select that profile and
+        // install them now (the install queue shows the per-mod FOMOD/destination dialogs with
+        // remembered choices).
+        ConsumePlanInstallHandoff();
+    }
+
+    // Picks up a dependency plan's downloaded mods (stashed in DependencyPlanInstallHandoff),
+    // selects the target profile, and queues the installs in order.
+    private void ConsumePlanInstallHandoff()
+    {
+        var pending = DependencyPlanInstallHandoff.Take();
+        if (pending is not (string profileId, string rootModName, List<ModEntry> mods, Dictionary<string, List<PlanInstallDependency>> edges))
+            return;
+
+        var profile = _allProfiles.FirstOrDefault(item => item.Id == profileId);
+        if (profile is null)
+        {
+            ShowInfo($"The profile the dependency plan targeted is no longer available, so its downloaded mods were not installed.", InfoBarSeverity.Warning);
+            return;
+        }
+
+        ProfileList.SelectedItems.Clear();
+        ProfileList.SelectedItems.Add(profile);
+        UpdateSelectedProfileDetails();
+
+        foreach (var mod in mods)
+        {
+            if (!_allMods.Contains(mod))
+                _allMods.Add(mod);
+            mod.GameNamesText = DescribeGames(mod.GameIds);
+        }
+
+        // Record the run so "Remove the mods from this install" can roll it back with one click.
+        var record = new PlanInstall
+        {
+            RootModName = rootModName,
+            ModIds = mods.Select(mod => mod.Id).ToList(),
+            Dependencies = edges.Values.SelectMany(item => item).ToList()
+        };
+        profile.PlanInstalls.Add(record);
+        Save("Save profile plan install");
+
+        if (record.Dependencies.Count > 0)
+            _pendingPlanInstall = (profile, record);
+
+        StartQueueInstall(profile, mods);
+    }
+
+    // When the plan-install run's batch finishes, writes its site-derived requirement edges to
+    // the installed mods' persisted dependency lists (origin "nexus") and populates each
+    // source's raw requirement text. Runs from the UI thread on the final job-changed event.
+    private void FinalizePlanInstallIfFinished()
+    {
+        if (_pendingPlanInstall is not (Profile profile, PlanInstall record) ||
+            AppServices.ModInstallQueue.IsBusy)
+            return;
+        _pendingPlanInstall = null;
+
+        try
+        {
+            var byId = _allMods.ToDictionary(mod => mod.Id, StringComparer.Ordinal);
+            var byRemoteKey = _allMods
+                .Where(mod => mod.Remote is not null && !string.IsNullOrEmpty(mod.Remote.ModKey))
+                .GroupBy(mod => mod.Remote!.ModKey, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+
+            foreach (var dependency in record.Dependencies)
+            {
+                if (!byRemoteKey.TryGetValue(dependency.ModKey ?? string.Empty, out var sourceMod))
+                    continue;
+                if (!byId.TryGetValue(sourceMod.Id, out var source))
+                    continue;
+
+                var edges = BuildNexusEdges(source.Id, dependency, byRemoteKey);
+                if (edges.Count == 0)
+                    continue;
+
+                // Replace this mod's prior nexus edges (a re-run of the same plan refreshes them)
+                // while keeping edges from other origins (fomod, plugin-master, manual).
+                source.Dependencies = source.Dependencies
+                    .Where(existing => existing.Origin != "nexus")
+                    .Concat(edges)
+                    .ToList();
+                source.RequirementsRaw = dependency.Notes;
+                _ = AppServices.ModStore.UpsertAsync(source);
+            }
+        }
+        catch (Exception exception)
+        {
+            DispatcherQueue.TryEnqueue(() =>
+                ShowInfo($"Could not save the plan's dependency edges. {exception.Message}", InfoBarSeverity.Warning));
+        }
+    }
+
+    // Maps one stored plan edge (source -> its requirement) onto a <see cref="ModDependency"/> with
+    // origin "nexus". The target resolves to a local mod id when available; otherwise the remote
+    // ref and display name are kept so the edge still renders in the dependency graph.
+    private static List<ModDependency> BuildNexusEdges(
+        string sourceModId,
+        PlanInstallDependency dependency,
+        Dictionary<string, ModEntry> byRemoteKey)
+    {
+        var kind = dependency.Kind switch
+        {
+            "Incompatible" => ModDependencyKind.Conflicts,
+            "Recommended" => ModDependencyKind.Requires, // advisory: required-but-optional
+            _ => ModDependencyKind.Requires
+        };
+
+        var remoteRef = dependency.ModKey is { } modKey
+            ? new Wildpinkler.Remote.RemoteRef("nexus", string.Empty, modKey, dependency.FileKey)
+            : null;
+        if (remoteRef is null && string.IsNullOrEmpty(dependency.TargetKey))
+            return new List<ModDependency>();
+
+        string? targetModId = null;
+        if (dependency.ModKey is not null)
+        {
+            byRemoteKey.TryGetValue(dependency.ModKey, out var targetMod);
+            targetModId = targetMod?.Id;
+        }
+
+        return new List<ModDependency>
+        {
+            new()
+            {
+                Id = Guid.NewGuid().ToString("N"),
+                SourceModId = sourceModId,
+                Kind = kind,
+                Target = new ModDependencyTarget(targetModId, remoteRef, dependency.TargetName),
+                Origin = "nexus"
+            }
+        };
     }
 
     // A tool deleted on the Tools page is already gone from the stored profiles; drop it from the
@@ -604,6 +752,8 @@ public sealed partial class ProfilesPage : PageBase
         OnPropertyChanged(nameof(SelectedProfileRunVisibility));
         UpdateLayoutState(_listDetailsWidth);
         IsRenaming = false;
+
+        IsLatestPlanInstallPresent = SelectedProfile?.LatestPlanInstall is not null;
 
         if (SelectedProfile is not { } profile)
         {

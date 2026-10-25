@@ -71,6 +71,9 @@ public sealed class AppSettings
     public double? ModsDetailsWidth { get; set; }
     public double? DownloadsDetailsWidth { get; set; }
     public double? ModListsDetailsWidth { get; set; }
+    public double? DependencyPlanDetailsWidth { get; set; }
+    // Comma-separated PlanSectionKey names the user collapsed on the plan page; null = all expanded.
+    public string? DependencyPlanCollapsedSections { get; set; }
     public bool ConfirmRemoteDownloads { get; set; } = true;
     public double? ProfilesListWidth { get; set; }
     public string? ActivePageTag { get; set; }

@@ -17,6 +17,113 @@ public sealed partial class ProfilesPage
         UiTask.Run(AddModsAsync, nameof(AddMods_Click),
             exception => ShowInfo($"The mods could not be added. {exception.Message}", InfoBarSeverity.Error));
 
+    private void AddModWithDependencies_Click(object sender, RoutedEventArgs args) =>
+        UiTask.Run(AddModWithDependenciesAsync, nameof(AddModWithDependencies_Click),
+            exception => ShowInfo($"The mod could not be resolved. {exception.Message}", InfoBarSeverity.Error));
+
+    /// <summary>
+    /// After an archive is added locally, identify it on its site by hash and, if it carries a site
+    /// record, ask whether to resolve its dependencies into a plan. Never blocks the install: a
+    /// refusal (or an unidentifiable archive) simply ends the offer.
+    /// </summary>
+    private async Task OfferDependencyResolutionAsync(Profile profile, ModEntry mod)
+    {
+        if (mod.Remote is { } remote && !string.IsNullOrEmpty(remote.ModKey))
+        {
+            // Already known (e.g. re-adding an identified archive): just open the plan.
+            await OpenDependencyPlanAsync(profile, mod);
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(mod.ArchivePath) || !System.IO.File.Exists(mod.ArchivePath))
+            return;
+
+        var root = XamlRoot;
+        if (root is null)
+            return;
+
+        var identification = await AppServices.RemoteMetadataService.IdentifyAsync(mod, PageToken);
+        if (identification is null)
+            return; // Not found on any site; nothing to resolve.
+
+        var dialog = new ContentDialog
+        {
+            XamlRoot = root,
+            Title = "Resolve dependencies?",
+            Content = $"This archive matches '{identification.Mod.Name}' on {identification.SiteName}. Resolve its dependencies into an install plan?",
+            PrimaryButtonText = "Resolve",
+            CloseButtonText = "Not now"
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+            return;
+
+        // Apply the identification so the mod carries its site record, then open the plan.
+        RemoteMetadataService.Apply(mod, identification, mod.GameIds);
+        await OpenDependencyPlanAsync(profile, mod);
+    }
+
+    private Task OpenDependencyPlanAsync(Profile profile, ModEntry mod)
+    {
+        var remote = mod.Remote!;
+        var definition = GameFor(profile)?.Definition;
+        var siteId = remote.SiteId;
+        var gameKey = definition is { } def && def.RemoteGameKeys.TryGetValue(siteId, out var mappedKey) && mappedKey.Length > 0
+            ? mappedKey
+            : remote.GameKey;
+        if (string.IsNullOrEmpty(gameKey) || string.IsNullOrEmpty(remote.ModKey))
+        {
+            ShowInfo($"No {siteId} game key or mod identifier is known for this mod, so it cannot be resolved.", InfoBarSeverity.Warning);
+            return Task.CompletedTask;
+        }
+
+        MainWindow.Instance?.NavigateToDependencyPlan(new DependencyPlanPage.PlanRequest(
+            siteId, gameKey, remote.ModKey, profile.Id, profile.Name));
+        return Task.CompletedTask;
+    }
+
+    private async Task AddModWithDependenciesAsync()
+    {
+        if (SelectedProfile is not { } profile || !_runAccess.CanModify(profile))
+            return;
+
+        // The user picks a mod from the known catalog; only mods with an upstream site record can
+        // have their dependencies resolved (the site exposes requirements, not the local archive).
+        var candidates = _allMods.Where(mod => mod.Remote is not null
+            && !string.IsNullOrEmpty(mod.Remote!.ModKey)).ToList();
+        if (candidates.Count == 0)
+        {
+            ShowInfo("None of the known mods in this catalog has an upstream site record, so there are no dependencies to resolve. Add a mod from a site link instead.", InfoBarSeverity.Warning);
+            return;
+        }
+
+        var dialog = new ProfileModPickerDialog(candidates, Array.Empty<string>(), profile.GameId, profile.GameName) { XamlRoot = XamlRoot };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+            return;
+        if (dialog.SelectedModIds.Count != 1)
+            return;
+
+        var mod = candidates.FirstOrDefault(candidate => candidate.Id.Equals(dialog.SelectedModIds[0], StringComparison.OrdinalIgnoreCase));
+        if (mod?.Remote is not { } remote || string.IsNullOrEmpty(remote.ModKey))
+        {
+            ShowInfo("That mod has no upstream site record, so its dependencies cannot be resolved.", InfoBarSeverity.Warning);
+            return;
+        }
+
+        var definition = GameFor(profile)?.Definition;
+        var siteId = remote.SiteId;
+        var gameKey = definition is { } def && def.RemoteGameKeys.TryGetValue(siteId, out var mappedKey) && mappedKey.Length > 0
+            ? mappedKey
+            : remote.GameKey;
+        if (string.IsNullOrEmpty(gameKey))
+        {
+            ShowInfo($"No {siteId} game key is known for this profile's game, so the plan cannot be resolved.", InfoBarSeverity.Warning);
+            return;
+        }
+
+        MainWindow.Instance?.NavigateToDependencyPlan(new DependencyPlanPage.PlanRequest(
+            siteId, gameKey, remote.ModKey, profile.Id, profile.Name));
+    }
+
     private async Task AddModsAsync()
     {
         if (SelectedProfile is not { } profile || !_runAccess.CanModify(profile))
@@ -41,8 +148,10 @@ public sealed partial class ProfilesPage
                 () => { }, ShowInfo, awaitArchiveCopy: true);
             if (added.Count == 1)
             {
-                added[0].GameNamesText = DescribeGames(added[0].GameIds);
-                await InstallModAsync(profile, added[0]);
+                var addedMod = added[0];
+                addedMod.GameNamesText = DescribeGames(addedMod.GameIds);
+                await InstallModAsync(profile, addedMod);
+                await OfferDependencyResolutionAsync(profile, addedMod);
             }
             else
             {

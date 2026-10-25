@@ -7,6 +7,55 @@ using CommunityToolkit.Mvvm.ComponentModel;
 
 namespace Wildpinkler.App.Models;
 
+/// <summary>
+/// The mods a single "install with dependencies" run added to a profile, so the user can remove
+/// exactly that set with one click (a per-run rollback) without touching other mods.
+/// </summary>
+public sealed class PlanInstall
+{
+    /// <summary>The root mod the plan was resolved from, shown in the rollback affordance.</summary>
+    public string RootModName { get; set; } = string.Empty;
+
+    /// <summary>Mod ids the run tried to install; only those still in the load order are removed.</summary>
+    public List<string> ModIds { get; set; } = new();
+
+    /// <summary>
+    /// Dependency edges the plan derived from the site's requirement data, one per installed mod:
+    /// the target nexus mod keys and requirement kinds that mod required or that required it.
+    /// Written to the mods' persisted <c>ModDependency</c> list (origin "nexus") once the run
+    /// finishes, so the edges survive the plan page being closed.
+    /// </summary>
+    public List<PlanInstallDependency> Dependencies { get; set; } = new();
+
+    public DateTimeOffset InstalledAt { get; set; } = DateTimeOffset.UtcNow;
+}
+
+/// <summary>
+/// One edge of a dependency plan's site-derived requirement graph, keyed by the plan's target mod
+/// (a local mod id when the target was identified, else a nexus mod key or display name) and the
+/// raw requirement text attached to it by the site. Consumed when the run's installs finish.
+/// </summary>
+public sealed class PlanInstallDependency
+{
+    /// <summary>Local mod id of the target when the plan identified one, else the nexus mod key, else the display name.</summary>
+    public string TargetKey { get; set; } = string.Empty;
+
+    /// <summary>The target's display name, kept even when it cannot be resolved to a local mod.</summary>
+    public string TargetName { get; set; } = string.Empty;
+
+    /// <summary>The site requirement kind, verbatim: "Required", "Recommended", "Incompatible", or "Unknown".</summary>
+    public string Kind { get; set; } = string.Empty;
+
+    /// <summary>The raw requirement notes the site attached to this edge, if any.</summary>
+    public string? Notes { get; set; }
+
+    /// <summary>The nexus mod key of the target, when the plan resolved one.</summary>
+    public string? ModKey { get; set; }
+
+    /// <summary>The nexus file key the plan chose for the target, when it resolved one.</summary>
+    public string? FileKey { get; set; }
+}
+
 /// <summary>A modded instance of one game: an ordered load order plus the tools bound to it.</summary>
 public sealed partial class Profile : ObservableObject
 {
@@ -75,6 +124,22 @@ public sealed partial class Profile : ObservableObject
     /// for this profile; false (the default, including profiles saved before this field existed)
     /// means the effective order is Wildpinkler's default and a warning is offered before launch.
     /// </summary>
+    /// <summary>Per-run records of mods a dependency plan installed, oldest first, for one-click rollback.</summary>
+    public List<PlanInstall> PlanInstalls { get; set; } = new();
+
+    /// <summary>The newest dependency-plan install run for this profile, if any.</summary>
+    public PlanInstall? LatestPlanInstall
+    {
+        get
+        {
+            PlanInstall? latest = null;
+            foreach (var record in PlanInstalls)
+                if (latest is null || record.InstalledAt >= latest.InstalledAt)
+                    latest = record;
+            return latest;
+        }
+    }
+
     public bool PluginListSorted { get; set; }
 
     /// <summary>

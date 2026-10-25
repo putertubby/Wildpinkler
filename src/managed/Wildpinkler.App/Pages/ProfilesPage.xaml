@@ -338,13 +338,22 @@
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="Auto" />
                                                 <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="Auto" />
+                                                <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Opacity="0.68" VerticalAlignment="Center" Text="Branches, highest priority first" />
                                             <Button Grid.Column="1" x:Name="AddModsButton" Content="Add mods..." Click="AddMods_Click"
                                                     IsEnabled="{x:Bind IsSelectedProfileModifiable, Mode=OneWay}"
                                                     ToolTipService.ToolTip="Add mods to this profile view" />
-                                                <Button Grid.Column="2" x:Name="AddFolderButton" Content="Add folder..." Click="AddFolder_Click"
+                                                <Button Grid.Column="2" x:Name="AddModWithDependenciesButton" Content="Add mod with dependencies..." Click="AddModWithDependencies_Click"
+                                                    IsEnabled="{x:Bind IsSelectedProfileModifiable, Mode=OneWay}"
+                                                    ToolTipService.ToolTip="Pick a known mod from the catalog and resolve its site dependencies into an install plan" />
+                                                <Button Grid.Column="3" x:Name="AddFolderButton" Content="Add folder..." Click="AddFolder_Click"
                                                     IsEnabled="{x:Bind IsSelectedProfileModifiable, Mode=OneWay}" />
+                                                <Button Grid.Column="4" x:Name="RemovePlanButton" Content="Remove last plan install" Click="RemovePlanInstall_Click"
+                                                    Visibility="{x:Bind IsLatestPlanInstallPresent, Mode=OneWay}"
+                                                    IsEnabled="{x:Bind IsSelectedProfileModifiable, Mode=OneWay}"
+                                                    ToolTipService.ToolTip="Remove the mods the most recent 'install with dependencies' run added to this profile" />
                                         </Grid>
                                         <TextBlock Opacity="0.68" TextWrapping="Wrap"
                                                    Text="Highest priority first: a file in a higher branch hides the same file below it. The profile overlay stays on top and the game install stays at the bottom. Reorder by dragging a row, or from its actions menu with Alt+Up and Alt+Down." />

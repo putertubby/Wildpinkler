@@ -13,8 +13,8 @@ using Xunit;
 namespace Wildpinkler.App.Tests;
 
 /// <summary>
-/// The mods database ships no migration: it only reads the current schema, and anything else must fail loudly
-/// rather than load partially. These tests drive a private store rooted in a temp directory.
+/// The mods database reads only its current schema and applies narrowly scoped Nexus identity
+/// repairs. These tests drive a private store rooted in a temp directory.
 /// </summary>
 public class ModStoreSchemaTests : IDisposable
 {
@@ -72,6 +72,219 @@ public class ModStoreSchemaTests : IDisposable
         Assert.Equal("https://example/mod", only.RemotePageUrl);
         Assert.Equal(RemoteFileCategory.Main, only.RemoteFileCategory);
         Assert.True(only.IsPrimaryFile);
+    }
+
+    [Fact]
+    public async Task Load_RepairsMalformedNexusKeysFromTrustedNumericUrls()
+    {
+        WriteDatabase("""
+            {
+              "SchemaVersion": 6,
+              "Mods": [
+                {
+                  "Id": "skse",
+                  "Name": "Skyrim Script Extender (SKSE64)",
+                  "Version": "2.3.1",
+                  "Website": "https://www.nexusmods.com/skyrimspecialedition/mods/30379",
+                  "Remote": {
+                    "SiteId": "nexus",
+                    "GameKey": "skyrimspecialedition",
+                    "ModKey": "Skyrim Script Extender 64-bit",
+                    "FileKey": "795992",
+                    "PageUrl": "https://www.nexusmods.com/skyrimspecialedition/mods/Skyrim%20Script%20Extender%2064-bit"
+                  }
+                },
+                {
+                  "Id": "sos",
+                  "Name": "Schlongs of Skyrim SE",
+                  "Version": "1.1.4",
+                  "Website": "https://www.nexusmods.com/skyrimspecialedition/mods/7902",
+                  "Remote": {
+                    "SiteId": "nexus",
+                    "GameKey": "skyrimspecialedition",
+                    "ModKey": "Schlongs of Skyrim SE 1.1.4",
+                    "FileKey": null,
+                    "PageUrl": "https://www.nexusmods.com/skyrimspecialedition/mods/Schlongs%20of%20Skyrim%20SE%201.1.4"
+                  }
+                }
+              ]
+            }
+            """);
+
+        var store = CreateStore();
+        var loaded = await store.LoadAsync();
+        var skse = loaded.Single(mod => mod.Id == "skse");
+        var sos = loaded.Single(mod => mod.Id == "sos");
+
+        Assert.Equal("30379", skse.Remote!.ModKey);
+        Assert.Equal("795992", skse.Remote.FileKey);
+        Assert.Equal("https://www.nexusmods.com/skyrimspecialedition/mods/30379", skse.Remote.PageUrl);
+        Assert.Equal("https://www.nexusmods.com/skyrimspecialedition/mods/30379", skse.Website);
+        Assert.Equal("2.3.1", skse.Version);
+        Assert.Equal("7902", sos.Remote!.ModKey);
+        Assert.Equal("https://www.nexusmods.com/skyrimspecialedition/mods/7902", sos.Remote.PageUrl);
+        Assert.Equal("1.1.4", sos.Version);
+
+        var persisted = await store.LoadAsync();
+        Assert.Equal("30379", persisted.Single(mod => mod.Id == "skse").Remote!.ModKey);
+        Assert.Equal("7902", persisted.Single(mod => mod.Id == "sos").Remote!.ModKey);
+    }
+
+    [Fact]
+    public async Task Load_LeavesConflictingNexusUrlCandidatesUnchanged()
+    {
+        WriteDatabase("""
+            {
+              "SchemaVersion": 6,
+              "Mods": [{
+                "Id": "ambiguous",
+                "Name": "Ambiguous",
+                "Website": "https://www.nexusmods.com/skyrimspecialedition/mods/30379",
+                "Remote": {
+                  "SiteId": "nexus",
+                  "GameKey": "skyrimspecialedition",
+                  "ModKey": "not-a-number",
+                  "PageUrl": "https://www.nexusmods.com/skyrimspecialedition/mods/7902"
+                }
+              }]
+            }
+            """);
+
+        var store = CreateStore();
+        var loaded = await store.LoadAsync();
+
+        Assert.Equal("not-a-number", Assert.Single(loaded).Remote!.ModKey);
+        await store.SaveAsync(loaded);
+        Assert.Equal("not-a-number", Assert.Single(await store.LoadAsync()).Remote!.ModKey);
+    }
+
+    [Fact]
+    public async Task Load_RepairsBackupDataWithoutReplacingTheGoodBackup()
+    {
+        File.WriteAllText(Path.Combine(_root, "mods.json.bak"), """
+            {
+              "SchemaVersion": 6,
+              "Mods": [{
+                "Id": "backup",
+                "Name": "Backup record",
+                "Website": "https://www.nexusmods.com/skyrimspecialedition/mods/30379",
+                "Remote": {
+                  "SiteId": "nexus",
+                  "GameKey": "skyrimspecialedition",
+                  "ModKey": "SKSE",
+                  "PageUrl": "https://www.nexusmods.com/skyrimspecialedition/mods/SKSE"
+                }
+              }]
+            }
+            """);
+        WriteDatabase("{ invalid");
+
+        var loaded = await CreateStore().LoadAsync();
+
+        Assert.Equal("30379", Assert.Single(loaded).Remote!.ModKey);
+        using var backup = JsonDocument.Parse(File.ReadAllText(Path.Combine(_root, "mods.json.bak")));
+        Assert.Equal("SKSE", backup.RootElement.GetProperty("Mods")[0]
+            .GetProperty("Remote").GetProperty("ModKey").GetString());
+        using var current = JsonDocument.Parse(File.ReadAllText(Path.Combine(_root, "mods.json")));
+        Assert.Equal("30379", current.RootElement.GetProperty("Mods")[0]
+            .GetProperty("Remote").GetProperty("ModKey").GetString());
+    }
+
+    [Fact]
+    public async Task Load_RepairsDependencyRemoteRefFromItsTrustedNexusPageUrl()
+    {
+        WriteDatabase("""
+            {
+              "SchemaVersion": 6,
+              "Mods": [{
+                "Id": "local",
+                "Name": "Local mod",
+                "Dependencies": [{
+                  "Id": "dependency",
+                  "SourceModId": "local",
+                  "Kind": "Requires",
+                  "Origin": "manual",
+                  "Target": {
+                    "ModId": null,
+                    "RemoteRef": {
+                      "SiteId": "nexus",
+                      "GameKey": "skyrimspecialedition",
+                      "ModKey": "SKSE",
+                      "PageUrl": "https://www.nexusmods.com/skyrimspecialedition/mods/30379"
+                    },
+                    "DisplayName": "SKSE"
+                  }
+                }]
+              }]
+            }
+            """);
+
+        var loaded = await CreateStore().LoadAsync();
+
+        Assert.Equal("30379", Assert.Single(Assert.Single(loaded).Dependencies).Target!.RemoteRef!.ModKey);
+    }
+
+    [Fact]
+    public async Task UpsertAsync_RejectsNewInvalidNexusReference()
+    {
+        var store = CreateStore();
+        var entry = new ModEntry
+        {
+            Id = "invalid",
+            Name = "Invalid Nexus identity",
+            Remote = new RemoteRef("nexus", "skyrimspecialedition", "not-a-number")
+        };
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => store.UpsertAsync(entry));
+
+        Assert.Contains("positive numeric Nexus mod ID", exception.Message);
+        Assert.Empty(await store.LoadAsync());
+    }
+
+    [Fact]
+    public async Task UpsertAsync_RejectsNewInvalidNexusDependencyReference()
+    {
+        var store = CreateStore();
+        var entry = new ModEntry
+        {
+            Id = "local",
+            Name = "Local mod",
+            Dependencies = new List<ModDependency>
+            {
+                new()
+                {
+                    Id = "dependency",
+                    SourceModId = "local",
+                    Kind = ModDependencyKind.Requires,
+                    Origin = "manual",
+                    Target = new ModDependencyTarget(
+                        null,
+                        new RemoteRef("nexus", "skyrimspecialedition", "SKSE"),
+                        "SKSE")
+                }
+            }
+        };
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() => store.UpsertAsync(entry));
+
+        Assert.Contains("dependency 'dependency'", exception.Message);
+        Assert.Empty(await store.LoadAsync());
+    }
+
+    [Fact]
+    public async Task UpsertAsync_AllowsNonNexusOpaqueModKeys()
+    {
+        var store = CreateStore();
+        var entry = new ModEntry
+        {
+            Id = "other",
+            Name = "Other site",
+            Remote = new RemoteRef("other-site", "game", "opaque-key")
+        };
+
+        await store.UpsertAsync(entry);
+
+        Assert.Equal("opaque-key", Assert.Single(await store.LoadAsync()).Remote!.ModKey);
     }
 
     [Fact]
