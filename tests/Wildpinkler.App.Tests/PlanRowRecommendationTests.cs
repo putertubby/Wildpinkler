@@ -173,12 +173,172 @@ public class PlanRowRecommendationTests
         Assert.Null(PlanRowRecommendationResolver.Recommend(entry, new[] { entry }, new[] { local }, Array.Empty<ModMatchLink>()));
     }
 
+    [Fact]
+    public void PreviouslyAcceptedReplacementIsRecommendedWhenPlanTargetIsCurrent()
+    {
+        var entry = Installed("skse-legacy");
+        var target = PlanTarget("script-extender", "Skyrim Script Extender");
+        var history = new[]
+        {
+            new ModMatchLink(
+                "nexus", "skse-legacy", string.Empty,
+                TargetModKey: "script-extender", TargetName: target.Name, Kind: ModMatchStore.KindObsolete)
+        };
+
+        var recommendation = PlanRowRecommendationResolver.Recommend(entry, new[] { entry, target }, Array.Empty<ModEntry>(), history);
+
+        Assert.NotNull(recommendation);
+        Assert.Equal(PlanRecommendationKind.ReplaceWith, recommendation.Kind);
+        Assert.Equal(PlanRecommendationEvidence.PreviouslyAccepted, recommendation.Evidence);
+        Assert.Same(target, recommendation.PlanTarget);
+        Assert.Contains("previously replaced", recommendation.Reason);
+    }
+
+    [Fact]
+    public void PreviouslyAcceptedReplacementIsRecommendedForLibraryTarget()
+    {
+        var entry = Installed("skse-legacy");
+        var local = new ModEntry
+        {
+            Id = "local-skse",
+            Name = "Skyrim Script Extender",
+            Remote = new RemoteRef("nexus", "game", "script-extender")
+        };
+        var history = new[]
+        {
+            new ModMatchLink(
+                "nexus", "skse-legacy", string.Empty,
+                TargetModKey: "script-extender", TargetName: local.Name, Kind: ModMatchStore.KindObsolete)
+        };
+
+        var recommendation = PlanRowRecommendationResolver.Recommend(entry, new[] { entry }, new[] { local }, history);
+
+        Assert.NotNull(recommendation);
+        Assert.Equal(PlanRecommendationKind.ReplaceWith, recommendation.Kind);
+        Assert.Same(local, recommendation.LibraryTarget);
+    }
+
+    [Fact]
+    public void ReplacementWithoutTargetKeyUsesRememberedNameWhenLibraryMatchIsUnique()
+    {
+        var entry = Installed("skse-legacy");
+        var local = new ModEntry { Id = "local-skse", Name = "Skyrim Script Extender" };
+        var history = new[]
+        {
+            new ModMatchLink(
+                "nexus", "skse-legacy", string.Empty,
+                TargetModKey: string.Empty, TargetName: local.Name, Kind: ModMatchStore.KindObsolete)
+        };
+
+        var recommendation = PlanRowRecommendationResolver.Recommend(entry, new[] { entry }, new[] { local }, history);
+
+        Assert.NotNull(recommendation);
+        Assert.Equal(PlanRecommendationKind.ReplaceWith, recommendation.Kind);
+        Assert.Same(local, recommendation.LibraryTarget);
+    }
+
+    [Fact]
+    public void StaleReplacementTargetProducesNoRecommendation()
+    {
+        var entry = Installed("skse-legacy");
+        var history = new[]
+        {
+            new ModMatchLink(
+                "nexus", "skse-legacy", string.Empty,
+                TargetModKey: "gone-key", TargetName: "Gone Mod", Kind: ModMatchStore.KindObsolete)
+        };
+
+        Assert.Null(PlanRowRecommendationResolver.Recommend(entry, new[] { entry }, Array.Empty<ModEntry>(), history));
+    }
+
+    [Fact]
+    public void AmbiguousReplacementLibraryTargetsProduceNoRecommendation()
+    {
+        var entry = Installed("skse-legacy");
+        var first = new ModEntry { Id = "first", Name = "Skyrim Script Extender" };
+        var second = new ModEntry { Id = "second", Name = "Skyrim Script Extender" };
+        var history = new[]
+        {
+            new ModMatchLink(
+                "nexus", "skse-legacy", string.Empty,
+                TargetModKey: string.Empty, TargetName: "Skyrim Script Extender", Kind: ModMatchStore.KindObsolete)
+        };
+
+        Assert.Null(PlanRowRecommendationResolver.Recommend(entry, new[] { entry }, new[] { first, second }, history));
+    }
+
+    [Fact]
+    public void MultipleObsoleteLinksForSameIdentityProduceNoRecommendation()
+    {
+        var entry = Installed("skse-legacy");
+        var history = new[]
+        {
+            new ModMatchLink(
+                "nexus", "skse-legacy", string.Empty,
+                TargetModKey: "first", TargetName: "First", Kind: ModMatchStore.KindObsolete),
+            new ModMatchLink(
+                "nexus", "skse-legacy", string.Empty,
+                TargetModKey: "second", TargetName: "Second", Kind: ModMatchStore.KindObsolete)
+        };
+
+        Assert.Null(PlanRowRecommendationResolver.Recommend(entry, new[] { entry }, Array.Empty<ModEntry>(), history));
+    }
+
+    [Fact]
+    public void ReplacementRecommendationIsLimitedToEligibleInstalledRows()
+    {
+        var link = new ModMatchLink(
+            "nexus", "source", string.Empty,
+            TargetModKey: "target", TargetName: "Target", Kind: ModMatchStore.KindObsolete);
+
+        // An unmatched row with the same identity must not receive a replacement proposal.
+        var unmatched = Unmatched("Legacy mod");
+        Assert.Null(PlanRowRecommendationResolver.Recommend(unmatched, new[] { unmatched }, Array.Empty<ModEntry>(), new[] { link }));
+
+        // An installed row that has already been replaced has no proposal.
+        var replaced = Installed("skse-legacy");
+        replaced.ReplacementOriginalName = "Legacy mod";
+        Assert.Null(PlanRowRecommendationResolver.Recommend(replaced, new[] { replaced }, Array.Empty<ModEntry>(), new[] { link }));
+    }
+
+    [Fact]
+    public void ReplacementTargetMustBeInTheSameSiteGameAndEligible()
+    {
+        var entry = Installed("skse-legacy");
+        var otherGame = PlanTarget("other-game-target", "Other game mod");
+        otherGame.Ref = new RemoteRef("nexus", "other-game", "other-game-target");
+        var otherSite = PlanTarget("other-site-target", "Other site mod");
+        otherSite.Ref = new RemoteRef("other-site", "game", "other-site-target");
+        var setAside = PlanTarget("set-aside-target", "Set aside mod");
+        setAside.RowStatus = RowStatus.Obsoleted;
+
+        Assert.False(PlanRowActionPolicy.CanReplaceWith(entry, otherGame));
+        Assert.False(PlanRowActionPolicy.CanReplaceWith(entry, otherSite));
+        Assert.False(PlanRowActionPolicy.CanReplaceWith(entry, setAside));
+
+        var history = new[]
+        {
+            new ModMatchLink(
+                "nexus", "skse-legacy", string.Empty,
+                TargetModKey: "other-game-target", TargetName: "Other game mod", Kind: ModMatchStore.KindObsolete)
+        };
+        Assert.Null(PlanRowRecommendationResolver.Recommend(entry, new[] { entry, otherGame, otherSite, setAside }, Array.Empty<ModEntry>(), history));
+    }
+
     private static DependencyPlanEntry Unmatched(string name) => new()
     {
         Ref = new RemoteRef("nexus", "game", "source"),
         Name = name,
         Status = DependencyPlanEntryStatus.NeedsMatching,
         RowStatus = RowStatus.Unidentified
+    };
+
+    private static DependencyPlanEntry Installed(string key) => new()
+    {
+        Ref = new RemoteRef("nexus", "game", key),
+        Name = key,
+        Status = DependencyPlanEntryStatus.Installed,
+        RowStatus = RowStatus.Installed
     };
 
     private static DependencyPlanEntry PlanTarget(string key, string name) => new()

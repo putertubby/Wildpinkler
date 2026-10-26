@@ -9,7 +9,8 @@ namespace Wildpinkler.App.Models;
 public enum PlanRecommendationKind
 {
     IdentifyAs,
-    SatisfyWith
+    SatisfyWith,
+    ReplaceWith
 }
 
 public enum PlanRecommendationEvidence
@@ -31,6 +32,7 @@ public sealed record PlanRowRecommendation(
     {
         PlanRecommendationKind.IdentifyAs => $"Identify as {TargetName}",
         PlanRecommendationKind.SatisfyWith => $"Satisfy with {TargetName}",
+        PlanRecommendationKind.ReplaceWith => $"Replace with {TargetName}",
         _ => throw new ArgumentOutOfRangeException(nameof(Kind), Kind, "Unknown recommendation kind.")
     };
 }
@@ -50,6 +52,25 @@ public static class PlanRowRecommendationResolver
         ArgumentNullException.ThrowIfNull(planEntries);
         ArgumentNullException.ThrowIfNull(libraryMods);
         ArgumentNullException.ThrowIfNull(acceptedLinks);
+
+        if (entry.RemoteIdentity is { } installedRef
+            && entry.RowStatus == RowStatus.Installed
+            && entry.Status == DependencyPlanEntryStatus.Installed
+            && !entry.HasReplacement)
+        {
+            // An accepted "Replace with…" decision is stored as an obsolete link keyed by this
+            // row's site+mod identity. The store overwrites the key, so at most one link
+            // normally exists; more than one is ambiguous and yields no recommendation.
+            var obsoleteLinks = acceptedLinks
+                .Where(link => string.Equals(link.Kind, ModMatchStore.KindObsolete, StringComparison.Ordinal)
+                    && string.Equals(
+                        ModMatchStore.LinkKey(link.SiteId, link.ModKey),
+                        ModMatchStore.LinkKey(installedRef.SiteId, installedRef.ModKey),
+                        StringComparison.Ordinal))
+                .ToList();
+            if (obsoleteLinks.Count == 1)
+                return RecommendReplaceWith(entry, obsoleteLinks[0], planEntries, libraryMods, eligibleGameIds);
+        }
 
         if (entry.RowStatus != RowStatus.Unidentified
             || entry.Status != DependencyPlanEntryStatus.NeedsMatching)
@@ -170,6 +191,73 @@ public static class PlanRowRecommendationResolver
                 target.Name,
                 $"This library mod has the same name as “{entry.Name}”.",
                 LibraryTarget: target);
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Resolves an accepted obsolete link for an installed row to its previous replacement
+    /// target. A current plan row wins over a library mod; a stale or ambiguous target yields
+    /// no recommendation. The result is always a reviewable proposal, never an applied change.
+    /// </summary>
+    private static PlanRowRecommendation? RecommendReplaceWith(
+        DependencyPlanEntry entry,
+        ModMatchLink link,
+        IEnumerable<DependencyPlanEntry> planEntries,
+        IEnumerable<ModEntry> libraryMods,
+        IReadOnlySet<string>? eligibleGameIds)
+    {
+        var plan = planEntries.Where(candidate => !ReferenceEquals(candidate, entry)).ToList();
+        var library = libraryMods.ToList();
+
+        if (link.TargetModKey is { Length: > 0 } targetKey)
+        {
+            var planTarget = plan.FirstOrDefault(candidate =>
+                candidate.RemoteIdentity is { } candidateRef
+                && string.Equals(candidateRef.SiteId, link.SiteId, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(candidateRef.ModKey, targetKey, StringComparison.OrdinalIgnoreCase)
+                && PlanRowActionPolicy.CanReplaceWith(entry, candidate));
+            if (planTarget is not null)
+                return new PlanRowRecommendation(
+                    PlanRecommendationKind.ReplaceWith,
+                    PlanRecommendationEvidence.PreviouslyAccepted,
+                    planTarget.Name,
+                    $"You previously replaced “{entry.Name}” with this plan mod.",
+                    PlanTarget: planTarget);
+
+            var libraryTargets = library.Where(mod =>
+                mod.Remote is { } modRemote
+                && string.Equals(modRemote.SiteId, link.SiteId, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(modRemote.ModKey, targetKey, StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(mod.Id, entry.LocalModId, StringComparison.Ordinal)
+                && IsRelevantToGame(mod, entry, eligibleGameIds))
+                .ToList();
+            if (libraryTargets.Count == 1)
+                return new PlanRowRecommendation(
+                    PlanRecommendationKind.ReplaceWith,
+                    PlanRecommendationEvidence.PreviouslyAccepted,
+                    libraryTargets[0].Name,
+                    $"You previously replaced “{entry.Name}” with this library mod.",
+                    LibraryTarget: libraryTargets[0]);
+        }
+
+        // A replacement persisted without a usable target key (e.g. a local-only archive)
+        // can still be offered when exactly one library mod matches the remembered name.
+        if (link.TargetName is { Length: > 0 } targetName)
+        {
+            var namedTargets = library.Where(mod =>
+                Normalize(mod.Name) == Normalize(targetName)
+                && !string.Equals(mod.Id, entry.LocalModId, StringComparison.Ordinal)
+                && IsRelevantToGame(mod, entry, eligibleGameIds))
+                .ToList();
+            if (namedTargets.Count == 1)
+                return new PlanRowRecommendation(
+                    PlanRecommendationKind.ReplaceWith,
+                    PlanRecommendationEvidence.PreviouslyAccepted,
+                    namedTargets[0].Name,
+                    $"You previously replaced “{entry.Name}” with this library mod.",
+                    LibraryTarget: namedTargets[0]);
         }
 
         return null;

@@ -75,6 +75,18 @@ public static class PlanRowActionPolicy
         _ => false
     };
 
+    /// <summary>True when <paramref name="target"/> can replace <paramref name="source"/> — the
+    /// same eligibility the replacement dialog uses, so a recommendation never points at a
+    /// target the replacement action itself would reject.</summary>
+    public static bool CanReplaceWith(DependencyPlanEntry source, DependencyPlanEntry target)
+        => !ReferenceEquals(source, target)
+            && source.RemoteIdentity is not null
+            && target.RemoteIdentity is not null
+            && string.Equals(source.SiteId, target.SiteId, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(source.GameKey, target.GameKey, StringComparison.OrdinalIgnoreCase)
+            && target.Status is not (DependencyPlanEntryStatus.Unresolvable or DependencyPlanEntryStatus.Conflict)
+            && target.RowStatus is not (RowStatus.Excluded or RowStatus.Folded or RowStatus.Obsoleted or RowStatus.Conflicting);
+
     public static bool CanSatisfyWithPlanMod(DependencyPlanEntry source, DependencyPlanEntry target)
         => CanFoldOrMatch(source)
             && source.RowStatus is not (RowStatus.Excluded or RowStatus.Folded or RowStatus.Obsoleted)

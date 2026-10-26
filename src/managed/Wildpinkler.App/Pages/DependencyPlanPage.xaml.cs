@@ -58,6 +58,11 @@ public sealed partial class DependencyPlanPage : PageBase
     private IReadOnlyList<ContextualModMatchLink> _acceptedContextualMatchLinks = Array.Empty<ContextualModMatchLink>();
     private IReadOnlySet<string>? _recommendationGameIds;
 
+    // Decision link keys the user confirmed during THIS plan session (recommendation click or
+    // manual action). Cleared when a new plan starts; only these decisions are sticky re-applied
+    // by the resolver's re-application pass.
+    private readonly HashSet<string> _confirmedDecisionKeys = new(StringComparer.Ordinal);
+
     /// <summary>The sectioned view of the plan list, bound to the outer list.</summary>
     public ObservableCollection<PlanSectionView> Sections => _sections;
 
@@ -141,7 +146,7 @@ public sealed partial class DependencyPlanPage : PageBase
                 Tag = row.Entry
             };
             ToolTipService.SetToolTip(recommendedItem, recommendation.Reason);
-            recommendedItem.Click += async (_, _) => await OpenRecommendedMatchAsync(row.Entry, recommendation);
+            recommendedItem.Click += async (_, _) => await ApplyRecommendedDecisionAsync(row.Entry, recommendation);
             menu.Items.Add(recommendedItem);
             if (actions.Count > 0)
                 menu.Items.Add(new MenuFlyoutSeparator());
@@ -375,6 +380,9 @@ public sealed partial class DependencyPlanPage : PageBase
         var cts = new CancellationTokenSource();
         _resolveCts = cts;
         _entries.Clear();
+        // A new plan (or a full re-resolve) resets confirmation: every persisted decision is a
+        // recommendation again until the user confirms it in this plan session.
+        _confirmedDecisionKeys.Clear();
         // Observe the page's own list so the browser relay's row lookups hit the same objects.
         _session = new DependencyPlanSession(request.SiteId, request.GameKey, request.ModKey, _entries);
         _session.EntryUpdated += OnSessionEntryUpdated;
@@ -448,7 +456,7 @@ public sealed partial class DependencyPlanPage : PageBase
                                     row.ApplyDecision(RowDecision.Obsoleted, row.OverrideDetail);
                                 }
                             }
-                            SyncExcludedKeys();
+            SyncExcludedKeys();
             RebuildSections();
             if (_plan is { } reResolvedPlan)
                 UpdateSummary(reResolvedPlan);
@@ -583,9 +591,127 @@ public sealed partial class DependencyPlanPage : PageBase
             _entries.Remove(existing);
 
         SyncExcludedKeys();
+        // Re-apply accepted sticky decisions onto the freshly reconciled rows.
+        ReapplyStickyDecisions();
         RebuildSections();
         UpdateSummary(plan);
         UpdateDetails(_selected);
+    }
+
+    /// <summary>
+    /// Re-applies the "Satisfy with…" (fold) and "Replace with…" (obsolete) decisions the user
+    /// confirmed during this plan session onto the rows that a fresh resolve just produced. A
+    /// recommendation is never auto-activated: on a new plan every persisted decision is shown
+    /// only as a recommendation; the user confirms it by applying the recommendation or the
+    /// manual action, and only then does it become sticky and get re-applied on every later
+    /// rescan of this plan. Undo removes the remembered link (and the confirmation), which makes
+    /// the decision non-sticky again. The matching is done by <see cref="PlanStickyDecisionResolver"/>
+    /// (a decision whose target is stale yields no decision, so the row is left active for the
+    /// recommendation layer to re-offer it); this method only applies each decision to its
+    /// matched row.
+    /// </summary>
+    private void ReapplyStickyDecisions()
+    {
+        var decisions = PlanStickyDecisionResolver.Resolve(
+            _entries.ToList(), _acceptedMatchLinks, _acceptedContextualMatchLinks, _recommendationMods,
+            _confirmedDecisionKeys);
+        if (decisions.Count == 0)
+            return;
+
+        // Iterate the decisions in plan order; the matched target rows were snapshotted, so
+        // removing a replacement row from the collection does not disturb the iteration.
+        var changed = false;
+        foreach (var decision in decisions)
+        {
+            changed |= decision.IsFold
+                ? ApplyFoldDecision(decision.Entry, decision.PlanTarget!)
+                : ApplyObsoleteDecision(decision.Entry, decision.PlanTarget, decision.LibraryTarget);
+        }
+
+        if (changed)
+        {
+            RebuildSections();
+            if (_plan is { } reResolvedPlan)
+                UpdateSummary(reResolvedPlan);
+        }
+    }
+
+    /// <summary>
+    /// Records that the user confirmed the persisted decision for <paramref name="entry"/>
+    /// during this plan session, so the sticky re-application pass re-applies it on later
+    /// rescans. Uses the same link key the resolver and the match store use. Must be called
+    /// while the row still carries its original identity (before any replacement).
+    /// </summary>
+    private void RecordDecisionConfirmation(DependencyPlanEntry entry)
+    {
+        var key = entry.RemoteIdentity is { } remote
+            ? ModMatchStore.LinkKey(remote.SiteId, remote.ModKey)
+            : entry.ContextualRequirementKey;
+        if (key is not null)
+            _confirmedDecisionKeys.Add(key);
+    }
+
+    /// <summary>
+    /// Removes the plan-session confirmation for <paramref name="entry"/> so undoing a decision
+    /// makes it non-sticky: the sticky pass no longer re-applies it even if the persisted link
+    /// still exists (the recommendation keeps offering it).
+    /// </summary>
+    private void ForgetDecisionConfirmation(DependencyPlanEntry entry, RemoteRef? originalRef)
+    {
+        var original = originalRef ?? entry.RemoteIdentity;
+        if (original is not null)
+            _confirmedDecisionKeys.Remove(ModMatchStore.LinkKey(original.SiteId, original.ModKey));
+        if (entry.ContextualRequirementKey is not null)
+            _confirmedDecisionKeys.Remove(entry.ContextualRequirementKey);
+    }
+
+    /// <summary>
+    /// Applies a fold decision: the requirement row is set aside as Folded and the target row
+    /// records that it now satisfies the requirement. Mirrors <see cref="FoldIntoPlanEntryAsync"/>
+    /// minus persistence (the link already exists).
+    /// </summary>
+    private static bool ApplyFoldDecision(DependencyPlanEntry entry, DependencyPlanEntry target)
+    {
+        if (!target.FoldedIn.Any(folded => folded.SourceModKey == entry.EntryKey))
+        {
+            target.FoldedIn.Add(new FoldedInEntry(entry.Name, entry.EntryKey));
+            target.FoldedIn = new List<FoldedInEntry>(target.FoldedIn);
+        }
+        target.ApplyDecision(RowDecision.Matched, $"Satisfies requirement '{entry.Name}'");
+        entry.ApplyDecision(RowDecision.Folded, $"Satisfied by '{target.Name}'");
+        entry.StatusDetail = $"Satisfied by '{target.Name}' (the other mod covers this requirement).";
+        return true;
+    }
+
+    /// <summary>
+    /// Applies an obsolete decision in place — exactly the state the manual "Replace with…" action
+    /// produces: the replacement (a plan row, or a row added from the library) becomes the
+    /// referenced row and the target row is removed from the plan. The replacement's own subtree is
+    /// fetched by "Resolve changes" once the replacement is accepted again.
+    /// </summary>
+    private bool ApplyObsoleteDecision(DependencyPlanEntry entry, DependencyPlanEntry? planTarget, ModEntry? libraryTarget)
+    {
+        if (planTarget is not null)
+        {
+            entry.ApplyReplacement(planTarget, planTarget);
+            _entries.Remove(planTarget);
+            ReplacePlanEntries(new[] { entry.EntryKey, planTarget.EntryKey }, new[] { entry });
+            entry.StatusDetail = $"Replaces {entry.ReplacementOriginalName}; using this plan mod instead.";
+            entry.ObsoleteAddedKeys = null;
+            return true;
+        }
+
+        if (libraryTarget is null)
+            return false;
+        var added = AddLibraryModAsRowInternal(libraryTarget);
+        if (added is null)
+            return false;
+        entry.ApplyReplacement(added, added);
+        _entries.Remove(added);
+        ReplacePlanEntries(new[] { entry.EntryKey, added.EntryKey }, new[] { entry });
+        entry.StatusDetail = $"Replaces {entry.ReplacementOriginalName}; using this library mod instead.";
+        entry.ObsoleteAddedKeys = null;
+        return true;
     }
 
     private void RemoveDuplicateRemoteRows()
@@ -1245,11 +1371,60 @@ public sealed partial class DependencyPlanPage : PageBase
         var entry = GetActionEntry(sender);
         if (entry is null || !PlanRowActionPolicy.CanFoldOrMatch(entry))
             return;
-        await OpenMatchDialogAsync(entry, null);
+        await OpenMatchDialogAsync(entry);
     }
 
-    private async Task OpenRecommendedMatchAsync(DependencyPlanEntry entry, PlanRowRecommendation recommendation)
+    /// <summary>
+    /// Applies the previously accepted decision the recommendation points to, directly — no
+    /// chooser dialog. The recommendation is only shown when exactly one remembered target is
+    /// valid, so clicking it re-applies that same choice. To pick a different target, the user
+    /// invokes the regular action (which opens the chooser). The target is revalidated first: if
+    /// it no longer exists or fails the same eligibility checks the action itself applies, nothing
+    /// is applied and the row is left for the user to act on directly.
+    /// </summary>
+    private async Task ApplyRecommendedDecisionAsync(DependencyPlanEntry entry, PlanRowRecommendation recommendation)
     {
+        if (recommendation.Kind == PlanRecommendationKind.ReplaceWith)
+        {
+            // The row must still be replacement-eligible and the remembered target must still
+            // exist and pass the same checks the replacement action itself applies.
+            if (!_entries.Contains(entry) || !HasRowAction(entry, PlanRowAction.MarkObsolete))
+            {
+                ShowInfo("This recommendation is no longer available. Review the current plan row.", InfoBarSeverity.Warning);
+                return;
+            }
+
+            if (recommendation.PlanTarget is { } recommendedPlan)
+            {
+                if (!_entries.Contains(recommendedPlan) || !PlanRowActionPolicy.CanReplaceWith(entry, recommendedPlan))
+                {
+                    ShowInfo("The suggested replacement is no longer a valid target. Review the row and choose a current target.", InfoBarSeverity.Warning);
+                    return;
+                }
+                // The user confirmed this decision for the plan session: it becomes sticky.
+                RecordDecisionConfirmation(entry);
+                await ObsoleteByPlanEntryAsync(entry, recommendedPlan);
+                return;
+            }
+
+            if (recommendation.LibraryTarget is { } recommendedLibrary)
+            {
+                var installed = await _modStore.LoadAsync();
+                if (!installed.Any(mod => string.Equals(mod.Id, recommendedLibrary.Id, StringComparison.Ordinal)))
+                {
+                    ShowInfo("The suggested replacement is no longer available. Review the row and choose a current target.", InfoBarSeverity.Warning);
+                    return;
+                }
+                // The user confirmed this decision for the plan session: it becomes sticky.
+                RecordDecisionConfirmation(entry);
+                await ObsoleteByLibraryModAsync(entry, recommendedLibrary);
+                return;
+            }
+
+            ShowInfo("This recommendation is no longer available. Review the current plan row.", InfoBarSeverity.Warning);
+            return;
+        }
+
         if (!_entries.Contains(entry)
             || entry.RowStatus != RowStatus.Unidentified
             || entry.Status != DependencyPlanEntryStatus.NeedsMatching)
@@ -1258,11 +1433,14 @@ public sealed partial class DependencyPlanPage : PageBase
             return;
         }
 
-        if (recommendation.PlanTarget is { } planTarget
-            && (!_entries.Contains(planTarget)
-                || !PlanRowActionPolicy.CanSatisfyWithPlanMod(entry, planTarget)))
+        if (recommendation.PlanTarget is { } planTarget)
         {
-            ShowInfo("The suggested plan mod is no longer a valid target. Review the row and choose a current target.", InfoBarSeverity.Warning);
+            if (!_entries.Contains(planTarget) || !PlanRowActionPolicy.CanSatisfyWithPlanMod(entry, planTarget))
+            {
+                ShowInfo("The suggested plan mod is no longer a valid target. Review the row and choose a current target.", InfoBarSeverity.Warning);
+                return;
+            }
+            await FoldIntoPlanEntryAsync(entry, planTarget);
             return;
         }
 
@@ -1274,12 +1452,14 @@ public sealed partial class DependencyPlanPage : PageBase
                 ShowInfo("The suggested library mod is no longer available. Review the row and choose a current target.", InfoBarSeverity.Warning);
                 return;
             }
+            await MatchToLocalModAsync(entry, libraryTarget);
+            return;
         }
 
-        await OpenMatchDialogAsync(entry, recommendation);
+        ShowInfo("This recommendation is no longer available. Review the current plan row.", InfoBarSeverity.Warning);
     }
 
-    private async Task OpenMatchDialogAsync(DependencyPlanEntry entry, PlanRowRecommendation? recommendation)
+    private async Task OpenMatchDialogAsync(DependencyPlanEntry entry)
     {
         var installed = (await _modStore.LoadAsync()).ToList();
         // A satisfy-with alias is scoped to one site's game and cannot point back to itself or a
@@ -1307,7 +1487,7 @@ public sealed partial class DependencyPlanPage : PageBase
                 remembered = new Controls.RememberedMatchSelection(contextual.LocalModId, contextual.TargetModKey);
         }
 
-        var dialog = new Controls.MatchModDialog(installed, entry.Name, planCandidates, remembered, recommendation) { XamlRoot = XamlRoot };
+        var dialog = new Controls.MatchModDialog(installed, entry.Name, planCandidates, remembered, null) { XamlRoot = XamlRoot };
         if (await dialog.ShowAsync() != ContentDialogResult.Primary)
             return;
 
@@ -1347,6 +1527,9 @@ public sealed partial class DependencyPlanPage : PageBase
             ShowInfo("That plan mod is no longer a valid target for this requirement.", InfoBarSeverity.Warning);
             return;
         }
+
+        // The user confirmed this decision for the plan session: it becomes sticky.
+        RecordDecisionConfirmation(entry);
 
         var remembered = false;
         string? persistenceError = null;
@@ -1415,19 +1598,27 @@ public sealed partial class DependencyPlanPage : PageBase
         var entry = GetActionEntry(sender);
         if (entry is null || !HasRowAction(entry, PlanRowAction.MarkObsolete))
             return;
+        await OpenReplacementDialogAsync(entry);
+    }
 
-        // The replacement is a newer mod that covers the referenced one: a mod already in this
-        // dependency tree, or a mod in the local library. Both are offered in the dialog.
+    /// <summary>
+    /// Opens the replacement chooser. The replacement is a newer mod that covers the
+    /// referenced one — a mod already in this dependency tree, or a mod in the local library.
+    /// The row changes only after the user explicitly picks a target and confirms in the dialog.
+    /// (Re-applying a previously accepted replacement goes through the recommendation, which
+    /// applies it directly without a chooser.)
+    /// </summary>
+    private async Task OpenReplacementDialogAsync(DependencyPlanEntry entry)
+    {
         var installed = (await _modStore.LoadAsync())
             .Where(mod => !string.Equals(mod.Id, entry.LocalModId, StringComparison.Ordinal))
             .ToList();
         var planCandidates = _entries
-            .Where(candidate => !ReferenceEquals(candidate, entry)
-                && candidate.RemoteIdentity is not null
-                && candidate.Status is not (DependencyPlanEntryStatus.Unresolvable or DependencyPlanEntryStatus.Conflict)
-                && candidate.RowStatus is not (RowStatus.Excluded or RowStatus.Folded or RowStatus.Obsoleted or RowStatus.Conflicting))
+            .Where(candidate => PlanRowActionPolicy.CanReplaceWith(entry, candidate))
             .ToList();
-        var dialog = new Controls.MatchModDialog(installed, entry.Name, planCandidates, isReplacement: true) { XamlRoot = XamlRoot };
+
+        var dialog = new Controls.MatchModDialog(installed, entry.Name, planCandidates,
+            recommendation: null, isReplacement: true) { XamlRoot = XamlRoot };
         if (await dialog.ShowAsync() != ContentDialogResult.Primary)
             return;
 
@@ -1439,7 +1630,6 @@ public sealed partial class DependencyPlanPage : PageBase
         if (dialog.SelectedMod is { } modTarget)
         {
             await ObsoleteByLibraryModAsync(entry, modTarget);
-            return;
         }
     }
 
@@ -1448,17 +1638,16 @@ public sealed partial class DependencyPlanPage : PageBase
         if (!_entries.Contains(entry)
             || !HasRowAction(entry, PlanRowAction.MarkObsolete)
             || !_entries.Contains(target)
-            || ReferenceEquals(entry, target)
+            || !PlanRowActionPolicy.CanReplaceWith(entry, target)
             || entry.RemoteIdentity is not { } entryRemote
-            || target.RemoteIdentity is not { } targetRemote
-            || !string.Equals(entryRemote.SiteId, targetRemote.SiteId, StringComparison.OrdinalIgnoreCase)
-            || !string.Equals(entryRemote.GameKey, targetRemote.GameKey, StringComparison.OrdinalIgnoreCase)
-            || target.RowStatus is RowStatus.Excluded or RowStatus.Folded or RowStatus.Obsoleted or RowStatus.Conflicting
-            || target.Status is DependencyPlanEntryStatus.Unresolvable or DependencyPlanEntryStatus.Conflict)
+            || target.RemoteIdentity is not { } targetRemote)
         {
             ShowInfo("The replacement choice is no longer available. Review the current plan.", InfoBarSeverity.Warning);
             return;
         }
+
+        // The user confirmed this decision for the plan session: it becomes sticky.
+        RecordDecisionConfirmation(entry);
 
         var originalRef = entryRemote;
         await SaveReplacementMatchAsync(entry, originalRef, targetRemote.ModKey, target.Name);
@@ -1511,6 +1700,10 @@ public sealed partial class DependencyPlanPage : PageBase
             ShowInfo("A requirement without a remote identity cannot be replaced persistently.", InfoBarSeverity.Warning);
             return;
         }
+
+        // The user confirmed this decision for the plan session: it becomes sticky.
+        RecordDecisionConfirmation(entry);
+
         var targetKey = target.Remote is { } remote
             && string.Equals(remote.SiteId, entry.SiteId, StringComparison.OrdinalIgnoreCase)
             && string.Equals(remote.GameKey, entry.GameKey, StringComparison.OrdinalIgnoreCase)
@@ -1630,6 +1823,10 @@ public sealed partial class DependencyPlanPage : PageBase
         if (!hasReplacementState && addedKeys is not { Count: > 0 })
             return;
 
+        // Undoing a replacement removes the persisted link; forget the plan-session
+        // confirmation too, so the decision is not sticky until confirmed again.
+        ForgetDecisionConfirmation(entry, entry.ReplacementOriginalRef);
+
         if (addedKeys is { Count: > 0 })
         {
             // Remove exactly dependencies added for the replacement. The replacement itself is
@@ -1707,6 +1904,9 @@ public sealed partial class DependencyPlanPage : PageBase
         var previousPlanTarget = entry.ReplacementPlanTarget;
         var replacementKey = entry.EntryKey;
         var originalRef = entry.ReplacementOriginalRef;
+        // Forget the plan-session confirmation now, while the row still carries the identity
+        // (or contextual key) the decision was recorded under.
+        ForgetDecisionConfirmation(entry, originalRef);
         if (entry.ContextualRequirementKey is { } contextualKey)
         {
             await AppServices.ModMatchStore.RemoveContextualAsync(contextualKey);
