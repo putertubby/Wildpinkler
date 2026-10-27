@@ -103,7 +103,7 @@ public sealed partial class ModInstallQueue
     private readonly Task _worker;
 
     private DispatcherQueue? _dispatcher;
-    private Func<Profile, ModEntry, CancellationTokenSource, Task<InstallOutcome>>? _installer;
+    private Func<Profile, ModEntry, CancellationTokenSource, int, int, Task<InstallOutcome>>? _installer;
     private ModInstallJob? _activeJob;
     private int _pendingCount;
     private readonly ILogger<ModInstallQueue> _logger;
@@ -147,9 +147,11 @@ public sealed partial class ModInstallQueue
     /// <summary>
     /// The page's interactive installer; it owns the dialogs and reports the outcome. It receives the
     /// job's own <see cref="CancellationTokenSource"/> so the page can wire it to the Cancel button and
-    /// the progress dialog. Set before any job is enqueued.
+    /// the progress dialog, plus the job's 1-based position in the batch and the batch size (the same
+    /// numbers <see cref="StatusText"/> reports; 0, 0 when there is no batch position to show).
+    /// Set before any job is enqueued.
     /// </summary>
-    public void SetInstaller(Func<Profile, ModEntry, CancellationTokenSource, Task<InstallOutcome>> installer) => _installer = installer;
+    public void SetInstaller(Func<Profile, ModEntry, CancellationTokenSource, int, int, Task<InstallOutcome>> installer) => _installer = installer;
 
     /// <summary>
     /// Attaches the UI thread's dispatcher; the installer and state changes are marshalled through
@@ -210,10 +212,19 @@ public sealed partial class ModInstallQueue
         LogInstallStarted(job.Profile.Id, job.Profile.Name, job.ModName, job.ModId, _pendingCount);
         SetJobState(job, ModInstallJobState.Installing);
 
+        // The job's position in the batch is fixed for its lifetime (jobs never leave a batch
+        // mid-run), so it is computed once here, under the same gate StatusText reads.
+        int batchIndex, batchCount;
+        lock (_gate)
+        {
+            batchIndex = Jobs.IndexOf(job) + 1;
+            batchCount = Jobs.Count;
+        }
+
         var installer = _installer;
         var outcome = installer is null
             ? InstallOutcome.Failed
-            : await InvokeInstallerAsync(job, installer, job.Cancellation);
+            : await InvokeInstallerAsync(job, installer, job.Cancellation, batchIndex, batchCount);
 
         SetJobState(job, outcome switch
         {
@@ -240,18 +251,19 @@ public sealed partial class ModInstallQueue
     private partial void LogInstallFinished(string modName, string modId, InstallOutcome outcome, int pending);
 
     private async Task<InstallOutcome> InvokeInstallerAsync(ModInstallJob job,
-        Func<Profile, ModEntry, CancellationTokenSource, Task<InstallOutcome>> installer, CancellationTokenSource cts)
+        Func<Profile, ModEntry, CancellationTokenSource, int, int, Task<InstallOutcome>> installer,
+        CancellationTokenSource cts, int batchIndex, int batchCount)
     {
         var dispatcher = _dispatcher;
         if (dispatcher is null)
-            return await installer(job.Profile, job.Mod, cts);
+            return await installer(job.Profile, job.Mod, cts, batchIndex, batchCount);
 
         var done = new TaskCompletionSource<InstallOutcome>(TaskCreationOptions.RunContinuationsAsynchronously);
         _ = dispatcher.TryEnqueue(async () =>
         {
             try
             {
-                done.TrySetResult(await installer(job.Profile, job.Mod, cts));
+                done.TrySetResult(await installer(job.Profile, job.Mod, cts, batchIndex, batchCount));
             }
             catch (Exception exception)
             {

@@ -24,7 +24,13 @@ public sealed partial class InstallProgressDialog : ContentDialog
     private AnalysisProgressReport? _analysisReport;
     private InstallPhase _phase;
 
-    public InstallProgressDialog(string modName, Action requestCancellation)
+    /// <summary>
+    /// Creates the dialog for <paramref name="modName"/>. When the install is part of a batch
+    /// (<paramref name="batchCount"/> > 1), the title shows the mod's 1-based position in the
+    /// batch ("Installing 'SKSE' — 3 of 5"); a single install shows just the mod name. The
+    /// position is fixed for the life of the dialog, so no live updates are needed.
+    /// </summary>
+    public InstallProgressDialog(string modName, Action requestCancellation, int batchIndex = 0, int batchCount = 0)
     {
         InitializeComponent();
         // ContentDialog subclasses don't reliably inherit the implicit style from XAML alone.
@@ -36,7 +42,9 @@ public sealed partial class InstallProgressDialog : ContentDialog
             Interval = TimeSpan.FromMilliseconds(250),
         };
         _analyzingTimer.Tick += (sender, _) => RenderAnalyzingStatus();
-        Title = $"Installing '{modName}'";
+        Title = batchCount > 1
+            ? $"Installing '{modName}' — {batchIndex} of {batchCount}"
+            : $"Installing '{modName}'";
         StatusText.Text = "Reading archive…";
         Progress = new Progress<ExtractionProgress>(UpdateProgress);
         AnalysisProgress = new Progress<AnalysisProgressReport>(ReportAnalysisProgress);

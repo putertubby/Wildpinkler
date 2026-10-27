@@ -201,6 +201,7 @@ profiles/<uuid>/
 - [x] No automatic folding (matching) on initial scan - only use user cues for operations through actions. (Superseded: on a new plan every persisted decision is shown only as a recommendation; once the user *confirms* one (via the recommendation or the manual action) it is sticky and auto re-applied on subsequent rescans of the same plan — see "Dependency Plan State Analysis.md" → "Sticky decisions".)
 - [x] Two distinct plan states both read "Installed" (library-only vs. profile-installed). Unified per-row status: Unidentified → To download → Ready → Installed (plus Conflicting); "Installed" now strictly means in the target profile, "Ready" means archive on disk but not installed here. Set-aside states (Excluded/Folded/Obsoleted) remain badges with dimmed rows.- [x] Reintroduce sections (expandable) and make sure rows move when changing state.
 - [x] "obsoleted by" and matches using "name heuristics" are remembered between planning sessions and if there are possible matches for mods there shall be an indicator on the row and an action that the user can take to investigate and possibly accept the suggestion to replace (or fold in) the mod in the plan. (Done: accepted identify/satisfy/replace decisions are remembered and offered as a "Recommended:" row action with the previous target preselected; explicit confirmation still required — see "Dependency Plan State Analysis.md".)
+
 - [ ] "Install" button only actually installed one mod (and no dependencies) - should work only on selected mods!
 - [ ] what does the checkboxes mean anyway? RETHINK!
 
@@ -213,3 +214,8 @@ profiles/<uuid>/
 
 - [ ] Add mod/add mods with dependencies should be one action with an offer to resolve dependncies
 - [ ] rethink "remove last plan install"
+
+- [ ] Rethink installing multiple mods. Select first (show all settings in "plan" page for installation) and then install all files? Better! Now Installprogressdialog only blinks between the destination selection dialogs...
+- [ ] Installation setting dialog (non fomod) which mod is installed? Is the path default or user selected? is the "archive root" dropdown default or user selected? Preview!
+- [ ] download progress is not working very well in the plan page.
+- [ ] Download button only works with preminum account (for nexus) disable if not available.

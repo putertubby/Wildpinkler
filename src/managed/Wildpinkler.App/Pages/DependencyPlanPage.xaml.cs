@@ -362,8 +362,8 @@ public sealed partial class DependencyPlanPage : PageBase
 
     public string SummaryText { get => _summaryText; private set { if (SetProperty(ref _summaryText, value)) OnPropertyChanged(); } }
 
-    public bool IsInstalling { get; private set; }
-    public bool IsSelectedInstallEnabled => !IsInstalling && _entries.Any(entry => entry.IsSelected && entry.DownloadState == DependencyPlanEntryDownloadState.None);
+    /// <summary>True while a download batch is being enqueued from this page's 'Download selected' action.</summary>
+    public bool IsDownloading { get; private set; }
 
     /// <summary>True when the install gate is clean: no unmatched, no conflicts, all required rows satisfied.</summary>
     public bool InstallReady { get; private set; }
@@ -948,8 +948,6 @@ public sealed partial class DependencyPlanPage : PageBase
         ActionSummary.Text = _entries.Count == 0
             ? "Nothing to install."
             : $"{SelectedCount} mod(s) selected — {FormatBytes(bytes)}";
-
-        OnPropertyChanged(nameof(IsSelectedInstallEnabled));
     }
 
     /// <summary>
@@ -983,7 +981,7 @@ public sealed partial class DependencyPlanPage : PageBase
             PlanInfoBar.IsOpen = true;
         }
         OnPropertyChanged(nameof(InstallReady));
-            UpdateInstallReadiness();
+        UpdateActionButtons();
     }
 
     /// <summary>
@@ -1015,7 +1013,6 @@ public sealed partial class DependencyPlanPage : PageBase
             row.ProjectRowStatus();
             RebuildSections();
             RefreshSummaryOnly();
-            UpdateInstallReadiness();
         });
     }
 
@@ -1090,15 +1087,25 @@ public sealed partial class DependencyPlanPage : PageBase
         ActionSummary.Text = _entries.Count == 0
             ? "Nothing to install."
             : $"{SelectedCount} mod(s) selected — {FormatBytes(bytes)}";
-        OnPropertyChanged(nameof(IsSelectedInstallEnabled));
         UpdateGate();
     }
 
-    /// <summary>Reflects in the action bar the install gate: enabled only when every requirement is satisfied.</summary>
-    private void UpdateInstallReadiness()
+    /// <summary>
+    /// Reflects in the action bar both action buttons and the summary. The install button is
+    /// enabled only when every requirement is satisfied and at least one selected row already has
+    /// an archive on disk; the download button is enabled when a selected row still needs its
+    /// archive and no download batch is in flight.
+    /// </summary>
+    private void UpdateActionButtons()
     {
         var readyCount = _entries.Count(entry => entry.IsSelected && entry.HasLocalArchive);
-        InstallButton.IsEnabled = InstallReady && readyCount > 0 && !IsInstalling;
+        InstallButton.IsEnabled = InstallReady && readyCount > 0 && !IsDownloading;
+
+        var downloadableCount = _entries.Count(entry => entry.IsSelected
+            && entry.DownloadState == DependencyPlanEntryDownloadState.None
+            && entry.FileKey is not null);
+        DownloadButton.IsEnabled = downloadableCount > 0 && !IsDownloading;
+
         if (readyCount > 0 && InstallReady)
         {
             ActionSummary.Text = $"{SelectedCount} mod(s) selected — {FormatBytes(_entries.Where(entry => entry.IsSelected).Sum(entry => entry.FileSizeBytes ?? 0))}, {readyCount} ready to install";
@@ -1112,7 +1119,7 @@ public sealed partial class DependencyPlanPage : PageBase
         InstallButton.IsEnabled = !resolving;
         ResolveAllButton.IsEnabled = !resolving;
         SaveListButton.IsEnabled = !resolving;
-        OnPropertyChanged(nameof(IsSelectedInstallEnabled));
+        DownloadButton.IsEnabled = !resolving;
     }
 
     private void BackToList_Click(object sender, RoutedEventArgs args)
@@ -2679,8 +2686,7 @@ public sealed partial class DependencyPlanPage : PageBase
             return;
         }
 
-        IsInstalling = true;
-        OnPropertyChanged(nameof(IsSelectedInstallEnabled));
+        IsDownloading = true;
 
         // Map the site's game key to the local installed games once for the whole batch.
         List<string>? gameIds = null;
@@ -2727,9 +2733,8 @@ public sealed partial class DependencyPlanPage : PageBase
         }
         LogDownloadBatchQueued(selected.Count, done, noIdentity, notStarted);
 
-        IsInstalling = false;
+        IsDownloading = false;
         RefreshSummaryOnly();
-        OnPropertyChanged(nameof(IsSelectedInstallEnabled));
         ShowInfo(done == selected.Count
             ? $"Queued {done} download(s). When they finish, use 'Install downloaded' to add them to the profile."
             : $"Queued {done} of {selected.Count}; some could not be started — review the rows.",
@@ -2767,10 +2772,12 @@ public sealed partial class DependencyPlanPage : PageBase
             if (mod is null && !string.IsNullOrEmpty(entry.LocalModId))
                 mod = store.FirstOrDefault(candidate => candidate.Id == entry.LocalModId);
             if (mod is not null && mod.HasArchive)
+            {
                 mods.Add(mod);
-            entry.DownloadState = DependencyPlanEntryDownloadState.Installed;
-            entry.IsSelected = false;
-            entry.StatusDetail = "Queued for install.";
+                entry.DownloadState = DependencyPlanEntryDownloadState.Installed;
+                entry.IsSelected = false;
+                entry.StatusDetail = "Queued for install.";
+            }
         }
 
         if (mods.Count == 0)

@@ -24,7 +24,7 @@ public class ModInstallQueueTests
         var maxInFlight = 0;
         var order = new List<string>();
 
-        queue.SetInstaller(async (profile, mod, cts) =>
+        queue.SetInstaller(async (profile, mod, cts, _, _) =>
         {
             lock (gate)
             {
@@ -54,7 +54,7 @@ public class ModInstallQueueTests
         var queue = new ModInstallQueue();
         var gate = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        queue.SetInstaller(async (profile, mod, cts) =>
+        queue.SetInstaller(async (profile, mod, cts, _, _) =>
         {
             await gate.Task;
             return InstallOutcome.Done;
@@ -88,7 +88,7 @@ public class ModInstallQueueTests
     {
         var queue = new ModInstallQueue();
 
-        queue.SetInstaller((profile, mod, cts) =>
+        queue.SetInstaller((profile, mod, cts, _, _) =>
             Task.FromResult(mod.Name == "A" ? InstallOutcome.Failed : InstallOutcome.Done));
 
         queue.Enqueue(MakeProfile(), [MakeMod("A"), MakeMod("B")]);
@@ -104,7 +104,7 @@ public class ModInstallQueueTests
         var queue = new ModInstallQueue();
         var started = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        queue.SetInstaller(async (profile, mod, cts) =>
+        queue.SetInstaller(async (profile, mod, cts, _, _) =>
         {
             if (mod.Name == "A")
             {
@@ -160,7 +160,7 @@ public class ModInstallQueueTests
             }
         };
 
-        queue.SetInstaller((profile, mod, cts) => Task.FromResult(InstallOutcome.Done));
+        queue.SetInstaller((profile, mod, cts, _, _) => Task.FromResult(InstallOutcome.Done));
         queue.Enqueue(MakeProfile(), [MakeMod("A"), MakeMod("B")]);
         await queue.DisposeAsync();
 
@@ -175,12 +175,52 @@ public class ModInstallQueueTests
     public async Task JobsAreNotClearedAfterBatchCompletes()
     {
         var queue = new ModInstallQueue();
-        queue.SetInstaller((profile, mod, cts) => Task.FromResult(InstallOutcome.Done));
+        queue.SetInstaller((profile, mod, cts, _, _) => Task.FromResult(InstallOutcome.Done));
         queue.Enqueue(MakeProfile(), [MakeMod("A"), MakeMod("B")]);
         await queue.DisposeAsync();
 
         // The batch view is only reset when the next batch is enqueued while idle, not on completion.
         Assert.Equal(2, queue.Jobs.Count);
+    }
+
+    [Fact]
+    public async Task Installer_ReceivesPositionInBatchAndZeroForSingle()
+    {
+        var queue = new ModInstallQueue();
+        var gate = new object();
+        var positions = new List<(int Index, int Count)>();
+
+        queue.SetInstaller((profile, mod, cts, index, count) =>
+        {
+            lock (gate)
+                positions.Add((index, count));
+            return Task.FromResult(InstallOutcome.Done);
+        });
+
+        queue.Enqueue(MakeProfile(), [MakeMod("A"), MakeMod("B"), MakeMod("C")]);
+        await queue.DisposeAsync();
+
+        lock (gate)
+        {
+            Assert.Equal(new (int, int)[] { (1, 3), (2, 3), (3, 3) }, positions);
+        }
+
+        // A single job has no batch context of its own: the queue still reports its 1-of-1
+        // position, which the dialog treats as "no batch" and hides the suffix.
+        var single = new ModInstallQueue();
+        var singleGate = new object();
+        List<(int, int)>? singlePositions = null;
+        single.SetInstaller((profile, mod, cts, index, count) =>
+        {
+            lock (singleGate)
+                (singlePositions ??= new List<(int, int)>()).Add((index, count));
+            return Task.FromResult(InstallOutcome.Done);
+        });
+        single.Enqueue(MakeProfile(), [MakeMod("A")]);
+        await single.DisposeAsync();
+
+        lock (singleGate)
+            Assert.Equal(new (int, int)[] { (1, 1) }, singlePositions!);
     }
 
     private static Profile MakeProfile() => new()

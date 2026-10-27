@@ -447,13 +447,14 @@ public sealed partial class ProfilesPage
     // tears down the running install exactly like a single interactive install. The placeholder
     // row inserted by StartQueueInstall is replaced in place on success and dropped otherwise,
     // so a finished install keeps its queued position and a failed one leaves no empty row.
-    private async Task<InstallOutcome> RunQueueInstallAsync(Profile profile, ModEntry mod, CancellationTokenSource cts)
+    private async Task<InstallOutcome> RunQueueInstallAsync(Profile profile, ModEntry mod, CancellationTokenSource cts,
+        int batchIndex, int batchCount)
     {
         _activeInstallCts = cts;
         var outcome = InstallOutcome.Failed;
         try
         {
-            outcome = await RunInstallAsync(profile, mod, cts);
+            outcome = await RunInstallAsync(profile, mod, cts, batchIndex, batchCount);
         }
         finally
         {
@@ -466,13 +467,15 @@ public sealed partial class ProfilesPage
         return outcome;
     }
 
-    private async Task<InstallOutcome> RunInstallAsync(Profile profile, ModEntry mod, CancellationTokenSource cts)
+    private async Task<InstallOutcome> RunInstallAsync(Profile profile, ModEntry mod, CancellationTokenSource cts,
+        int batchIndex = 0, int batchCount = 0)
     {
         // The progress dialog is opened once for the whole install and drives every phase:
         // analyzing, hashing, extracting, scanning, and dependencies. WinUI 3 allows only one
         // modal per XamlRoot, so it is closed (Hide) before the wizard or destination dialog
-        // opens and reopened when the user accepts.
-        InstallProgressDialog installDialog = new(mod.Name, cts.Cancel) { XamlRoot = XamlRoot };
+        // opens and reopened when the user accepts. When batchCount > 1 the title shows the
+        // mod's position in the batch ("— N of M").
+        InstallProgressDialog installDialog = new(mod.Name, cts.Cancel, batchIndex, batchCount) { XamlRoot = XamlRoot };
         try
         {
             installDialog.SetPhase(InstallPhase.Analyzing, $"Analyzing '{mod.Name}'…");
