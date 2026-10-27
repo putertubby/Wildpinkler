@@ -137,7 +137,8 @@ public sealed class NexusSiteProvider : IRemoteSiteProvider, IRemoteCollectionPr
             ParseDate(details.CreatedAt),
             ParseDate(details.UpdatedAt),
             details.FileSize is { } kb ? kb * 1024L : null,
-            SortFiles(files));
+            SortFiles(files),
+            details.Description);
     }
 
     private const string ModDetailsQuery = """
@@ -155,6 +156,7 @@ public sealed class NexusSiteProvider : IRemoteSiteProvider, IRemoteCollectionPr
             createdAt
             updatedAt
             fileSize
+            description
           }
           modFiles(modId: $modId, gameId: $gameId) {
             fileId

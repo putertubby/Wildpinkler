@@ -16,7 +16,7 @@ public sealed class PlanSectionView : ObservableObject
 {
     private bool _isExpanded = true;
 
-    public PlanSectionView(PlanSectionKey key, string name)
+    public PlanSectionView(PlanRowSection key, string name)
     {
         Key = key;
         Name = name;
@@ -24,7 +24,7 @@ public sealed class PlanSectionView : ObservableObject
     }
 
     /// <summary>The section identity, also its display order.</summary>
-    public PlanSectionKey Key { get; }
+    public PlanRowSection Key { get; }
 
     /// <summary>The section title shown in the header.</summary>
     public string Name { get; }
@@ -76,6 +76,12 @@ public sealed class PlanRowContainer : ObservableObject, IDisposable
         ? null
         : $"Recommended: {Recommendation.ActionText}";
 
+    /// <summary>Name-only requirements this row declares, rendered as chips with a resolve action.</summary>
+    public List<RequirementChip> Chips { get; } = new();
+
+    /// <summary>True when the row declares at least one unresolved name-only requirement.</summary>
+    public bool HasChips => Chips.Count > 0;
+
     /// <summary>Accessible name for the row's contextual action menu.</summary>
     public string ActionsAutomationName => $"More actions for {Entry.Name}";
 
@@ -91,12 +97,20 @@ public sealed class PlanRowContainer : ObservableObject, IDisposable
 
     private void Entry_PropertyChanged(object? sender, PropertyChangedEventArgs args)
     {
-        if (args.PropertyName == nameof(DependencyPlanEntry.Name))
+        switch (args.PropertyName)
         {
-            OnPropertyChanged(nameof(ActionsAutomationName));
-            OnPropertyChanged(nameof(IncludeAutomationName));
+            case nameof(DependencyPlanEntry.Name):
+                OnPropertyChanged(nameof(ActionsAutomationName));
+                OnPropertyChanged(nameof(IncludeAutomationName));
+                break;
+            case nameof(DependencyPlanEntry.CoveredRequirements):
+                OnPropertyChanged(nameof(CoveredRequirementsText));
+                break;
         }
     }
+
+    /// <summary>The "Required by:" annotation carried by the row, or null when none.</summary>
+    public string? CoveredRequirementsText => Entry.CoveredRequirementsText;
 
     public void Dispose() => Entry.PropertyChanged -= Entry_PropertyChanged;
 }
@@ -108,33 +122,33 @@ public sealed class PlanRowContainer : ObservableObject, IDisposable
 /// </summary>
 public static class PlanSectionBuilder
 {
-    /// <summary>The section titles in display order.</summary>
-    public static readonly Dictionary<PlanSectionKey, string> SectionNames = new()
+    /// <summary>The section titles in display order (problem-first), keyed by derived state.</summary>
+    public static readonly Dictionary<PlanRowSection, string> SectionNames = new()
     {
-        [PlanSectionKey.Conflicting] = "Conflicting",
-        [PlanSectionKey.Unidentified] = "Unidentified",
-        [PlanSectionKey.ToDownload] = "To download",
-        [PlanSectionKey.Ready] = "Ready",
-        [PlanSectionKey.Installed] = "Installed",
-        [PlanSectionKey.SetAside] = "Set aside"
+        [PlanRowSection.Attention] = "Needs attention",
+        [PlanRowSection.ToDownload] = "To download",
+        [PlanRowSection.Ready] = "Ready",
+        [PlanRowSection.Installed] = "Installed",
+        [PlanRowSection.SetAside] = "Set aside"
     };
 
     /// <summary>
-    /// Groups the entries by section in display order. Sections with no rows are omitted.
-    /// <paramref name="collapsedKeys"/> are the section keys the user collapsed; everything else
-    /// is expanded.
+    /// Groups the entries by their derived display state in display order. Sections with no rows
+    /// are omitted. <paramref name="collapsedKeys"/> are the section keys the user collapsed;
+    /// everything else is expanded.
     /// </summary>
     public static IReadOnlyList<PlanSectionView> Group(
         IEnumerable<DependencyPlanEntry> entries,
-        IReadOnlySet<PlanSectionKey> collapsedKeys,
-        Func<DependencyPlanEntry, PlanRowRecommendation?>? recommendationFor = null)
+        IReadOnlySet<PlanRowSection> collapsedKeys,
+        Func<DependencyPlanEntry, PlanRowRecommendation?>? recommendationFor = null,
+        Func<DependencyPlanEntry, List<RequirementChip>>? chipsFor = null)
     {
         var byKey = entries
-            .GroupBy(entry => entry.SectionKey)
+            .GroupBy(entry => entry.DerivedSection)
             .ToDictionary(group => group.Key, group => group.ToList());
 
         var sections = new List<PlanSectionView>();
-        foreach (var key in Enum.GetValues<PlanSectionKey>())
+        foreach (var key in Enum.GetValues<PlanRowSection>())
         {
             if (!byKey.TryGetValue(key, out var rows))
                 continue;
@@ -144,7 +158,11 @@ public static class PlanSectionBuilder
                 IsExpanded = !collapsedKeys.Contains(key)
             };
             foreach (var entry in rows)
-                section.Entries.Add(new PlanRowContainer(entry, recommendationFor?.Invoke(entry)));
+            {
+                var container = new PlanRowContainer(entry, recommendationFor?.Invoke(entry));
+                container.Chips.AddRange(chipsFor?.Invoke(entry) ?? []);
+                section.Entries.Add(container);
+            }
             sections.Add(section);
         }
         return sections;

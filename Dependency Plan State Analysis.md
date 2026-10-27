@@ -167,9 +167,10 @@ the sticky pass; the confirmation gate applies to the fold/obsolete decisions th
 the page's reconcile.
 
 Matching is deterministic and idempotent: the same rows, links, and confirmations always
-re-apply to the same state. The matching lives in
-[PlanStickyDecisionResolver](./src/managed/Wildpinkler.App/Models/PlanStickyDecision.cs); the page
-applies each decision through the same state transitions as the manual action.
+re-apply to the same state. (The sticky pass that implemented this was removed in the
+edge-based rewrite; decisions now live in [PlanDecisionStore](./src/managed/Wildpinkler.App/Services/Mods/PlanDecisionStore.cs)
+and are re-applied by [PlanDecisionApplier](./src/managed/Wildpinkler.App/Services/Mods/PlanDecisionApplier.cs)
+after every resolve.)
 
 This refines the earlier backlog decision "No automatic folding (matching) on initial scan —
 only use user cues": on a new plan nothing is auto-applied, and user cues (confirmed decisions)
@@ -196,8 +197,9 @@ replacement is not set aside: it retains actions based on the replacement's acti
   [PlanRowActionPolicy.cs](./src/managed/Wildpinkler.App/Models/PlanRowActionPolicy.cs)
 - Recommendation generation and evidence:
   [PlanRowRecommendation.cs](./src/managed/Wildpinkler.App/Models/PlanRowRecommendation.cs)
-- Sticky re-application of accepted decisions:
-  [PlanStickyDecision.cs](./src/managed/Wildpinkler.App/Models/PlanStickyDecision.cs)
+- Persisted decisions and automatic re-application (replaced the sticky pass):
+  [PlanDecisionStore.cs](./src/managed/Wildpinkler.App/Services/Mods/PlanDecisionStore.cs),
+  [PlanDecisionApplier.cs](./src/managed/Wildpinkler.App/Services/Mods/PlanDecisionApplier.cs)
 - Install-readiness reporting and page-level operations:
   [DependencyPlanPage.xaml.cs](./src/managed/Wildpinkler.App/Pages/DependencyPlanPage.xaml.cs)
 

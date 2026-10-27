@@ -95,6 +95,7 @@ public static class ServiceRegistration
         services.AddSingleton<FomodImageService>();
         services.AddSingleton<ModStore>();
         services.AddSingleton<ModMatchStore>();
+        services.AddSingleton(provider => new PlanDecisionStore(logger: provider.GetService<ILogger<PlanDecisionStore>>()));
         services.AddSingleton<ModInstallationStore>();
         services.AddSingleton<ModInstallService>();
         services.AddSingleton<ModInstallQueue>();

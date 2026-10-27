@@ -196,12 +196,15 @@ public sealed partial class DependencyPlanEntry : ObservableObject
     private string? _overrideDetail;
     private double _downloadProgress;
     private bool _inTargetProfile;
+    private PlanRowState _derivedState = PlanRowState.Attention;
+    private PlanRowSection _derivedSection = PlanRowSection.Attention;
+    private AttentionReason? _attentionReason;
     private string? _replacementOriginalName;
     private RemoteRef? _replacementOriginalRef;
     private DependencyPlanEntry? _replacementPlanTarget;
     private ReplacementEntryState? _replacementOriginalState;
-    private ModMatchLink? _replacementPreviousMatch;
-    private bool _replacementMatchChanged;
+    private List<string> _coveredRequirements = new();
+    private PlanDecisionKind? _appliedDecision;
 
     /// <summary>Opaque key used only to address this row inside the current plan.</summary>
     public string EntryKey { get => _entryKey; set => SetProperty(ref _entryKey, value); }
@@ -335,6 +338,33 @@ public sealed partial class DependencyPlanEntry : ObservableObject
                 ? $"Also satisfies: {FoldedIn[0].Name}"
                 : $"Also satisfies: {string.Join(", ", FoldedIn.Select(folded => folded.Name))}";
 
+    /// <summary>
+    /// Requirements covered by this row ("parent → requirement" style), derived by the decision
+    /// applier and the resolver. Drives the "Required by:" annotation on the row.
+    /// </summary>
+    public List<string> CoveredRequirements
+    {
+        get => _coveredRequirements;
+        set
+        {
+            if (SetProperty(ref _coveredRequirements, value))
+                OnPropertyChanged(nameof(CoveredRequirementsText));
+        }
+    }
+
+    /// <summary>The decision kind applied to this row, if any; drives the "Set aside" projection and the strip.</summary>
+    public PlanDecisionKind? AppliedDecision
+    {
+        get => _appliedDecision;
+        set
+        {
+            if (SetProperty(ref _appliedDecision, value))
+            {
+                ProjectDerivedState();
+            }
+        }
+    }
+
     /// <summary>The row lifecycle status shown on the row; set by the page from resolver data and user decisions.</summary>
     public RowStatus RowStatus { get => _rowStatus; set => SetProperty(ref _rowStatus, value); }
 
@@ -413,20 +443,6 @@ public sealed partial class DependencyPlanEntry : ObservableObject
         set => SetProperty(ref _replacementPlanTarget, value);
     }
 
-    /// <summary>The persisted match link overwritten by this replacement, retained for Undo.</summary>
-    public ModMatchLink? ReplacementPreviousMatch
-    {
-        get => _replacementPreviousMatch;
-        set => SetProperty(ref _replacementPreviousMatch, value);
-    }
-
-    /// <summary>Whether applying this replacement changed the persisted match link.</summary>
-    public bool ReplacementMatchChanged
-    {
-        get => _replacementMatchChanged;
-        set => SetProperty(ref _replacementMatchChanged, value);
-    }
-
     /// <summary>True when the requirement pins a file the site no longer offers (the user must pick one).</summary>
     public bool VersionIssue { get; set; }
 
@@ -472,7 +488,102 @@ public sealed partial class DependencyPlanEntry : ObservableObject
             _ => UnmatchedReason.Ambiguous
         };
         VersionIssue = Status == DependencyPlanEntryStatus.FileMismatch;
+        ProjectDerivedState();
     }
+
+    /// <summary>The derived display state the projector files this row under.</summary>
+    public PlanRowState DerivedState => _derivedState;
+
+    /// <summary>The list section the projector files this row under.</summary>
+    public PlanRowSection DerivedSection => _derivedSection;
+
+    /// <summary>Why an <see cref="PlanRowState.Attention"/> row needs attention; null otherwise.</summary>
+    public AttentionReason? Attention => _attentionReason;
+
+    /// <summary>
+    /// Derives this row's display state and section from its resolver status plus the user's
+    /// applied decision. Called after every reconcile so the list groups by what the user needs
+    /// to do. The stored <see cref="DerivedState"/>/
+    /// <see cref="DerivedSection"/> are recomputed, never hand-maintained.
+    /// </summary>
+    public void ProjectDerivedState()
+    {
+        var facts = new PlanStateProjector.RowFacts(
+            Status,
+            InTargetProfile,
+            HasLocalArchive,
+            IsRequired,
+            ConflictWithKey is not null,
+            RowStatus == RowStatus.Excluded,
+            RowStatus is RowStatus.Folded or RowStatus.Obsoleted);
+        var projected = PlanStateProjector.Project(facts);
+        _derivedState = projected.State;
+        _derivedSection = projected.Section;
+        _attentionReason = projected.Attention;
+        OnPropertyChanged(nameof(DerivedState));
+        OnPropertyChanged(nameof(DerivedSection));
+        OnPropertyChanged(nameof(Attention));
+        OnPropertyChanged(nameof(AttentionText));
+        OnPropertyChanged(nameof(AttentionGlyph));
+    }
+
+    /// <summary>The short label for the attention state, shown on the row.</summary>
+    public string? AttentionText => Attention switch
+    {
+        AttentionReason.Unidentifiable => "Needs identification",
+        AttentionReason.FetchFailed => "Fetch failed",
+        AttentionReason.GoneFromSite => "Gone from site",
+        AttentionReason.FileMismatch => "Version mismatch",
+        AttentionReason.Conflict => "Conflict",
+        _ => null
+    };
+
+    /// <summary>The glyph for the attention state, shown before the attention label.</summary>
+    public string AttentionGlyph => Attention switch
+    {
+        AttentionReason.Unidentifiable => "⚠",
+        AttentionReason.FetchFailed => "↻",
+        AttentionReason.GoneFromSite => "✕",
+        AttentionReason.FileMismatch => "⚠",
+        AttentionReason.Conflict => "⚡",
+        _ => "•"
+    };
+
+    /// <summary>The short display state tag for the row, in the user's terms.</summary>
+    public string DerivedStateText => DerivedState switch
+    {
+        PlanRowState.Attention => AttentionText ?? "Attention",
+        PlanRowState.ToDownload => "To download",
+        PlanRowState.Ready => "Ready",
+        PlanRowState.Installed => UpdateAvailable ? "Installed — update available" : "Installed",
+        PlanRowState.SetAside => AppliedDecision switch
+        {
+            PlanDecisionKind.Replace => "Replaced",
+            PlanDecisionKind.Exclude => "Excluded",
+            _ => "Set aside"
+        },
+        _ => "Unknown"
+    };
+
+    /// <summary>The glyph for the derived display state, shown before the state tag.</summary>
+    public string DerivedStateGlyph => DerivedState switch
+    {
+        PlanRowState.Attention => AttentionGlyph,
+        PlanRowState.ToDownload => "⬇",
+        PlanRowState.Ready => "✓",
+        PlanRowState.Installed => UpdateAvailable ? "⇪" : "★",
+        PlanRowState.SetAside => "✕",
+        _ => "•"
+    };
+
+    /// <summary>True when the row is set aside (excluded, resolved away, or replaced); its checkbox is disabled.</summary>
+    public bool IsSetAside => DerivedState == PlanRowState.SetAside;
+
+    /// <summary>The "Required by:" annotation from covered requirements, or null when none.</summary>
+    public string? CoveredRequirementsText =>
+        CoveredRequirements.Count == 0
+            ? null
+            : $"Required by: {string.Join(", ", CoveredRequirements)}";
 
     /// <summary>
     /// Applies a user decision: sets <see cref="Changed"/>, records the override description, and
@@ -505,6 +616,9 @@ public sealed partial class DependencyPlanEntry : ObservableObject
                 ProjectRowStatus();
                 break;
         }
+        // The set-aside branches above set RowStatus after ProjectRowStatus ran; re-derive so the
+        // row files under Set aside.
+        ProjectDerivedState();
         Changed = true;
     }
 
@@ -524,8 +638,6 @@ public sealed partial class DependencyPlanEntry : ObservableObject
         ReplacementPlanTarget = null;
         ReplacementOriginalName = null;
         ReplacementOriginalRef = null;
-        ReplacementPreviousMatch = null;
-        ReplacementMatchChanged = false;
         ReplacementOriginalState = null;
         Changed = false;
         ProjectRowStatus();
@@ -862,6 +974,14 @@ public sealed class DependencyPlan
 
     public RemoteRef Root { get; }
     public List<DependencyPlanEntry> Entries { get; set; } = new();
+
+    /// <summary>
+    /// Name-only requirements (the site named them but gave no mod key). These are not rows —
+    /// they are chips attached to the mod that declares them. All occurrences of the same
+    /// requirement under the same parent collapse into one chip, so they can never produce
+    /// duplicate rows. A <see cref="PlanDecisionKind.Resolve"/> decision turns a chip into a row.
+    /// </summary>
+    public List<RequirementChip> Requirements { get; set; } = new();
 
     /// <summary>Number of requirement edges collapsed because they formed a cycle.</summary>
     public int CollapsedCycles { get; set; }

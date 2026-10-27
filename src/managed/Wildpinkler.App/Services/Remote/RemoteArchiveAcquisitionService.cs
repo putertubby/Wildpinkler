@@ -6,6 +6,8 @@ using System.Linq;
 using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Wildpinkler.App.Models;
 using Wildpinkler.Remote;
 
@@ -34,36 +36,41 @@ public sealed record RemoteArchiveAcquisitionResult(
     RemoteFileMetadata File,
     RemoteAccount Account);
 
-public sealed class RemoteArchiveAcquisitionService : IDisposable
+public sealed partial class RemoteArchiveAcquisitionService : IDisposable
 {
     private readonly RemoteSiteRegistry _registry;
     private readonly Func<IRemoteSiteProvider, CancellationToken, Task<(RemoteCredential Credential, RemoteAccount Account)>> _authenticate;
     private readonly ArchiveDownloadService _archiveDownloader;
     private readonly ModStore _store;
     private readonly SemaphoreSlim _concurrency = new(2, 2);
+    private readonly ILogger<RemoteArchiveAcquisitionService> _logger;
 
     public RemoteArchiveAcquisitionService(
         RemoteSiteRegistry registry,
         RemoteSiteContext context,
         ArchiveDownloadService archiveDownloader,
-        ModStore store)
+        ModStore store,
+        ILogger<RemoteArchiveAcquisitionService>? logger = null)
     {
         _registry = registry;
         _authenticate = context.AuthenticateAsync;
         _archiveDownloader = archiveDownloader;
         _store = store;
+        _logger = logger ?? NullLogger<RemoteArchiveAcquisitionService>.Instance;
     }
 
     internal RemoteArchiveAcquisitionService(
         RemoteSiteRegistry registry,
         Func<IRemoteSiteProvider, CancellationToken, Task<(RemoteCredential Credential, RemoteAccount Account)>> authenticate,
         ArchiveDownloadService archiveDownloader,
-        ModStore store)
+        ModStore store,
+        ILogger<RemoteArchiveAcquisitionService>? logger = null)
     {
         _registry = registry;
         _authenticate = authenticate;
         _archiveDownloader = archiveDownloader;
         _store = store;
+        _logger = logger ?? NullLogger<RemoteArchiveAcquisitionService>.Instance;
     }
 
     public async Task<RemoteDownloadPreview> PreviewAsync(RemoteLink link, CancellationToken cancellationToken = default)
@@ -89,6 +96,7 @@ public sealed class RemoteArchiveAcquisitionService : IDisposable
         await _concurrency.WaitAsync(cancellationToken);
         try
         {
+            LogAcquireStarted(link.SiteId, link.GameKey, link.ModKey, link.FileKey);
             var provider = GetProvider(link);
             progress?.Report(new RemoteAcquisitionProgress(RemoteAcquisitionPhase.Resolving));
             var (credential, account) = await _authenticate(provider, cancellationToken);
@@ -100,6 +108,10 @@ public sealed class RemoteArchiveAcquisitionService : IDisposable
             var entry = await BuildEntryAsync(provider, mod, file, reference, confirmedGameIds);
             var destination = _store.GetArchivePath(entry.Id, file.FileName);
             EnsureDiskSpace(destination, file.SizeInBytes);
+
+            LogDownloadStarting(
+                link.SiteId, link.GameKey, link.ModKey, resolved.FileKey,
+                file.FileName, file.SizeInBytes, sources.Count, destination);
 
             progress?.Report(new RemoteAcquisitionProgress(
                 RemoteAcquisitionPhase.Downloading, TotalBytes: file.SizeInBytes,
@@ -136,6 +148,9 @@ public sealed class RemoteArchiveAcquisitionService : IDisposable
             await _store.AttachDownloadedArchiveAsync(entry, destination);
             entry.Status = "Available";
             await _store.UpsertAsync(entry);
+            LogDownloadVerified(
+                link.SiteId, link.GameKey, link.ModKey, resolved.FileKey,
+                file.FileName, file.SizeInBytes, actualSha256, destination);
             return new RemoteArchiveAcquisitionResult(resolved, entry, mod, file, account);
         }
         finally
@@ -218,6 +233,18 @@ public sealed class RemoteArchiveAcquisitionService : IDisposable
         await using (var stream = File.OpenRead(path))
             return Convert.ToHexString(await algorithm.ComputeHashAsync(stream, cancellationToken));
     }
+
+    [LoggerMessage(Level = LogLevel.Information,
+        Message = "Acquire started for {Site} {Game}/{ModKey} file {FileKey}.")]
+    private partial void LogAcquireStarted(string site, string? game, string? modKey, string? fileKey);
+
+    [LoggerMessage(Level = LogLevel.Information,
+        Message = "Download starting: {Site} {Game}/{ModKey} file {FileKey} '{File}' ({Bytes} bytes, {Mirrors} mirror(s)) to {Destination}.")]
+    private partial void LogDownloadStarting(string site, string? game, string? modKey, string? fileKey, string file, long? bytes, int mirrors, string destination);
+
+    [LoggerMessage(Level = LogLevel.Information,
+        Message = "Download verified and saved: {Site} {Game}/{ModKey} file {FileKey} '{File}' ({Bytes} bytes, sha256 {Sha256}) at {Destination}.")]
+    private partial void LogDownloadVerified(string site, string? game, string? modKey, string? fileKey, string file, long? bytes, string sha256, string destination);
 
     public void Dispose() => _concurrency.Dispose();
 }

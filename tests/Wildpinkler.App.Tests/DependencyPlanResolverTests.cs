@@ -94,7 +94,8 @@ public class DependencyPlanResolverTests
             return Mods.TryGetValue(reference.ModKey, out var mod)
                 ? Task.FromResult(new RemoteModDetails(
                     reference, mod.Name, mod.Summary, mod.Author, mod.Uploader,
-                    mod.Version, LatestFiles: Files.TryGetValue(reference.ModKey, out var files) ? files.ToList() : new List<RemoteFileMetadata>()))
+                    mod.Version, LatestFiles: Files.TryGetValue(reference.ModKey, out var files) ? files.ToList() : new List<RemoteFileMetadata>(),
+                    Description: mod.DescriptionHtml))
                 : Task.FromException<RemoteModDetails>(
                     new RemoteSiteException(RemoteErrorKind.NotFound, "No such mod.", SiteId));
         }
@@ -384,7 +385,7 @@ public class DependencyPlanResolverTests
     }
 
     [Fact]
-    public async Task NameOnlyRequirementNeedsMatching()
+    public async Task NameOnlyRequirementIsAChipNotARow()
     {
         var (resolver, _) = Create(
             requirements: new Dictionary<string, IReadOnlyList<RemoteRequirement>>
@@ -403,11 +404,13 @@ public class DependencyPlanResolverTests
         var plan = await resolver.ResolveAsync(
             new RemoteRef("fake", "testgame", "1"), Array.Empty<ModEntry>(), cancellationToken: TestContext.Current.CancellationToken);
 
-        var body = plan.Entries.Single(entry => entry.Name == "Some Body");
-        Assert.Equal(DependencyPlanEntryStatus.NeedsMatching, body.Status);
-        Assert.Null(body.RemoteIdentity);
-        Assert.StartsWith("name-only:", body.EntryKey);
-        Assert.False(body.IsSelected);
+        // The name-only requirement is a chip, not a row: it is not in plan.Entries.
+        Assert.DoesNotContain(plan.Entries, entry => entry.Name == "Some Body");
+        var chip = Assert.Single(plan.Requirements);
+        Assert.Equal("Some Body", chip.Name);
+        Assert.Equal(RemoteRequirementKind.Required, chip.Kind);
+        Assert.Equal("1", chip.ParentRef!.ModKey);
+        Assert.Equal(1, chip.Occurrences);
     }
 
     [Fact]
@@ -961,10 +964,10 @@ public class DependencyPlanResolverTests
         Assert.Equal("local-2", baseMod.LocalModId);
     }
 
-    // A name-only requirement (no Nexus id) with no local candidate stays
-    // NeedsMatching — the user must match it manually.
+    // A name-only requirement (no Nexus id) with no local candidate becomes a chip; the user
+    // resolves it through a decision, not a row.
     [Fact]
-    public async Task NameOnlyRequirementWithoutLocalCandidateStaysNeedsMatching()
+    public async Task NameOnlyRequirementWithoutLocalCandidateIsAChip()
     {
         var installed = new List<ModEntry>();
 
@@ -985,14 +988,13 @@ public class DependencyPlanResolverTests
         var plan = await resolver.ResolveAsync(
             new RemoteRef("fake", "testgame", "1"), installed, cancellationToken: TestContext.Current.CancellationToken);
 
-        var mystery = plan.Entries.Single(entry => entry.Name == "Some Mystery Mod");
-        Assert.Equal(DependencyPlanEntryStatus.NeedsMatching, mystery.Status);
-        Assert.Null(mystery.RemoteIdentity);
-        Assert.NotEqual("Some Mystery Mod", mystery.EntryKey);
+        Assert.DoesNotContain(plan.Entries, entry => entry.Name == "Some Mystery Mod");
+        var chip = Assert.Single(plan.Requirements);
+        Assert.Equal("Some Mystery Mod", chip.Name);
     }
 
     [Fact]
-    public async Task NexusNameOnlyRequirementStaysNeedsMatchingWithoutBuildingInvalidPageUrl()
+    public async Task NexusNameOnlyRequirementIsAChip()
     {
         var (resolver, _) = Create(
             requirements: new Dictionary<string, IReadOnlyList<RemoteRequirement>>
@@ -1014,15 +1016,15 @@ public class DependencyPlanResolverTests
             Array.Empty<ModEntry>(),
             cancellationToken: TestContext.Current.CancellationToken);
 
-        var requirement = plan.Entries.Single(entry => entry.Name == "SKSE");
-        Assert.Equal(DependencyPlanEntryStatus.NeedsMatching, requirement.Status);
-        Assert.Null(requirement.RemoteIdentity);
-        Assert.Equal(NexusSiteProvider.Id, requirement.SiteId);
-        Assert.NotNull(requirement.ContextualRequirementKey);
+        Assert.DoesNotContain(plan.Entries, entry => entry.Name == "SKSE");
+        var chip = Assert.Single(plan.Requirements);
+        Assert.Equal("SKSE", chip.Name);
     }
 
+    // The duplicate-row bug: the same name-only requirement declared multiple times under the
+    // same parent collapses into a single chip (one occurrence-count), never multiple rows.
     [Fact]
-    public async Task DuplicateNameOnlyRequirementsRemainDistinctAndCannotBeRememberedByAmbiguousContext()
+    public async Task DuplicateNameOnlyRequirementsCollapseIntoOneChip()
     {
         var (resolver, _) = Create(
             requirements: new Dictionary<string, IReadOnlyList<RemoteRequirement>>
@@ -1046,11 +1048,62 @@ public class DependencyPlanResolverTests
             new RemoteRef("fake", "testgame", "1"), Array.Empty<ModEntry>(),
             cancellationToken: TestContext.Current.CancellationToken);
 
-        var requirements = plan.Entries.Where(entry => entry.Name == "Shared Requirement").ToList();
-        Assert.Equal(2, requirements.Count);
-        Assert.NotEqual(requirements[0].EntryKey, requirements[1].EntryKey);
-        Assert.All(requirements, entry => Assert.Null(entry.ContextualRequirementKey));
-        Assert.All(requirements, entry => Assert.Null(entry.RemoteIdentity));
+        Assert.DoesNotContain(plan.Entries, entry => entry.Name == "Shared Requirement");
+        var chip = Assert.Single(plan.Requirements);
+        Assert.Equal("Shared Requirement", chip.Name);
+        Assert.Equal(2, chip.Occurrences);
+    }
+
+    // SKSE regression: two name-only "SKSE" requirements under two different parents collapse
+    // into one chip per parent (two chips), and a single Resolve decision promotes them to exactly
+    // one row — the installed SKSE mod — with no duplicates.
+    [Fact]
+    public async Task SkseNameOnlyRequirementsResolveToOneRowNotDuplicates()
+    {
+        var (resolver, _) = Create(
+            requirements: new Dictionary<string, IReadOnlyList<RemoteRequirement>>
+            {
+                ["1"] = new[] { Req("2", "Plugin A", RemoteRequirementKind.Required), Req(null, "SKSE", RemoteRequirementKind.Required) },
+                ["2"] = new[] { Req(null, "SKSE", RemoteRequirementKind.Required) }
+            },
+            files: new Dictionary<string, IReadOnlyList<RemoteFileMetadata>>
+            {
+                ["1"] = new[] { File("10") },
+                ["2"] = new[] { File("20") },
+                ["11411"] = new[] { File("skse1") }
+            },
+            mods: new Dictionary<string, RemoteModMetadata>
+            {
+                ["1"] = Mod("1", "Root"),
+                ["2"] = Mod("2", "Plugin A"),
+                ["11411"] = Mod("11411", "SKSE")
+            },
+            siteId: NexusSiteProvider.Id);
+
+        var decisionKey = PlanDecisionStore.ContextKey(NexusSiteProvider.Id, "skyrimspecialedition", "1", "SKSE");
+        var decision = new PlanDecision(
+            decisionKey,
+            PlanDecisionKind.Resolve,
+            new PlanDecisionTarget(NexusSiteProvider.Id, "skyrimspecialedition", "11411"),
+            TargetName: "SKSE");
+
+        var plan = await resolver.ResolveAsync(
+            new RemoteRef(NexusSiteProvider.Id, "skyrimspecialedition", "1"),
+            Array.Empty<ModEntry>(),
+            carriedRequirements: null,
+            decisions: new Dictionary<string, PlanDecision> { [decisionKey] = decision },
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        // Exactly one SKSE row, resolved to the site mod id — no duplicate Ready rows.
+        var skseRows = plan.Entries.Where(entry => entry.Ref.ModKey == "11411").ToList();
+        Assert.Single(skseRows);
+        Assert.Equal("11411", skseRows[0].RemoteIdentity?.ModKey);
+
+        // The two name-only SKSE occurrences under parent "1" are resolved into the row; the
+        // occurrence under parent "2" (no decision for that context) remains a chip.
+        var chips = plan.Requirements.Where(chip => chip.Name == "SKSE").ToList();
+        Assert.Single(chips);
+        Assert.Equal("2", chips[0].ParentRef!.ModKey);
     }
 
     // A remembered manual association is NOT applied automatically by the resolver: the local mod
@@ -1292,5 +1345,126 @@ public class DependencyPlanResolverTests
         Assert.Equal(RemoteRequirementKind.Required, newC.Kind);
         // The existing entry instance is preserved (identity and data untouched).
         Assert.Same(existingB, updated.Entries.Single(entry => entry.Ref.ModKey == "2"));
+    }
+
+    [Fact]
+    public async Task DescriptionPrerequisitesBecomeInformationalChipsNeverRows()
+    {
+        const string description = """
+            [b]Description[/b]
+            <br />
+            [size=6][b]Prerequisites[/b][/size]
+            <br />[list]
+            <br />[*]﻿[b]Microsoft C++ 2015-2022 Redistributable[/b]
+            <br />
+            """;
+        var (resolver, provider) = Create(
+            requirements: new Dictionary<string, IReadOnlyList<RemoteRequirement>>
+            {
+                ["1"] = Array.Empty<RemoteRequirement>()
+            },
+            files: new Dictionary<string, IReadOnlyList<RemoteFileMetadata>>
+            {
+                ["1"] = new[] { File("10") }
+            },
+            mods: new Dictionary<string, RemoteModMetadata>
+            {
+                ["1"] = Mod("1", "Root")
+            });
+        provider.Mods["1"] = Mod("1", "Root") with { DescriptionHtml = description };
+
+        var plan = await resolver.ResolveAsync(
+            new RemoteRef("fake", "testgame", "1"), Array.Empty<ModEntry>(), cancellationToken: TestContext.Current.CancellationToken);
+
+        // The prerequisite is a chip on the root, never a plan row.
+        Assert.Single(plan.Entries);
+        var chip = Assert.Single(plan.Requirements, candidate => candidate.Kind == RemoteRequirementKind.Prerequisite);
+        Assert.Equal("Microsoft C++ 2015-2022 Redistributable", chip.Name);
+        Assert.Equal("1", chip.ParentRef!.ModKey);
+    }
+
+    // An Exclude decision without a target prunes the mod named by the decision's own id key:
+    // the resolver skips it up front, so it is never fetched and never becomes a plan row.
+    [Fact]
+    public async Task TargetlessExcludeDecisionSkipsTheMod()
+    {
+        var (resolver, _) = Create(
+            requirements: new Dictionary<string, IReadOnlyList<RemoteRequirement>>
+            {
+                ["1"] = new[] { Req("2", "Excluded Mod", RemoteRequirementKind.Required) },
+                ["2"] = new[] { Req("3", "Child Of Excluded", RemoteRequirementKind.Required) }
+            },
+            files: new Dictionary<string, IReadOnlyList<RemoteFileMetadata>>
+            {
+                ["1"] = new[] { File("10") },
+                ["2"] = new[] { File("20") },
+                ["3"] = new[] { File("30") }
+            },
+            mods: new Dictionary<string, RemoteModMetadata>
+            {
+                ["1"] = Mod("1", "Root"),
+                ["2"] = Mod("2", "Excluded Mod"),
+                ["3"] = Mod("3", "Child Of Excluded")
+            });
+
+        var decisionKey = PlanDecisionStore.IdKey("fake", "testgame", "2");
+        var decision = new PlanDecision(decisionKey, PlanDecisionKind.Exclude, TargetName: "Excluded Mod");
+
+        var plan = await resolver.ResolveAsync(
+            new RemoteRef("fake", "testgame", "1"),
+            Array.Empty<ModEntry>(),
+            skipKeys: new[] { PlanDecisionStore.NormalizeModKey("fake", "2") }.ToHashSet(StringComparer.OrdinalIgnoreCase),
+            decisions: new Dictionary<string, PlanDecision> { [decisionKey] = decision },
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        // The excluded mod and its subtree are out of the plan.
+        Assert.DoesNotContain(plan.Entries, entry => entry.Ref.ModKey == "2");
+        Assert.DoesNotContain(plan.Entries, entry => entry.Ref.ModKey == "3");
+    }
+
+    // When a Replace decision redirects a requirement edge, the entry's chain must name the
+    // replacement mod (the one that actually satisfies the requirement), not the mod the site
+    // declared — the "Required by …" text shows the current referrer.
+    [Fact]
+    public async Task ReplacedRequirementChainNamesTheReplacement()
+    {
+        var (resolver, _) = Create(
+            requirements: new Dictionary<string, IReadOnlyList<RemoteRequirement>>
+            {
+                ["1"] = new[] { Req("2", "Old Mod", RemoteRequirementKind.Required) }
+            },
+            files: new Dictionary<string, IReadOnlyList<RemoteFileMetadata>>
+            {
+                ["1"] = new[] { File("10") },
+                ["3"] = new[] { File("30") }
+            },
+            mods: new Dictionary<string, RemoteModMetadata>
+            {
+                ["1"] = Mod("1", "Root"),
+                ["3"] = Mod("3", "Replacement Mod")
+            });
+
+        var decisionKey = PlanDecisionStore.IdKey("fake", "testgame", "2");
+        var decision = new PlanDecision(
+            decisionKey,
+            PlanDecisionKind.Replace,
+            new PlanDecisionTarget("fake", "testgame", "3"),
+            SourceName: "Old Mod", TargetName: "Replacement Mod");
+
+        var plan = await resolver.ResolveAsync(
+            new RemoteRef("fake", "testgame", "1"),
+            Array.Empty<ModEntry>(),
+            decisions: new Dictionary<string, PlanDecision> { [decisionKey] = decision },
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        var replacement = plan.Entries.Single(entry => entry.Ref.ModKey == "3");
+        // The chain's incoming segment points at the replacement and shows its fetched name.
+        var segment = Assert.Single(replacement.Chain);
+        Assert.Equal("3", segment.ModKey);
+        Assert.Equal("Replacement Mod", segment.ModName);
+        Assert.Equal("Required Replacement Mod", replacement.ChainText);
+        // The replaced mod is not present anywhere in the plan.
+        Assert.DoesNotContain(plan.Entries, entry => entry.Ref.ModKey == "2");
+        Assert.DoesNotContain(plan.Entries.Select(entry => entry.ChainText), text => text.Contains("Old Mod", StringComparison.Ordinal));
     }
 }

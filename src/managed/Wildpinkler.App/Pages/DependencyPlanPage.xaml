@@ -5,6 +5,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:pages="using:Wildpinkler.App.Pages"
     xmlns:models="using:Wildpinkler.App.Models"
+    xmlns:controls="using:Wildpinkler.App.Controls"
     xmlns:controlsToolkit="using:CommunityToolkit.WinUI.Controls"
     Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
 
@@ -28,6 +29,7 @@
 
     <Grid Padding="{StaticResource PageContentPadding}" RowSpacing="12">
         <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
@@ -66,7 +68,57 @@
 
         <InfoBar x:Name="PlanInfoBar" Grid.Row="1" IsOpen="False" IsClosable="False" />
 
-        <Grid x:Name="ListDetailsGrid" Grid.Row="2" Loaded="ListDetailsGrid_Loaded" SizeChanged="ListDetailsGrid_SizeChanged">
+        <Border x:Name="DecisionsStrip" Grid.Row="2" Style="{StaticResource ContentCardStyle}" Padding="12,8"
+                Visibility="Collapsed">
+            <Grid ColumnSpacing="12">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock Grid.Column="0" Style="{StaticResource CaptionTextBlockStyle}" FontWeight="SemiBold"
+                           Text="Applied decisions:" VerticalAlignment="Center" />
+                <ItemsControl Grid.Column="1" ItemsSource="{x:Bind DecisionItems, Mode=OneWay}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate>
+                            <controls:WrapPanel ItemSpacing="8" LineSpacing="4" />
+                        </ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="models:PlanDecisionStripItem">
+                            <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,2,12,2" VerticalAlignment="Center">
+                                <Border Style="{StaticResource FilterChipStyle}" Padding="8,2,4,2">
+                                    <Button Style="{StaticResource ChipRemoveButtonStyle}" Tag="{x:Bind}"
+                                            Click="InspectDecision_Click"
+                                            ToolTipService.ToolTip="{x:Bind Description, Mode=OneTime}"
+                                            AutomationProperties.Name="{x:Bind InspectAutomationName, Mode=OneTime}">
+                                        <TextBlock Style="{StaticResource CaptionTextBlockStyle}" Text="{x:Bind Description, Mode=OneTime}" />
+                                    </Button>
+                                </Border>
+                                <Button Style="{StaticResource RowButtonStyle}" Tag="{x:Bind}" Click="UndoDecision_Click"
+                                        ToolTipService.ToolTip="Undo this applied decision"
+                                        AutomationProperties.Name="{x:Bind UndoAutomationName, Mode=OneTime}">
+                                    <FontIcon Glyph="&#xE74D;" FontSize="12" />
+                                </Button>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <Button x:Name="ClearDecisionsButton" Grid.Column="2" Style="{StaticResource RowButtonStyle}"
+                        HorizontalAlignment="Right" VerticalAlignment="Center"
+                        Visibility="{x:Bind HasDecisions, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}"
+                        ToolTipService.ToolTip="Remove every applied decision and start the plan over"
+                        AutomationProperties.Name="Clear all applied decisions"
+                        Click="ClearAllDecisions_Click">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <FontIcon Glyph="&#xE74D;" FontSize="12" />
+                        <TextBlock Style="{StaticResource CaptionTextBlockStyle}" Text="Clear all" />
+                    </StackPanel>
+                </Button>
+            </Grid>
+        </Border>
+
+        <Grid x:Name="ListDetailsGrid" Grid.Row="3" Loaded="ListDetailsGrid_Loaded" SizeChanged="ListDetailsGrid_SizeChanged">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition x:Name="ListColumnDef" Width="*" MinWidth="280" />
                 <ColumnDefinition Width="Auto" />
@@ -119,7 +171,7 @@
                                                     <Border x:Name="RowBorder" Padding="4,0"
                                                             Background="{x:Bind IsSelected, Converter={StaticResource BoolToHighlightBrushConverter}, Mode=OneWay}">
                                                         <Grid ColumnSpacing="8" Padding="4,2"
-                                                              Opacity="{x:Bind Entry.RowStatus, Converter={StaticResource RowStatusToOpacityConverter}, Mode=OneWay}">
+                                                              Opacity="{x:Bind Entry.DerivedState, Converter={StaticResource RowStatusToOpacityConverter}, Mode=OneWay}">
                                                             <Grid.ColumnDefinitions>
                                                                 <ColumnDefinition Width="Auto" />
                                                                 <ColumnDefinition Width="*" />
@@ -128,7 +180,7 @@
                                                             <CheckBox Grid.Column="0" IsChecked="{x:Bind Entry.IsSelected, Mode=TwoWay}" VerticalAlignment="Center"
                                                                       AutomationProperties.Name="{x:Bind IncludeAutomationName, Mode=OneWay}"
                                                                       ToolTipService.ToolTip="Include this mod in the install"
-                                                                      IsEnabled="{x:Bind Entry.RowStatus, Converter={StaticResource NotExcludedConverter}, Mode=OneWay}" />
+                                                                      IsEnabled="{x:Bind Entry.DerivedState, Converter={StaticResource NotExcludedConverter}, Mode=OneWay}" />
                                                             <Button Grid.Column="1" Style="{StaticResource RowButtonStyle}"
                                                                     Tag="{x:Bind}" Click="Row_Click">
                                                                 <Grid ColumnSpacing="10" Padding="8,6">
@@ -139,11 +191,11 @@
                                                                     <StackPanel Spacing="2" VerticalAlignment="Center">
                                                                         <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
                                                                             <TextBlock Style="{StaticResource CaptionTextBlockStyle}" FontSize="13"
-                                                                                       Foreground="{x:Bind Entry.RowStatus, Converter={StaticResource PlanStatusToBrushConverter}, Mode=OneWay}"
-                                                                                       Text="{x:Bind Entry.RowStatusGlyph, Mode=OneWay}" VerticalAlignment="Center" />
+                                                                                       Foreground="{x:Bind Entry.DerivedState, Converter={StaticResource PlanStatusToBrushConverter}, Mode=OneWay}"
+                                                                                       Text="{x:Bind Entry.DerivedStateGlyph, Mode=OneWay}" VerticalAlignment="Center" />
                                                                             <TextBlock Style="{StaticResource CaptionTextBlockStyle}"
-                                                                                       Foreground="{x:Bind Entry.RowStatus, Converter={StaticResource PlanStatusToBrushConverter}, Mode=OneWay}"
-                                                                                       Text="{x:Bind Entry.RowStatusText, Mode=OneWay}" VerticalAlignment="Center" />
+                                                                                       Foreground="{x:Bind Entry.DerivedState, Converter={StaticResource PlanStatusToBrushConverter}, Mode=OneWay}"
+                                                                                       Text="{x:Bind Entry.DerivedStateText, Mode=OneWay}" VerticalAlignment="Center" />
                                                                             <Border Style="{StaticResource FilterChipStyle}" Padding="6,0,6,0" VerticalAlignment="Center"
                                                                                     Visibility="{x:Bind Entry.KindText, Converter={StaticResource NonNullToVisibilityConverter}, Mode=OneWay}">
                                                                                 <TextBlock Style="{StaticResource CaptionTextBlockStyle}" Text="{x:Bind Entry.KindText, Mode=OneWay}" />
@@ -152,6 +204,9 @@
                                                                         <TextBlock Text="{x:Bind Entry.Name, Mode=OneWay}" FontWeight="SemiBold" TextWrapping="Wrap" />
                                                                         <TextBlock Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.85" TextWrapping="Wrap"
                                                                                    Text="{x:Bind Entry.RowSubtitleText, Mode=OneWay}" />
+                                                                        <TextBlock Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.75" TextWrapping="Wrap"
+                                                                                   Text="{x:Bind CoveredRequirementsText, Mode=OneWay}"
+                                                                                   Visibility="{x:Bind CoveredRequirementsText, Converter={StaticResource NonNullToVisibilityConverter}, Mode=OneWay}" />
                                                                         <TextBlock Style="{StaticResource CaptionTextBlockStyle}" FontWeight="SemiBold"
                                                                                    Text="{x:Bind Entry.ReplacementText, Mode=OneWay}"
                                                                                    Visibility="{x:Bind Entry.ReplacementText, Converter={StaticResource NonNullToVisibilityConverter}, Mode=OneWay}" />
@@ -169,6 +224,23 @@
                                                                                      Value="{x:Bind Entry.DownloadProgress, Mode=OneWay}"
                                                                                      Maximum="1"
                                                                                      Visibility="{x:Bind Entry.IsDownloading, Converter={StaticResource BoolToVisibilityConverter}, Mode=OneWay}" />
+                                                                        <ItemsControl ItemsSource="{x:Bind Chips, Mode=OneWay}" Margin="0,2,0,0">
+                                                                            <ItemsControl.ItemTemplate>
+                                                                                <DataTemplate x:DataType="models:RequirementChip">
+                                                                                    <Button Style="{StaticResource RowButtonStyle}"
+                                                                                            Tag="{x:Bind}" Click="ResolveChip_Click"
+                                                                                            HorizontalAlignment="Left" Margin="4,2">
+                                                                                        <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                                                                                            <Border Style="{StaticResource FilterChipStyle}" Padding="6,0,6,0">
+                                                                                                <TextBlock Style="{StaticResource CaptionTextBlockStyle}" Text="{x:Bind Text, Mode=OneTime}" />
+                                                                                            </Border>
+                                                                                            <TextBlock Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7"
+                                                                                                   Text="resolve this requirement" VerticalAlignment="Center" />
+                                                                                        </StackPanel>
+                                                                                    </Button>
+                                                                                </DataTemplate>
+                                                                            </ItemsControl.ItemTemplate>
+                                                                        </ItemsControl>
                                                                     </StackPanel>
                                                                     <TextBlock Grid.Column="1" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.7" VerticalAlignment="Center"
                                                                                Text="{x:Bind Entry.FileSizeText, Mode=OneWay}" />
@@ -303,7 +375,7 @@
             </Border>
         </Grid>
 
-        <Border Grid.Row="3" Style="{StaticResource ContentCardStyle}">
+        <Border Grid.Row="4" Style="{StaticResource ContentCardStyle}">
             <Grid ColumnSpacing="16" Padding="12,8">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" />

@@ -51,6 +51,8 @@ public sealed partial class DependencyPlanResolver
         string? resolvingProfileId = null,
         IReadOnlyDictionary<string, ModMatchLink>? matchLinks = null,
         IReadOnlySet<string>? skipKeys = null,
+        List<RequirementChip>? carriedRequirements = null,
+        IReadOnlyDictionary<string, PlanDecision>? decisions = null,
         CancellationToken cancellationToken = default)
     {
         if (!_registry.TryGet(root.SiteId, out var provider))
@@ -66,7 +68,8 @@ public sealed partial class DependencyPlanResolver
         var edges = new Dictionary<string, List<RemoteRequirement>>(StringComparer.OrdinalIgnoreCase);
         var queue = new Queue<(string Key, int Depth)>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var state = new WalkState(provider, credential, root.GameKey, installedMods, progress, byKey, edges, seen, profileNames, resolvingProfileId, matchLinks, skipKeys);
+        var chips = carriedRequirements is { } carried ? carried.ToList() : new List<RequirementChip>();
+        var state = new WalkState(provider, credential, root.GameKey, installedMods, progress, byKey, edges, seen, profileNames, resolvingProfileId, matchLinks, skipKeys, chips, decisions);
 
         rootEntry = CreateEntry(state, root.ModKey);
         rootEntry.EntryKey = root.ModKey;
@@ -77,6 +80,7 @@ public sealed partial class DependencyPlanResolver
         var walk = await WalkAsync(state, queue, cancellationToken).ConfigureAwait(false);
 
         FinalizeEntries(byKey, edges);
+        RelabelRedirectedEdges(byKey, state);
         PairConflicts(byKey, state.Outgoing);
 
         var entries = byKey.Values.ToList();
@@ -91,8 +95,14 @@ public sealed partial class DependencyPlanResolver
         rootEntry.IsSelected = rootEntry.Status != DependencyPlanEntryStatus.Unresolvable;
 
         plan.Entries = entries;
+        plan.Requirements = state.Chips;
         plan.CollapsedCycles = walk.Cycles;
         plan.TruncatedAtDepth = walk.Truncated;
+
+        // Persisted decisions are applied once, after the walk, as a pure derivation: covered
+        // chips are retired and annotated, set-aside/replaced rows are flagged. Idempotent.
+        if (state.Decisions.Count > 0)
+            PlanDecisionApplier.Apply(plan, state.Decisions);
 
         return plan;
     }
@@ -223,6 +233,8 @@ public sealed partial class DependencyPlanResolver
         IReadOnlyDictionary<string, string>? profileNames = null,
         string? resolvingProfileId = null,
         Action<int, int>? progress = null,
+        List<RequirementChip>? carriedRequirements = null,
+        IReadOnlyDictionary<string, PlanDecision>? decisions = null,
         CancellationToken cancellationToken = default)
     {
         if (rootKeys.Count == 0)
@@ -248,7 +260,15 @@ public sealed partial class DependencyPlanResolver
 
         var edges = new Dictionary<string, List<RemoteRequirement>>(StringComparer.OrdinalIgnoreCase);
         var queue = new Queue<(string Key, int Depth)>();
-        var state = new WalkState(provider, credential, plan.Root.GameKey, installedMods: Array.Empty<ModEntry>(), progress, byKey, edges, seen, profileNames, resolvingProfileId);
+        // Seed chips from the plan's existing requirement chips (plus any carried in) so a
+        // re-walk merges into them instead of duplicating, and consult the persisted decisions so
+        // chip promotion and edge redirects stay consistent with the full resolve.
+        var chips = carriedRequirements is { } carried ? carried.ToList() : plan.Requirements.ToList();
+        var state = new WalkState(
+            provider, credential, plan.Root.GameKey,
+            installedMods: Array.Empty<ModEntry>(), progress, byKey, edges, seen,
+            profileNames, resolvingProfileId,
+            matchLinks: null, skipKeys: null, chips, decisions);
 
         foreach (var rootKey in rootKeys)
         {
@@ -293,9 +313,17 @@ public sealed partial class DependencyPlanResolver
             plan.Entries.Add(discovered);
         }
 
+        RelabelRedirectedEdges(byKey, state);
         PairConflicts(byKey, state.Outgoing);
+        plan.Requirements = state.Chips;
         plan.CollapsedCycles += walk.Cycles;
         plan.TruncatedAtDepth = plan.TruncatedAtDepth || walk.Truncated;
+
+        // Re-apply persisted decisions as a pure derivation: covered chips retire (and annotate
+        // their target row) and set-aside/replaced rows are flagged. Idempotent, so re-running on
+        // an incremental pass does not drift from the full resolve.
+        if (state.Decisions.Count > 0)
+            PlanDecisionApplier.Apply(plan, state.Decisions);
 
         LogIncrementalDone(plan.Root.SiteId, plan.Root.GameKey, walk.Cycles, plan.Entries.Count);
         return plan;
@@ -343,6 +371,15 @@ public sealed partial class DependencyPlanResolver
                 continue;
             }
 
+            // The Nexus GraphQL API has no "prerequisites" field; mods that need non-Nexus
+            // software (C++ runtimes, framework installs) declare them in their description
+            // instead. Surface those lines as informational chips, never as plan rows.
+            if (details?.Description is { Length: > 0 } description)
+            {
+                foreach (var prerequisite in PrerequisiteScanner.Extract(description))
+                    AddRequirementChip(state, existing, prerequisite);
+            }
+
             var modEdges = state.Edges.TryGetValue(modKey, out var list) ? list : new List<RemoteRequirement>();
             existing.Status = existing.Status == DependencyPlanEntryStatus.Unresolvable
                 ? DependencyPlanEntryStatus.Unresolvable
@@ -354,18 +391,32 @@ public sealed partial class DependencyPlanResolver
                 continue;
             }
 
-            // A requirement is walked under its own site key. Folding a requirement into another
-            // mod is a user decision, not something the resolver does automatically, so there is
-            // no alias redirect here: the requirement surfaces normally and the user re-applies a
-            // fold (or match) through an action.
+            // A requirement is walked under its own site key, unless a remembered Resolve or
+            // Replace decision redirects it to another site mod identity — applied automatically
+            // so a decision made on an earlier plan page takes effect here without re-prompting.
             foreach (var requirement in requirements)
             {
                 var key = requirement.ModKey ?? string.Empty;
                 if (string.IsNullOrEmpty(key) || key == "0")
                 {
-                    EnsureChild(state, requirement, existing);
-                    continue;
+                    // A name-only requirement is a chip, not a row. A remembered Resolve decision
+                    // promotes it to a row (the same mod, walked once); otherwise it is recorded as a
+                    // requirement chip on this plan, merged by context so it never duplicates.
+                    if (TryResolveChipTarget(state, existing, requirement, out var resolvedKey))
+                        key = resolvedKey;
+                    else
+                    {
+                        AddRequirementChip(state, existing, requirement);
+                        continue;
+                    }
                 }
+
+                var redirected = state.GetDecisionRedirect(key);
+                if (redirected is not null)
+                    key = redirected;
+
+                if (key is { Length: > 0 } && state.SkipKeys?.Contains(key) == true)
+                    continue;
 
                 if (state.Seen.Contains(key))
                 {
@@ -399,7 +450,9 @@ public sealed partial class DependencyPlanResolver
             IReadOnlyDictionary<string, string>? profileNames = null,
             string? resolvingProfileId = null,
             IReadOnlyDictionary<string, ModMatchLink>? matchLinks = null,
-            IReadOnlySet<string>? skipKeys = null)
+                IReadOnlySet<string>? skipKeys = null,
+                List<RequirementChip>? chips = null,
+                IReadOnlyDictionary<string, PlanDecision>? decisions = null)
             {
                 Provider = provider;
                 Credential = credential;
@@ -414,6 +467,8 @@ public sealed partial class DependencyPlanResolver
                 ResolvingProfileId = resolvingProfileId;
                 MatchLinks = matchLinks ?? new Dictionary<string, ModMatchLink>(StringComparer.Ordinal);
                 SkipKeys = skipKeys;
+                Chips = chips ?? new List<RequirementChip>();
+                Decisions = decisions ?? new Dictionary<string, PlanDecision>(StringComparer.Ordinal);
             }
 
         public IRemoteSiteProvider Provider { get; }
@@ -438,21 +493,12 @@ public sealed partial class DependencyPlanResolver
         /// Null when nothing is excluded.
         /// </summary>
         public IReadOnlySet<string>? SkipKeys { get; }
-        private readonly Dictionary<string, int> _nameOnlyOccurrences = new(StringComparer.Ordinal);
-        private readonly Dictionary<string, DependencyPlanEntry> _nameOnlyContexts = new(StringComparer.Ordinal);
 
-        public int NextNameOnlyOccurrence(string context)
-        {
-            _nameOnlyOccurrences.TryGetValue(context, out var occurrence);
-            _nameOnlyOccurrences[context] = occurrence + 1;
-            return occurrence;
-        }
+        /// <summary>Name-only requirements collected during the walk, merged by context so they never duplicate.</summary>
+        public List<RequirementChip> Chips { get; }
 
-        public void RegisterNameOnlyContext(string context, DependencyPlanEntry entry)
-            => _nameOnlyContexts[context] = entry;
-
-        public bool TryGetNameOnlyContext(string context, out DependencyPlanEntry entry)
-            => _nameOnlyContexts.TryGetValue(context, out entry!);
+        /// <summary>Persisted user decisions keyed by decision key; consulted to resolve chips and skip excluded mods.</summary>
+        public IReadOnlyDictionary<string, PlanDecision> Decisions { get; }
 
         /// <summary>Resolves a remembered local-mod association to its live mod, if it still exists in the library.</summary>
         public ModEntry? ResolveMatch(string siteId, string modKey)
@@ -475,13 +521,25 @@ public sealed partial class DependencyPlanResolver
                 ? link.TargetModKey
                 : null;
 
-        /// <summary>Returns <paramref name="fromKey"/> redirected through a remembered alias, unchanged when none exists.</summary>
-        public string ResolveAliasKey(string siteId, string fromKey)
+        /// <summary>
+        /// If a persisted Resolve or Replace decision redirects <paramref name="modKey"/> (by its
+        /// id key) to another site mod on this provider, returns that target mod key; otherwise
+        /// null. This is what makes decisions automatic on every resolve — the same gesture that
+        /// retired a requirement on an earlier plan page is applied here without re-prompting.
+        /// </summary>
+        public string? GetDecisionRedirect(string modKey)
         {
-            if (string.IsNullOrEmpty(fromKey))
-                return fromKey;
-            var alias = ResolveAlias(siteId, fromKey);
-            return alias is { Length: > 0 } && !string.Equals(alias, fromKey, StringComparison.Ordinal) ? alias : fromKey;
+            if (string.IsNullOrEmpty(modKey) || modKey == "0")
+                return null;
+            var idKey = PlanDecisionStore.IdKey(Provider.SiteId, GameKey, modKey);
+            if (!Decisions.TryGetValue(idKey, out var decision)
+                || decision is not { Kind: PlanDecisionKind.Resolve or PlanDecisionKind.Replace }
+                || decision.Target is not { } target
+                || target.SiteId is not { Length: > 0 }
+                || target.ModKey is not { Length: > 0 }
+                || string.Equals(target.SiteId, Provider.SiteId, StringComparison.OrdinalIgnoreCase) == false)
+                return null;
+            return PlanDecisionStore.NormalizeModKey(target.SiteId, target.ModKey);
         }
     }
 
@@ -609,7 +667,116 @@ public sealed partial class DependencyPlanResolver
     }
 
     /// <summary>
-    /// Pairs conflict info onto both sides of every site-declared incompatibility: for each
+    /// Rewrites every chain segment and recorded edge whose mod key a persisted Resolve or
+    /// Replace decision redirects, so the informational "Required by …" text names the mod that
+    /// actually satisfies the requirement (the replacement, e.g. Pandora) instead of the mod the
+    /// site declared (the replaced one, e.g. Nemesis). The replacement's display name is only
+    /// known after its own data is fetched, which is why this runs as a post-walk pass rather
+    /// than at <see cref="RecordEdge"/> time. Multi-hop redirects (A→B→C) resolve to the final
+    /// mod. Idempotent, so incremental re-walks do not drift from the full resolve.
+    /// </summary>
+    private static void RelabelRedirectedEdges(Dictionary<string, DependencyPlanEntry> byKey, WalkState state)
+    {
+        if (state.Decisions.Count == 0)
+            return;
+
+        // id-key → final target key, following chained redirects until the target is not
+        // itself redirected.
+        var redirectTo = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var (idKey, decision) in state.Decisions)
+        {
+            if (decision is not { Kind: PlanDecisionKind.Resolve or PlanDecisionKind.Replace })
+                continue;
+            // Only id-keyed decisions ("site::game::modKey") redirect mod keys; context keys
+            // ("site::game::parent::name") cover name-only requirements and have no mod to name.
+            var parts = idKey.Split("::");
+            if (parts.Length != 3)
+                continue;
+            var target = decision.Target;
+            if (target is not { SiteId: { Length: > 0 }, ModKey: { Length: > 0 } }
+                || string.Equals(target.SiteId, state.Provider.SiteId, StringComparison.OrdinalIgnoreCase) == false)
+                continue;
+
+            var from = PlanDecisionStore.NormalizeModKey(parts[0], parts[2]);
+            var current = PlanDecisionStore.NormalizeModKey(target.SiteId, target.ModKey);
+            var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { from };
+            while (GetDecisionTargetKey(state, current, out var next) && visited.Add(next))
+                current = next;
+            if (!string.Equals(current, from, StringComparison.OrdinalIgnoreCase))
+                redirectTo[from] = current;
+        }
+
+        if (redirectTo.Count == 0)
+            return;
+
+        // Relabel every chain segment and outgoing edge in place: a segment's ModKey names the
+        // mod it points at, and the walk redirected that key before creating the target entry,
+        // so the replacement's identity lands exactly where the replaced mod's was declared.
+        foreach (var entry in byKey.Values)
+        {
+            var chain = entry.Chain;
+            for (var index = 0; index < chain.Count; index++)
+            {
+                var rewritten = RelabelRequirement(state, chain[index], redirectTo);
+                if (rewritten is not null)
+                    chain[index] = rewritten;
+            }
+            // A relabeled segment can end up equal to its successor; collapse it the way the
+            // walk's dedup would.
+            for (var index = chain.Count - 1; index > 0; index--)
+                if (Equals(chain[index], chain[index - 1]))
+                    chain.RemoveAt(index);
+        }
+
+        foreach (var outgoing in state.Outgoing.Values)
+            for (var index = 0; index < outgoing.Count; index++)
+            {
+                var rewritten = RelabelRequirement(state, outgoing[index], redirectTo);
+                if (rewritten is not null)
+                    outgoing[index] = rewritten;
+            }
+    }
+
+    /// <summary>The same-site Replace/Resolve target key for a mod's id key, or null.</summary>
+    private static bool GetDecisionTargetKey(WalkState state, string modKey, out string targetKey)
+    {
+        targetKey = string.Empty;
+        var idKey = PlanDecisionStore.IdKey(state.Provider.SiteId, state.GameKey, modKey);
+        if (state.Decisions.TryGetValue(idKey, out var decision)
+            && decision is { Kind: PlanDecisionKind.Resolve or PlanDecisionKind.Replace }
+            && decision.Target is { } target
+            && target.SiteId is { Length: > 0 }
+            && target.ModKey is { Length: > 0 }
+            && string.Equals(target.SiteId, state.Provider.SiteId, StringComparison.OrdinalIgnoreCase))
+        {
+            targetKey = PlanDecisionStore.NormalizeModKey(target.SiteId, target.ModKey);
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Returns a relabeled copy of <paramref name="requirement"/> when its key is redirected, else
+    /// null. The segment's display name becomes the replacement's final fetched display name.
+    /// </summary>
+    private static RemoteRequirement? RelabelRequirement(
+        WalkState state,
+        RemoteRequirement requirement,
+        IReadOnlyDictionary<string, string> redirectTo)
+    {
+        if (requirement.ModKey is not { Length: > 0 })
+            return null;
+        var key = PlanDecisionStore.NormalizeModKey(state.Provider.SiteId, requirement.ModKey);
+        if (!redirectTo.TryGetValue(key, out var targetKey))
+            return null;
+        var name = state.ByKey.TryGetValue(targetKey, out var target)
+            && !string.Equals(target.Name, targetKey, StringComparison.Ordinal)
+            ? target.Name
+            : targetKey;
+        return requirement with { ModKey = targetKey, ModName = name };
+    }
+
+    /// <summary>Pairs conflict info onto both sides of every site-declared incompatibility: for each
     /// Incompatible requirement edge A → B, both A and B record who they conflict with and the
     /// requirement note that caused it. The rows' <see cref="DependencyPlanEntry.ConflictWithKey"/>,
     /// <see cref="DependencyPlanEntry.ConflictWithName"/> and <see cref="DependencyPlanEntry.ConflictNote"/>
@@ -767,7 +934,14 @@ public sealed partial class DependencyPlanResolver
             SiteId = state.Provider.SiteId,
             GameKey = state.GameKey,
             Ref = ref_,
-            Name = local?.Name ?? (requirement is { } req && !string.IsNullOrWhiteSpace(req.ModName) ? req.ModName : modKey),
+            // A redirected requirement (the walk rewrote the target key) names a different mod,
+            // so only a requirement pointing at this key may seed the name; otherwise keep the
+            // raw key until EnrichEntryFromDetails promotes the real site name.
+            Name = local?.Name ?? (requirement is { } req
+                && string.Equals(req.ModKey, modKey, StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrWhiteSpace(req.ModName)
+                    ? req.ModName
+                    : modKey),
             Author = local?.Author,
             Version = local?.Version,
             LocalModId = local?.Id,
@@ -844,8 +1018,13 @@ public sealed partial class DependencyPlanResolver
             : parent.Chain.Append(requirement).ToList();
         if (!string.IsNullOrWhiteSpace(requirement.Notes) && !entry.RequirementNotes.Contains(requirement.Notes!))
             entry.RequirementNotes.Add(requirement.Notes!);
-        // Promote the display name from the requirement when we know nothing yet.
-        if (string.Equals(entry.Name, modKey, StringComparison.Ordinal) && !string.IsNullOrWhiteSpace(requirement.ModName))
+        // Promote the display name from the requirement when we know nothing yet, but only from
+        // a requirement that actually points at this key: a redirected requirement (the walk
+        // rewrote the target key) names a different mod, so it must not clobber this entry's
+        // name — the site name arrives via EnrichEntryFromDetails.
+        if (string.Equals(entry.Name, modKey, StringComparison.Ordinal)
+            && string.Equals(requirement.ModKey, modKey, StringComparison.OrdinalIgnoreCase)
+            && !string.IsNullOrWhiteSpace(requirement.ModName))
             entry.Name = requirement.ModName;
     }
 
@@ -864,82 +1043,70 @@ public sealed partial class DependencyPlanResolver
         target.FoldedIn.Add(new FoldedInEntry(name, requirement.ModKey));
     }
 
-    private static void EnsureChild(WalkState state, RemoteRequirement requirement, DependencyPlanEntry parent)
+    /// <summary>
+    /// The decision key for a name-only requirement under <paramref name="parent"/>. It is stable
+    /// across all occurrences of the same (parent, normalized name), so one decision covers every
+    /// occurrence — the duplicate-row bug is impossible because occurrences share a key, not a row.
+    /// </summary>
+    private static string ChipKey(WalkState state, DependencyPlanEntry parent, RemoteRequirement requirement)
+        => PlanDecisionStore.ContextKey(state.Provider.SiteId, state.GameKey, parent.Ref!.ModKey, requirement.ModName);
+
+    /// <summary>
+    /// True when a remembered <see cref="PlanDecisionKind.Resolve"/> decision promotes this
+    /// name-only requirement to a site mod row; <paramref name="resolvedKey"/> is that mod's key.
+    /// The mod key comes from the decision's site target.
+    /// </summary>
+    private static bool TryResolveChipTarget(WalkState state, DependencyPlanEntry parent, RemoteRequirement requirement, out string resolvedKey)
     {
-        var key = requirement.ModKey;
-        if (string.IsNullOrWhiteSpace(key) || key == "0")
+        resolvedKey = string.Empty;
+        var key = ChipKey(state, parent, requirement);
+        if (!state.Decisions.TryGetValue(key, out var decision)
+            || decision is not { Kind: PlanDecisionKind.Resolve or PlanDecisionKind.Replace }
+            || decision.Target is not { } target
+            || target.SiteId is not { Length: > 0 }
+            || target.ModKey is not { Length: > 0 }
+            || string.Equals(target.SiteId, state.Provider.SiteId, StringComparison.OrdinalIgnoreCase) == false)
+            return false;
+        resolvedKey = PlanDecisionStore.NormalizeModKey(target.SiteId, target.ModKey);
+        return true;
+    }
+
+    /// <summary>
+    /// Records a name-only requirement as a chip on the plan, merged by (parent, normalized name)
+    /// so repeated occurrences increment a single chip's count instead of creating more rows.
+    /// </summary>
+    private static void AddRequirementChip(WalkState state, DependencyPlanEntry parent, RemoteRequirement requirement)
+    {
+        if (parent.Ref is not { } parentRef)
+            return;
+        var key = ChipKey(state, parent, requirement);
+        var index = state.Chips.FindIndex(chip => chip.Key == key);
+        if (index >= 0)
         {
-            EnsureNameOnlyChild(state, requirement, parent);
+            // Same requirement seen again under the same parent: bump the count and keep the
+            // strongest kind, so the chip stays one no matter how many times it is declared.
+            var existing = state.Chips[index];
+            var kind = KindRank(requirement.Kind) >= KindRank(existing.Kind) ? requirement.Kind : existing.Kind;
+            existing.Kind = kind;
+            existing.Occurrences += 1;
             return;
         }
 
-        if (!state.ByKey.TryGetValue(key, out var entry))
-        {
-            entry = CreateEntry(state, key, requirement);
-            // A name-only requirement has no site key to match by ref; only a local name match
-            // can satisfy it. If nothing matched, the row stays NeedsMatching for the user to pick.
-            if (entry.Status != DependencyPlanEntryStatus.Installed)
-            {
-                entry.Name = requirement.ModName;
-                entry.Status = DependencyPlanEntryStatus.NeedsMatching;
-                entry.StatusDetail = $"The site lists this as '{requirement.ModName}' without an identifier; choose which mod it means.";
-                entry.PresenceText = null;
-            }
-            state.ByKey[key] = entry;
-        }
-        RecordEdge(state, key, requirement, parent);
+        state.Chips.Add(new RequirementChip(
+            key,
+            requirement.ModName,
+            requirement.Kind,
+            parentRef,
+            requirement.Notes));
     }
 
-    private static void EnsureNameOnlyChild(WalkState state, RemoteRequirement requirement, DependencyPlanEntry parent)
-    {
-        var normalizedName = NormalizeRequirementName(requirement.ModName);
-        var uniqueContext = $"{parent.EntryKey}|{normalizedName}";
-        var rowContext = $"{uniqueContext}|{(int)requirement.Kind}|{requirement.FileKey}|{requirement.Notes}";
-        var contextOccurrence = state.NextNameOnlyOccurrence(uniqueContext);
-        var rowOccurrence = state.NextNameOnlyOccurrence(rowContext);
-        var entryKey = $"name-only:{Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(rowContext)))}:{rowOccurrence}";
-        if (state.SkipKeys?.Contains(entryKey) == true)
-            return;
-
-        if (!state.ByKey.TryGetValue(entryKey, out var entry))
+    private static int KindRank(RemoteRequirementKind kind)
+        => kind switch
         {
-            string? contextualKey = null;
-            if (contextOccurrence == 0 && parent.Ref is { } parentRef)
-            {
-                var parentModKey = parentRef.ModKey;
-                var hasStableParentIdentity = !string.Equals(parentRef.SiteId, NexusSiteProvider.Id, StringComparison.OrdinalIgnoreCase)
-                    || NexusModIdentity.TryNormalizeModKey(parentModKey, out parentModKey);
-                if (hasStableParentIdentity && !string.IsNullOrWhiteSpace(parentModKey))
-                {
-                    contextualKey = ModMatchStore.ContextualLinkKey(
-                        parentRef.SiteId, parentRef.GameKey, parentModKey, requirement.ModName);
-                }
-            }
-            entry = new DependencyPlanEntry
-            {
-                EntryKey = entryKey,
-                SiteId = state.Provider.SiteId,
-                GameKey = state.GameKey,
-                RemoteIdentity = null,
-                RequirementParentRef = parent.Ref,
-                ContextualRequirementKey = contextualKey,
-                Name = requirement.ModName,
-                Status = DependencyPlanEntryStatus.NeedsMatching,
-                StatusDetail = $"The site lists this as '{requirement.ModName}' without an identifier; choose which mod it means.",
-                PresenceText = null,
-                Kind = requirement.Kind
-            };
-            state.ByKey[entryKey] = entry;
-            if (contextOccurrence == 0)
-                state.RegisterNameOnlyContext(uniqueContext, entry);
-            else if (state.TryGetNameOnlyContext(uniqueContext, out var first))
-            {
-                first.ContextualRequirementKey = null;
-                entry.ContextualRequirementKey = null;
-            }
-        }
-        RecordEdge(state, entryKey, requirement, parent);
-    }
+            RemoteRequirementKind.Required => 2,
+            RemoteRequirementKind.Incompatible => 1,
+            _ => 0
+        };
 
     private static string NormalizeRequirementName(string name)
         => string.Join(' ', name.Trim().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)).ToUpperInvariant();

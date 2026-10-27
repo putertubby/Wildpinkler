@@ -26,41 +26,40 @@ public sealed class NonNullToVisibilityConverter : IValueConverter
         => throw new NotSupportedException();
 }
 
-/// <summary>Dims rows that are set aside from the plan (Excluded, Folded in, or Obsoleted); other rows are fully opaque.</summary>
+/// <summary>Dims rows the user set aside; other rows are fully opaque.</summary>
 public sealed class RowStatusToOpacityConverter : IValueConverter
 {
     public object? Convert(object? value, Type targetType, object? parameter, string? language)
-        => value is RowStatus.Excluded or RowStatus.Folded or RowStatus.Obsoleted ? 0.55 : 1.0;
+        => value is PlanRowState.SetAside ? 0.55 : 1.0;
 
     public object? ConvertBack(object? value, Type targetType, object? parameter, string? language)
         => throw new NotSupportedException();
 }
 
-/// <summary>True when a <see cref="RowStatus"/> is not set aside from the plan (drives enable/disable of row chrome).</summary>
+/// <summary>True when a row is not set aside (drives enable/disable of row chrome).</summary>
 public sealed class NotExcludedConverter : IValueConverter
 {
     public object? Convert(object? value, Type targetType, object? parameter, string? language)
-        => value is not (RowStatus.Excluded or RowStatus.Folded or RowStatus.Obsoleted);
+        => value is not PlanRowState.SetAside;
 
     public object? ConvertBack(object? value, Type targetType, object? parameter, string? language)
         => throw new NotSupportedException();
 }
 
-/// <summary>Maps a <see cref="RowStatus"/> to the theme brush that conveys its urgency.</summary>
+/// <summary>Maps a derived <see cref="PlanRowState"/> to the theme brush that conveys its urgency.</summary>
 public sealed class PlanStatusToBrushConverter : IValueConverter
 {
     public object? Convert(object? value, Type targetType, object? parameter, string? language)
     {
-        if (value is not RowStatus status)
+        if (value is not PlanRowState state)
             return null;
         // The brushes are defined in App.xaml (theme-aware) because the WPF
         // SystemControl*TextForegroundBrush keys do not exist in WinUI 3.
-        string key = status switch
+        string key = state switch
         {
-            RowStatus.Unidentified or RowStatus.Conflicting => "PlanStatusErrorBrush",
-            RowStatus.Identified => "PlanStatusAttentionBrush",
-            RowStatus.Installed or RowStatus.Ready => "PlanStatusReadyBrush",
-            RowStatus.Excluded => "PlanStatusNeutralBrush",
+            PlanRowState.Attention => "PlanStatusErrorBrush",
+            PlanRowState.ToDownload => "PlanStatusAttentionBrush",
+            PlanRowState.Ready or PlanRowState.Installed => "PlanStatusReadyBrush",
             _ => "PlanStatusNeutralBrush"
         };
         if (Application.Current is not { } app)

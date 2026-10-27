@@ -8,6 +8,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Microsoft.Extensions.Logging;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
@@ -48,6 +49,7 @@ public sealed partial class ProfilesPage : PageBase
     private readonly ProfileGarbageCollector _garbageCollector = AppServices.ProfileGarbageCollector;
     private readonly Wildpinkler.App.Services.Games.ToolDiscoveryService _toolDiscovery =
         AppHost.Get<Wildpinkler.App.Services.Games.ToolDiscoveryService>();
+    private readonly ILogger<ProfilesPage> _logger = AppHost.Get<ILogger<ProfilesPage>>();
     private readonly ObservableCollection<LaunchTarget> _targets = new();
     // Enabled tool launch targets, one button per tool in the toolbar (kept apart from the game launch).
     private readonly ObservableCollection<LaunchTarget> _toolTargets = new();
@@ -417,6 +419,7 @@ public sealed partial class ProfilesPage : PageBase
         var profile = _allProfiles.FirstOrDefault(item => item.Id == profileId);
         if (profile is null)
         {
+            LogPlanInstallHandoffMissing(profileId, rootModName, mods.Count);
             ShowInfo($"The profile the dependency plan targeted is no longer available, so its downloaded mods were not installed.", InfoBarSeverity.Warning);
             return;
         }
@@ -445,8 +448,17 @@ public sealed partial class ProfilesPage : PageBase
         if (record.Dependencies.Count > 0)
             _pendingPlanInstall = (profile, record);
 
+        LogPlanInstallHandoffConsumed(profile.Id, profile.Name, rootModName, mods.Count, record.Dependencies.Count);
         StartQueueInstall(profile, mods);
     }
+
+    [LoggerMessage(Level = LogLevel.Warning,
+        Message = "Dependency plan install handoff could not be consumed: profile {ProfileId} (root '{Root}', {Mods} mod(s)) is no longer available.")]
+    private partial void LogPlanInstallHandoffMissing(string profileId, string root, int mods);
+
+    [LoggerMessage(Level = LogLevel.Information,
+        Message = "Dependency plan install handoff consumed: installing {Mods} mod(s) into profile '{ProfileId}' '{ProfileName}' (root '{Root}', {Edges} requirement edge(s)).")]
+    private partial void LogPlanInstallHandoffConsumed(string profileId, string profileName, string root, int mods, int edges);
 
     // When the plan-install run's batch finishes, writes its site-derived requirement edges to
     // the installed mods' persisted dependency lists (origin "nexus") and populates each
@@ -458,6 +470,7 @@ public sealed partial class ProfilesPage : PageBase
             return;
         _pendingPlanInstall = null;
 
+        var edgesWritten = 0;
         try
         {
             var byId = _allMods.ToDictionary(mod => mod.Id, StringComparer.Ordinal);
@@ -485,7 +498,9 @@ public sealed partial class ProfilesPage : PageBase
                     .ToList();
                 source.RequirementsRaw = dependency.Notes;
                 _ = AppServices.ModStore.UpsertAsync(source);
+                edgesWritten++;
             }
+            LogPlanInstallEdgesWritten(profile.Name, record.Dependencies.Count, edgesWritten);
         }
         catch (Exception exception)
         {
@@ -493,6 +508,10 @@ public sealed partial class ProfilesPage : PageBase
                 ShowInfo($"Could not save the plan's dependency edges. {exception.Message}", InfoBarSeverity.Warning));
         }
     }
+
+    [LoggerMessage(Level = LogLevel.Information,
+        Message = "Dependency plan install finalized for profile '{Profile}': {Written} of {Edges} requirement edge(s) recorded to the installed mods' dependency lists.")]
+    private partial void LogPlanInstallEdgesWritten(string profile, int edges, int written);
 
     // Maps one stored plan edge (source -> its requirement) onto a <see cref="ModDependency"/> with
     // origin "nexus". The target resolves to a local mod id when available; otherwise the remote

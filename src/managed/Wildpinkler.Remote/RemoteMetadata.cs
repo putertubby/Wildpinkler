@@ -47,7 +47,8 @@ public sealed record RemoteModDetails(
     DateTimeOffset? CreatedAt = null,
     DateTimeOffset? UpdatedAt = null,
     long? TotalFileSizeBytes = null,
-    IReadOnlyList<RemoteFileMetadata>? LatestFiles = null);
+    IReadOnlyList<RemoteFileMetadata>? LatestFiles = null,
+    string? Description = null);
 
 public sealed record RemoteFileMetadata(
     string FileKey,
@@ -107,6 +108,12 @@ public enum RemoteRequirementKind
 
     /// <summary>The mod is incompatible with the owning mod; they should not both be installed.</summary>
     Incompatible,
+
+    /// <summary>
+    /// A non-Nexus prerequisite (e.g. a C++ runtime or game framework). The site identifies it by
+    /// name only; it is never a plan row and never blocks the install gate.
+    /// </summary>
+    Prerequisite,
 
     /// <summary>The site used a classification this version does not understand.</summary>
     Unknown

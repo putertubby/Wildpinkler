@@ -52,30 +52,48 @@ public sealed partial class DependencyPlanPage : PageBase
     private readonly ObservableCollection<DependencyPlanEntry> _entries = new();
     private readonly ObservableCollection<PlanSectionView> _sections = new();
     private readonly HashSet<string> _excludedKeys = new(StringComparer.OrdinalIgnoreCase);
-    private readonly HashSet<PlanSectionKey> _collapsedSections = new();
+    private readonly HashSet<PlanRowSection> _collapsedSections = new();
     private IReadOnlyList<ModEntry> _recommendationMods = Array.Empty<ModEntry>();
     private IReadOnlyList<ModMatchLink> _acceptedMatchLinks = Array.Empty<ModMatchLink>();
     private IReadOnlyList<ContextualModMatchLink> _acceptedContextualMatchLinks = Array.Empty<ContextualModMatchLink>();
     private IReadOnlySet<string>? _recommendationGameIds;
 
-    // Decision link keys the user confirmed during THIS plan session (recommendation click or
-    // manual action). Cleared when a new plan starts; only these decisions are sticky re-applied
-    // by the resolver's re-application pass.
-    private readonly HashSet<string> _confirmedDecisionKeys = new(StringComparer.Ordinal);
-
     /// <summary>The sectioned view of the plan list, bound to the outer list.</summary>
     public ObservableCollection<PlanSectionView> Sections => _sections;
 
-    private static int StatusRank(RowStatus status) => status switch
+    private readonly ObservableCollection<PlanDecisionStripItem> _decisionItems = new();
+
+    /// <summary>The applied decisions shown in the strip above the sections, reconciled by key.</summary>
+    public ObservableCollection<PlanDecisionStripItem> DecisionItems => _decisionItems;
+
+    private bool _hasDecisions;
+
+    /// <summary>True when the applied-decisions strip has at least one item (drives its visibility).</summary>
+    public bool HasDecisions
     {
-        RowStatus.Conflicting => 0,
-        RowStatus.Unidentified => 1,
-        RowStatus.Identified => 2,
-        RowStatus.Ready => 3,
-        RowStatus.Installed => 4,
-        RowStatus.Excluded or RowStatus.Folded or RowStatus.Obsoleted => 5,
+        get => _hasDecisions;
+        private set
+        {
+            if (SetProperty(ref _hasDecisions, value))
+            {
+                DecisionsStrip.Visibility = value ? Visibility.Visible : Visibility.Collapsed;
+            }
+        }
+    }
+
+    private static int StatusRank(PlanRowSection section) => section switch
+    {
+        PlanRowSection.Attention => 0,
+        PlanRowSection.ToDownload => 1,
+        PlanRowSection.Ready => 2,
+        PlanRowSection.Installed => 3,
+        PlanRowSection.SetAside => 4,
         _ => 99,
     };
+
+    /// <summary>The match key a requirement chip uses to find the parent row it is attached to.</summary>
+    private static string ChipParentKey(RemoteRef parentRef)
+        => $"{parentRef.SiteId}::{parentRef.GameKey}::{PlanDecisionStore.NormalizeModKey(parentRef.SiteId, parentRef.ModKey)}";
 
     // The plan list is grouped into sections (problem-first). Rebuilding the sections after any
     // status change is what moves rows between sections; the order inside a section is
@@ -83,12 +101,27 @@ public sealed partial class DependencyPlanPage : PageBase
     private void RebuildSections()
     {
         var ordered = _entries
-            .OrderBy(entry => StatusRank(entry.RowStatus))
+            .OrderBy(entry => StatusRank(entry.DerivedSection))
             .ThenBy(entry => entry.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
-        var grouped = PlanSectionBuilder.Group(ordered, _collapsedSections, entry =>
-            PlanRowRecommendationResolver.Recommend(
-                entry, ordered, _recommendationMods, _acceptedMatchLinks, _recommendationGameIds, _acceptedContextualMatchLinks));
+        // Name-only requirements are chips attached to the parent row that declares them. Map each
+        // chip to the entry whose identity matches its ParentRef so the UI can offer one resolve
+        // action per requirement (all occurrences collapse into the single chip).
+        var chipsByParent = _plan?.Requirements is { Count: > 0 } requirements
+            ? requirements
+                .Where(chip => chip.ParentRef is not null)
+                .GroupBy(chip => ChipParentKey(chip.ParentRef!))
+                .ToDictionary(group => group.Key, group => group.ToList())
+            : new Dictionary<string, List<RequirementChip>>(StringComparer.OrdinalIgnoreCase);
+        var grouped = PlanSectionBuilder.Group(ordered, _collapsedSections,
+            recommendationFor: entry =>
+                PlanRowRecommendationResolver.Recommend(
+                    entry, ordered, _recommendationMods, _acceptedMatchLinks, _recommendationGameIds, _acceptedContextualMatchLinks),
+            chipsFor: entry =>
+                entry.RemoteIdentity is { } ref_
+                && chipsByParent.TryGetValue(ChipParentKey(ref_), out var chips)
+                    ? chips
+                    : []);
 
         var previousSelection = _selected;
         foreach (var row in _sections.SelectMany(section => section.Entries))
@@ -297,7 +330,7 @@ public sealed partial class DependencyPlanPage : PageBase
         {
             foreach (var token in raw.Split(',', StringSplitOptions.RemoveEmptyEntries))
             {
-                if (Enum.TryParse<PlanSectionKey>(token, true, out var key))
+                if (Enum.TryParse<PlanRowSection>(token, true, out var key))
                     _collapsedSections.Add(key);
             }
         }
@@ -379,10 +412,21 @@ public sealed partial class DependencyPlanPage : PageBase
         _resolveCts?.Cancel();
         var cts = new CancellationTokenSource();
         _resolveCts = cts;
+        // The resolve clears and re-baselines every row; a row whose archive is already on disk
+        // (downloaded earlier in this session) must keep that state or it is offered as pending
+        // again. Snapshot it before the clear so the fresh rows can inherit it.
+        var carriedDownloads = _entries
+            .Where(candidate => candidate.RemoteIdentity is not null
+                && candidate.DownloadState is not DependencyPlanEntryDownloadState.None)
+            .ToDictionary(EntryIdentityKey,
+                candidate => (
+                    DownloadState: candidate.DownloadState,
+                    DownloadedModId: candidate.DownloadedModId,
+                    DownloadedMod: candidate.DownloadedMod,
+                    DownloadProgress: candidate.DownloadProgress,
+                    StatusDetail: candidate.StatusDetail),
+                StringComparer.OrdinalIgnoreCase);
         _entries.Clear();
-        // A new plan (or a full re-resolve) resets confirmation: every persisted decision is a
-        // recommendation again until the user confirms it in this plan session.
-        _confirmedDecisionKeys.Clear();
         // Observe the page's own list so the browser relay's row lookups hit the same objects.
         _session = new DependencyPlanSession(request.SiteId, request.GameKey, request.ModKey, _entries);
         _session.EntryUpdated += OnSessionEntryUpdated;
@@ -411,14 +455,26 @@ public sealed partial class DependencyPlanPage : PageBase
             var profileNames = (await AppServices.ProfileStore.LoadAsync())
                 .ToDictionary(profile => profile.Id, profile => profile.Name, StringComparer.OrdinalIgnoreCase);
 
-            // Remembered manual associations (site+mod-key → local mod id) so a mod the user
-            // matched on an earlier plan page is recognized automatically this time.
-            var matchSnapshot = await AppServices.ModMatchStore.LoadAsync();
-            var matchLinks = matchSnapshot.Links.Values
-                .ToDictionary(link => ModMatchStore.LinkKey(link.SiteId, link.ModKey), link => link, StringComparer.Ordinal);
+            // Remembered user decisions (one store): a Resolve retires a requirement chip, an
+            // Exclude prunes a subtree, a Replace redirects an edge. The applier applies them
+            // after the walk; the walk only needs the Exclude keys to skip subtrees up front.
+            var decisionSnapshot = await AppServices.PlanDecisionStore.LoadAsync();
+            var decisions = decisionSnapshot.Decisions;
+            // An Exclude decision prunes the mod named by its id key, and when the user replaced
+            // the decision's own subject (a target-bearing exclude), the target too. Both must be
+            // skipped up front or the walk would fetch and row the excluded mod anyway.
+            var excludeKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var decision in decisions.Values.Where(candidate => candidate.Kind == PlanDecisionKind.Exclude))
+            {
+                // The id key of an exclude decision names the excluded mod itself
+                // ("site::game::modKey"); context keys have a fourth name part and no mod key.
+                var parts = decision.Key.Split("::");
+                if (parts.Length == 3 && parts[2] is { Length: > 0 })
+                    excludeKeys.Add(PlanDecisionStore.NormalizeModKey(parts[0], parts[2]));
+                if (decision.Target is { } target && target.SiteId is { Length: > 0 } && target.ModKey is { Length: > 0 })
+                    excludeKeys.Add(PlanDecisionStore.NormalizeModKey(target.SiteId, target.ModKey));
+            }
             _recommendationMods = installed;
-            _acceptedMatchLinks = matchLinks.Values.ToList();
-            _acceptedContextualMatchLinks = matchSnapshot.ContextualLinks.Values.ToList();
 
             // The resolver awaits network calls and does not block the UI thread. The progress
             // callback reports how many mods have been fetched, so the InfoBar can show a count.
@@ -428,8 +484,9 @@ public sealed partial class DependencyPlanPage : PageBase
                 (visited, _) => { _resolveVisited = visited; DispatcherQueue.TryEnqueue(UpdateResolveProgress); },
                 profileNames,
                 request.ProfileId,
-                matchLinks,
-                skipKeys: _excludedKeys,
+                matchLinks: null,
+                skipKeys: excludeKeys.Count > 0 ? excludeKeys : null,
+                decisions: decisions,
                 cancellationToken: cts.Token);
 
             cts.Token.ThrowIfCancellationRequested();
@@ -440,6 +497,21 @@ public sealed partial class DependencyPlanPage : PageBase
                 .ToDictionary(candidate => candidate.EntryKey,
                     candidate => candidate.RowStatus, StringComparer.OrdinalIgnoreCase);
             ReconcileEntries(plan.Entries, plan);
+            // The fresh rows from the resolve know nothing about archives already on disk.
+            // Carry the in-flight and downloaded state back so re-resolving a plan does not
+            // re-offer finished downloads as pending pages.
+            foreach (var row in _entries.Where(candidate => candidate.RemoteIdentity is not null))
+            {
+                if (carriedDownloads.TryGetValue(EntryIdentityKey(row), out var carried))
+                {
+                    row.DownloadState = carried.DownloadState;
+                    row.DownloadedModId = carried.DownloadedModId;
+                    row.DownloadedMod = carried.DownloadedMod;
+                    row.DownloadProgress = carried.DownloadProgress;
+                    row.StatusDetail = carried.StatusDetail;
+                    row.ProjectRowStatus();
+                }
+            }
             foreach (var row in _entries.Where(candidate => setAsideBefore.ContainsKey(candidate.EntryKey)))
             {
                 if (row.RowStatus == RowStatus.Excluded)
@@ -458,8 +530,10 @@ public sealed partial class DependencyPlanPage : PageBase
                             }
             SyncExcludedKeys();
             RebuildSections();
+            await RebuildDecisionsStripAsync();
             if (_plan is { } reResolvedPlan)
                 UpdateSummary(reResolvedPlan);
+            LogResolveCompleted(request.SiteId, request.GameKey, request.ModKey, plan.Entries.Count, plan.Requirements.Count, decisions.Count);
         }
         catch (OperationCanceledException)
         {
@@ -475,6 +549,12 @@ public sealed partial class DependencyPlanPage : PageBase
             EmptyState.Text = $"Resolution failed: {exception.Message}";
             ShowInfo(exception.Message, InfoBarSeverity.Error);
         }
+        finally
+        {
+            // The success path never reaches the catch blocks; make sure the flag always resets.
+            if (_isResolving)
+                SetResolving(false, "Resolution complete.");
+        }
     }
 
     [LoggerMessage(Level = LogLevel.Information, Message = "Dependency resolution started for {Site}/{Game}/{Key}.")]
@@ -484,11 +564,38 @@ public sealed partial class DependencyPlanPage : PageBase
         Message = "Plan summary: {Total} entries ({ToDownload} to download, {Ready} ready, {Unmatched} unmatched, {Conflicting} conflicts, {Present} present, {Excluded} excluded, {Cycles} cycles).")]
     private partial void LogSummaryComputed(int total, int toDownload, int ready, int unmatched, int conflicting, int present, int excluded, int cycles);
 
+    [LoggerMessage(Level = LogLevel.Information,
+        Message = "Dependency resolution completed for {Site}/{Game}/{Key}: {Entries} entries, {Chips} requirement chip(s), {Decisions} decision(s) applied.")]
+    private partial void LogResolveCompleted(string site, string game, string key, int entries, int chips, int decisions);
+
     [LoggerMessage(Level = LogLevel.Error, Message = "Dependency resolution failed for {Site}/{Game}/{Key}.")]
     private partial void LogResolveFailed(string site, string game, string key, Exception exception);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Could not map the dependency plan to local games; game-specific recommendations are suppressed.")]
     private partial void LogRecommendationGameMappingFailed(Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Decision recorded: resolve '{Row}' from '{Source}' to '{Target}' (key {Key}).")]
+    private partial void LogResolveDecision(string row, string source, string target, string key);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Decision recorded: set aside '{Row}' (key {Key}).")]
+    private partial void LogExcludeDecision(string row, string key);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Decision recorded: replace '{Row}' ('{Source}') with '{Target}' (key {Key}).")]
+    private partial void LogReplaceDecision(string row, string source, string target, string key);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Decision removed: '{Row}' (key {Key}).")]
+    private partial void LogRemoveDecision(string row, string key);
+
+    [LoggerMessage(Level = LogLevel.Information,
+        Message = "Download batch queued: {Selected} selected, {Done} enqueued, {NoIdentity} with no identity, {NotStarted} not started.")]
+    private partial void LogDownloadBatchQueued(int selected, int done, int noIdentity, int notStarted);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Plan row download not queued: '{Row}' ({Reason}).")]
+    private partial void LogRowDownloadSkipped(string row, string reason);
+
+    [LoggerMessage(Level = LogLevel.Information,
+        Message = "Install handoff: {Mods} of {Ready} ready mod(s) handed to profile {ProfileId} (root '{Root}'): {ModList}.")]
+    private partial void LogInstallHandoff(string profileId, int ready, int mods, string root, string modList);
 
     private async Task<string> ResolveGameKeyAsync(PlanRequest request, CancellationToken cancellationToken)
     {
@@ -512,7 +619,6 @@ public sealed partial class DependencyPlanPage : PageBase
     {
         // Keep the plan around so per-row actions (retry fetch) can ask the resolver for one mod.
         _plan = plan;
-        RemoveDuplicateRemoteRows();
         // Reconcile by mod key: update surviving entries in place; add new ones; remove ones that
         // are no longer in the resolved plan. The resolved keys drive removal (not the stale pre-add
         // set), otherwise a first resolve — starting from an empty list — would delete every row.
@@ -553,6 +659,8 @@ public sealed partial class DependencyPlanPage : PageBase
                 found.SiteUpdatedAt = entry.SiteUpdatedAt;
                 found.PresenceText = entry.PresenceText;
                 found.FoldedIn = entry.FoldedIn;
+                found.CoveredRequirements = entry.CoveredRequirements;
+                found.AppliedDecision = entry.AppliedDecision;
                 found.InTargetProfile = entry.InTargetProfile;
                 found.ConflictWithKey = entry.ConflictWithKey;
                 found.ConflictWithName = entry.ConflictWithName;
@@ -591,150 +699,9 @@ public sealed partial class DependencyPlanPage : PageBase
             _entries.Remove(existing);
 
         SyncExcludedKeys();
-        // Re-apply accepted sticky decisions onto the freshly reconciled rows.
-        ReapplyStickyDecisions();
         RebuildSections();
         UpdateSummary(plan);
         UpdateDetails(_selected);
-    }
-
-    /// <summary>
-    /// Re-applies the "Satisfy with…" (fold) and "Replace with…" (obsolete) decisions the user
-    /// confirmed during this plan session onto the rows that a fresh resolve just produced. A
-    /// recommendation is never auto-activated: on a new plan every persisted decision is shown
-    /// only as a recommendation; the user confirms it by applying the recommendation or the
-    /// manual action, and only then does it become sticky and get re-applied on every later
-    /// rescan of this plan. Undo removes the remembered link (and the confirmation), which makes
-    /// the decision non-sticky again. The matching is done by <see cref="PlanStickyDecisionResolver"/>
-    /// (a decision whose target is stale yields no decision, so the row is left active for the
-    /// recommendation layer to re-offer it); this method only applies each decision to its
-    /// matched row.
-    /// </summary>
-    private void ReapplyStickyDecisions()
-    {
-        var decisions = PlanStickyDecisionResolver.Resolve(
-            _entries.ToList(), _acceptedMatchLinks, _acceptedContextualMatchLinks, _recommendationMods,
-            _confirmedDecisionKeys);
-        if (decisions.Count == 0)
-            return;
-
-        // Iterate the decisions in plan order; the matched target rows were snapshotted, so
-        // removing a replacement row from the collection does not disturb the iteration.
-        var changed = false;
-        foreach (var decision in decisions)
-        {
-            changed |= decision.IsFold
-                ? ApplyFoldDecision(decision.Entry, decision.PlanTarget!)
-                : ApplyObsoleteDecision(decision.Entry, decision.PlanTarget, decision.LibraryTarget);
-        }
-
-        if (changed)
-        {
-            RebuildSections();
-            if (_plan is { } reResolvedPlan)
-                UpdateSummary(reResolvedPlan);
-        }
-    }
-
-    /// <summary>
-    /// Records that the user confirmed the persisted decision for <paramref name="entry"/>
-    /// during this plan session, so the sticky re-application pass re-applies it on later
-    /// rescans. Uses the same link key the resolver and the match store use. Must be called
-    /// while the row still carries its original identity (before any replacement).
-    /// </summary>
-    private void RecordDecisionConfirmation(DependencyPlanEntry entry)
-    {
-        var key = entry.RemoteIdentity is { } remote
-            ? ModMatchStore.LinkKey(remote.SiteId, remote.ModKey)
-            : entry.ContextualRequirementKey;
-        if (key is not null)
-            _confirmedDecisionKeys.Add(key);
-    }
-
-    /// <summary>
-    /// Removes the plan-session confirmation for <paramref name="entry"/> so undoing a decision
-    /// makes it non-sticky: the sticky pass no longer re-applies it even if the persisted link
-    /// still exists (the recommendation keeps offering it).
-    /// </summary>
-    private void ForgetDecisionConfirmation(DependencyPlanEntry entry, RemoteRef? originalRef)
-    {
-        var original = originalRef ?? entry.RemoteIdentity;
-        if (original is not null)
-            _confirmedDecisionKeys.Remove(ModMatchStore.LinkKey(original.SiteId, original.ModKey));
-        if (entry.ContextualRequirementKey is not null)
-            _confirmedDecisionKeys.Remove(entry.ContextualRequirementKey);
-    }
-
-    /// <summary>
-    /// Applies a fold decision: the requirement row is set aside as Folded and the target row
-    /// records that it now satisfies the requirement. Mirrors <see cref="FoldIntoPlanEntryAsync"/>
-    /// minus persistence (the link already exists).
-    /// </summary>
-    private static bool ApplyFoldDecision(DependencyPlanEntry entry, DependencyPlanEntry target)
-    {
-        if (!target.FoldedIn.Any(folded => folded.SourceModKey == entry.EntryKey))
-        {
-            target.FoldedIn.Add(new FoldedInEntry(entry.Name, entry.EntryKey));
-            target.FoldedIn = new List<FoldedInEntry>(target.FoldedIn);
-        }
-        target.ApplyDecision(RowDecision.Matched, $"Satisfies requirement '{entry.Name}'");
-        entry.ApplyDecision(RowDecision.Folded, $"Satisfied by '{target.Name}'");
-        entry.StatusDetail = $"Satisfied by '{target.Name}' (the other mod covers this requirement).";
-        return true;
-    }
-
-    /// <summary>
-    /// Applies an obsolete decision in place — exactly the state the manual "Replace with…" action
-    /// produces: the replacement (a plan row, or a row added from the library) becomes the
-    /// referenced row and the target row is removed from the plan. The replacement's own subtree is
-    /// fetched by "Resolve changes" once the replacement is accepted again.
-    /// </summary>
-    private bool ApplyObsoleteDecision(DependencyPlanEntry entry, DependencyPlanEntry? planTarget, ModEntry? libraryTarget)
-    {
-        if (planTarget is not null)
-        {
-            entry.ApplyReplacement(planTarget, planTarget);
-            _entries.Remove(planTarget);
-            ReplacePlanEntries(new[] { entry.EntryKey, planTarget.EntryKey }, new[] { entry });
-            entry.StatusDetail = $"Replaces {entry.ReplacementOriginalName}; using this plan mod instead.";
-            entry.ObsoleteAddedKeys = null;
-            return true;
-        }
-
-        if (libraryTarget is null)
-            return false;
-        var added = AddLibraryModAsRowInternal(libraryTarget);
-        if (added is null)
-            return false;
-        entry.ApplyReplacement(added, added);
-        _entries.Remove(added);
-        ReplacePlanEntries(new[] { entry.EntryKey, added.EntryKey }, new[] { entry });
-        entry.StatusDetail = $"Replaces {entry.ReplacementOriginalName}; using this library mod instead.";
-        entry.ObsoleteAddedKeys = null;
-        return true;
-    }
-
-    private void RemoveDuplicateRemoteRows()
-    {
-        var duplicateGroups = _entries
-            .GroupBy(EntryIdentityKey, StringComparer.OrdinalIgnoreCase)
-            .Where(group => group.Count() > 1)
-            .ToList();
-
-        foreach (var group in duplicateGroups)
-        {
-            var rows = group.ToList();
-            var keep = rows
-                .OrderByDescending(entry => entry.Changed)
-                .ThenByDescending(entry => entry.DownloadState != DependencyPlanEntryDownloadState.None)
-                .First();
-            foreach (var duplicate in rows.Where(entry => !ReferenceEquals(entry, keep)))
-            {
-                if (ReferenceEquals(_selected, duplicate))
-                    _selected = keep;
-                _entries.Remove(duplicate);
-            }
-        }
     }
 
     private static string EntryIdentityKey(DependencyPlanEntry entry)
@@ -763,6 +730,179 @@ public sealed partial class DependencyPlanPage : PageBase
                  candidate.RowStatus is RowStatus.Excluded or RowStatus.Folded or RowStatus.Obsoleted))
             _excludedKeys.Add(entry.EntryKey);
     }
+
+    /// <summary>
+    /// Persists a Resolve decision that this requirement (a name-only chip or a mod-identity row)
+    /// is covered by <paramref name="target"/>. The resolver applies it automatically on every
+    /// resolve, and the applier retires the matching requirement chip — so one gesture covers
+    /// every occurrence of the requirement, which is what made the old per-occurrence duplicates
+    /// impossible.
+    /// </summary>
+    private async Task SaveResolveDecisionAsync(
+        DependencyPlanEntry entry,
+        PlanDecisionTarget target,
+        string sourceName,
+        string targetName)
+    {
+        var key = PlanDecisionStore.KeyFor(entry.SiteId, entry.GameKey, entry.Ref?.ModKey, entry.RequirementParentRef, entry.Name)
+            ?? PlanDecisionStore.IdKey(entry.SiteId, entry.GameKey, entry.Ref?.ModKey ?? string.Empty);
+        LogResolveDecision(entry.Name, sourceName, targetName, key);
+        await AppServices.PlanDecisionStore.SaveAsync(new PlanDecision(key, PlanDecisionKind.Resolve, target, sourceName, targetName));
+        await RebuildDecisionsStripAsync();
+    }
+
+    /// <summary>Persists an Exclude decision for a mod-identity row (and its subtree).</summary>
+    private async Task SaveExcludeDecisionAsync(DependencyPlanEntry entry)
+    {
+        if (entry.Ref is not { } ref_)
+            return;
+        var key = PlanDecisionStore.IdKey(entry.SiteId, entry.GameKey, ref_.ModKey);
+        LogExcludeDecision(entry.Name, key);
+        await AppServices.PlanDecisionStore.SaveAsync(new PlanDecision(key, PlanDecisionKind.Exclude, null, entry.Name, null));
+        await RebuildDecisionsStripAsync();
+    }
+
+    /// <summary>Removes the decision on <paramref name="entry"/>'s key (undo) when one exists.</summary>
+    private async Task RemoveDecisionAsync(DependencyPlanEntry entry)
+    {
+        var key = PlanDecisionStore.KeyFor(entry.SiteId, entry.GameKey, entry.Ref?.ModKey, entry.RequirementParentRef, entry.Name);
+        if (key is not null)
+        {
+            LogRemoveDecision(entry.Name, key);
+            await AppServices.PlanDecisionStore.RemoveAsync(key);
+            await RebuildDecisionsStripAsync();
+        }
+    }
+
+    /// <summary>
+    /// Persists a Replace decision that the requirement this row names is covered by
+    /// <paramref name="target"/>. The resolver redirects the edge to the target on every
+    /// resolve; the applier flags this row as replaced (Set aside).
+    /// </summary>
+    private async Task SaveReplaceDecisionAsync(
+        DependencyPlanEntry entry,
+        PlanDecisionTarget target,
+        string sourceName,
+        string targetName)
+    {
+        if (entry.Ref is not { } ref_)
+            return;
+        var key = PlanDecisionStore.IdKey(entry.SiteId, entry.GameKey, ref_.ModKey);
+        LogReplaceDecision(entry.Name, sourceName, targetName, key);
+        await AppServices.PlanDecisionStore.SaveAsync(new PlanDecision(key, PlanDecisionKind.Replace, target, sourceName, targetName));
+        await RebuildDecisionsStripAsync();
+    }
+
+    /// <summary>
+    /// Reconciles the "Applied decisions" strip with the persisted decision store by key: removes
+    /// decisions that no longer exist, updates changed ones, and adds new ones, without disturbing
+    /// selection or scroll (items are keyed, not reordered wholesale).
+    /// </summary>
+    private async Task RebuildDecisionsStripAsync()
+    {
+        var snapshot = await AppServices.PlanDecisionStore.LoadAsync();
+        var current = snapshot.Decisions;
+        // Drop strip items whose decision no longer exists.
+        foreach (var item in _decisionItems.Where(item => !current.ContainsKey(item.Key)).ToList())
+            _decisionItems.Remove(item);
+        // Add new decisions; replace any whose text changed.
+        foreach (var decision in current.Values)
+        {
+            var existing = _decisionItems.FirstOrDefault(item => item.Key == decision.Key);
+            var newText = DecisionText(decision);
+            if (existing is null)
+            {
+                _decisionItems.Add(new PlanDecisionStripItem(decision.Key, decision.Kind, decision.SourceName, decision.TargetName));
+            }
+            else if (existing.Description != newText.Description || existing.Verb != newText.Verb)
+            {
+                _decisionItems[_decisionItems.IndexOf(existing)] = new PlanDecisionStripItem(decision.Key, decision.Kind, decision.SourceName, decision.TargetName);
+            }
+        }
+        HasDecisions = _decisionItems.Count > 0;
+    }
+
+    /// <summary>The user clicked a strip item's chip: show the decision's details.</summary>
+    private void InspectDecision_Click(object sender, RoutedEventArgs args)
+    {
+        if (sender is not FrameworkElement { Tag: PlanDecisionStripItem item })
+            return;
+        var (site, game, modKey, requirementName) = item.KeyParts;
+        var identity = requirementName is null
+            ? $"{site} / {game} / {modKey}"
+            : $"{site} / {game} / {modKey} / \"{requirementName}\"";
+        ShowInfo(
+            $"{item.Verb} {item.Description}\n" +
+            $"Decision key: {item.Key}\n" +
+            $"Identity: {identity}",
+            InfoBarSeverity.Informational);
+    }
+
+    /// <summary>The user asked to remove every applied decision and start the plan over.</summary>
+    private async void ClearAllDecisions_Click(object sender, RoutedEventArgs args)
+    {
+        if (_request is null || _isResolving || _decisionItems.Count == 0)
+            return;
+        var count = _decisionItems.Count;
+        var dialog = new ContentDialog
+        {
+            XamlRoot = XamlRoot,
+            Title = "Clear all applied decisions?",
+            Content = $"{count} decision{(count == 1 ? string.Empty : "s")} will be removed and the plan will be " +
+                      "re-resolved from scratch. Rows you keep are unaffected.",
+            PrimaryButtonText = "Clear all",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+            return;
+        try
+        {
+            await AppServices.PlanDecisionStore.ClearAsync();
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException)
+        {
+            ShowInfo($"Could not clear the decisions: {exception.Message}", InfoBarSeverity.Error);
+            return;
+        }
+        _ = StartResolveAsync(_request);
+    }
+
+    /// <summary>The user clicked a strip item's undo button.</summary>
+    private async void UndoDecision_Click(object sender, RoutedEventArgs args)
+    {
+        if (sender is not FrameworkElement { Tag: PlanDecisionStripItem item })
+            return;
+        if (_request is null || _isResolving)
+            return;
+        try
+        {
+            await AppServices.PlanDecisionStore.RemoveAsync(item.Key);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException)
+        {
+            ShowInfo($"Could not undo the decision: {exception.Message}", InfoBarSeverity.Error);
+            return;
+        }
+        ShowInfo($"Undid '{item.Description}'. Re-resolving the plan…", InfoBarSeverity.Informational);
+        _ = StartResolveAsync(_request);
+    }
+
+    private sealed record DecisionDisplayText(string Description, string Verb);
+
+    private static DecisionDisplayText DecisionText(PlanDecision decision) => decision.Kind switch
+    {
+        PlanDecisionKind.Resolve when decision.TargetName is not null =>
+            new($"{decision.SourceName} → {decision.TargetName}", "Resolves"),
+        PlanDecisionKind.Replace when decision.TargetName is not null =>
+            new($"{decision.SourceName} → {decision.TargetName}", "Replaces"),
+        _ => new(decision.SourceName ?? string.Empty, decision.Kind switch
+        {
+            PlanDecisionKind.Resolve => "Resolves",
+            PlanDecisionKind.Exclude => "Sets aside",
+            _ => "Applies"
+        })
+    };
 
     private void UpdateSummary(DependencyPlan? plan = null)
     {
@@ -871,11 +1011,17 @@ public sealed partial class DependencyPlanPage : PageBase
             row.DownloadState = DependencyPlanEntryDownloadState.Downloaded;
             row.DownloadProgress = 1;
             row.StatusDetail = "Downloaded — ready to install.";
+            LogRowDownloaded(remote.SiteId, remote.GameKey, modKey, row.Name, entry.FileName, entry.FileSize);
             row.ProjectRowStatus();
+            RebuildSections();
             RefreshSummaryOnly();
             UpdateInstallReadiness();
         });
     }
+
+    [LoggerMessage(Level = LogLevel.Information,
+        Message = "Plan row downloaded and ready to install: {Site} {Game}/{ModKey} '{Row}' ({File}, {Bytes} bytes).")]
+    private partial void LogRowDownloaded(string site, string? game, string modKey, string row, string? file, long? bytes);
 
     /// <summary>
     /// Mirrors a <see cref="DownloadJob"/> transfer onto its plan row so the row shows a live
@@ -904,19 +1050,27 @@ public sealed partial class DependencyPlanPage : PageBase
     {
         if (DispatcherQueue.HasThreadAccess)
         {
-            RefreshSummaryOnly();
-            if (_selected is not null)
-                UpdateDetails(_selected);
+            SessionEntryChanged();
         }
         else
         {
-            DispatcherQueue.TryEnqueue(() =>
-            {
-                RefreshSummaryOnly();
-                if (_selected is not null)
-                    UpdateDetails(_selected);
-            });
+            DispatcherQueue.TryEnqueue(SessionEntryChanged);
         }
+    }
+
+    /// <summary>
+    /// A browser-relay update (download started, install finished) landed on one of this page's
+    /// rows: re-project every row status, regroup the sections, and refresh the summary so the
+    /// row moves between sections the moment the archive is on disk.
+    /// </summary>
+    private void SessionEntryChanged()
+    {
+        foreach (var row in _entries)
+            row.ProjectRowStatus();
+        RebuildSections();
+        RefreshSummaryOnly();
+        if (_selected is not null)
+            UpdateDetails(_selected);
     }
 
     private void UpdateResolveProgress()
@@ -928,8 +1082,9 @@ public sealed partial class DependencyPlanPage : PageBase
 
     private void RefreshSummaryOnly()
     {
-        // Download state changes do not change groups; refresh the selection-dependent numbers and
-        // the install gate only.
+        // Refreshes the selection-dependent numbers and the install gate only; it does NOT
+        // regroup. Callers that changed a row's projected status (e.g. a download finished,
+        // moving it between sections) must call RebuildSections first.
         var bytes = _entries.Where(entry => entry.IsSelected).Sum(entry => entry.FileSizeBytes ?? 0);
         _summaryText = $"{SelectedCount} selected — {FormatBytes(bytes)}";
         ActionSummary.Text = _entries.Count == 0
@@ -1074,7 +1229,7 @@ public sealed partial class DependencyPlanPage : PageBase
         OpenInBrowser(pageUrl);
     }
 
-    private void Exclude_Click(object sender, RoutedEventArgs args)
+    private async void Exclude_Click(object sender, RoutedEventArgs args)
     {
         var entry = GetActionEntry(sender);
         if (entry is null || !HasRowAction(entry, PlanRowAction.Exclude))
@@ -1084,6 +1239,15 @@ public sealed partial class DependencyPlanPage : PageBase
         // blocks the install; the user can include or reset it again at any time.
         entry.ApplyDecision(RowDecision.Excluded, "Excluded by user");
         CascadeExclusion(entry);
+        // Remember the exclusion so the resolver prunes this subtree on every later resolve.
+        try
+        {
+            await SaveExcludeDecisionAsync(entry);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            ShowInfo($"Excluded '{entry.Name}' for this plan, but the choice could not be remembered: {exception.Message}", InfoBarSeverity.Warning);
+        }
         SyncExcludedKeys();
         RebuildSections();
         if (_plan is { } plan)
@@ -1401,8 +1565,6 @@ public sealed partial class DependencyPlanPage : PageBase
                     ShowInfo("The suggested replacement is no longer a valid target. Review the row and choose a current target.", InfoBarSeverity.Warning);
                     return;
                 }
-                // The user confirmed this decision for the plan session: it becomes sticky.
-                RecordDecisionConfirmation(entry);
                 await ObsoleteByPlanEntryAsync(entry, recommendedPlan);
                 return;
             }
@@ -1415,8 +1577,6 @@ public sealed partial class DependencyPlanPage : PageBase
                     ShowInfo("The suggested replacement is no longer available. Review the row and choose a current target.", InfoBarSeverity.Warning);
                     return;
                 }
-                // The user confirmed this decision for the plan session: it becomes sticky.
-                RecordDecisionConfirmation(entry);
                 await ObsoleteByLibraryModAsync(entry, recommendedLibrary);
                 return;
             }
@@ -1468,23 +1628,17 @@ public sealed partial class DependencyPlanPage : PageBase
             .Where(candidate => PlanRowActionPolicy.CanSatisfyWithPlanMod(entry, candidate))
             .ToList();
 
-        // A remembered association for this exact requirement is normally consumed by the resolver.
-        // Keep it available as a preselection if the row is still unresolved, and require explicit
-        // confirmation for any action taken from this dialog.
-        var matchSnapshot = await AppServices.ModMatchStore.LoadAsync();
+        // A remembered Resolve decision for this exact requirement is normally consumed by the
+        // resolver. Keep it available as a preselection if the row is still unresolved, and
+        // require explicit confirmation for any action taken from this dialog.
+        var decisionSnapshot = await AppServices.PlanDecisionStore.LoadAsync();
+        var decisionKey = PlanDecisionStore.KeyFor(entry.SiteId, entry.GameKey, entry.Ref?.ModKey, entry.RequirementParentRef, entry.Name);
         Controls.RememberedMatchSelection? remembered = null;
-        if (entry.RemoteIdentity is { } remote)
+        if (decisionKey is not null
+            && decisionSnapshot.Decisions.TryGetValue(decisionKey, out var decision)
+            && decision.Target is { } decisionTarget)
         {
-            var link = matchSnapshot.Links.Values.FirstOrDefault(candidate =>
-                ModMatchStore.LinkKey(candidate.SiteId, candidate.ModKey) == ModMatchStore.LinkKey(remote.SiteId, remote.ModKey));
-            if (link is not null)
-                remembered = new Controls.RememberedMatchSelection(link.LocalModId, link.TargetModKey);
-        }
-        else if (entry.ContextualRequirementKey is { } contextualKey)
-        {
-            var contextual = matchSnapshot.ContextualLinks.FirstOrDefault(pair => pair.Key == contextualKey).Value;
-            if (contextual is not null)
-                remembered = new Controls.RememberedMatchSelection(contextual.LocalModId, contextual.TargetModKey);
+            remembered = new Controls.RememberedMatchSelection(decisionTarget.LocalModId, decisionTarget.ModKey);
         }
 
         var dialog = new Controls.MatchModDialog(installed, entry.Name, planCandidates, remembered, null) { XamlRoot = XamlRoot };
@@ -1506,13 +1660,6 @@ public sealed partial class DependencyPlanPage : PageBase
     private bool HasRowAction(DependencyPlanEntry? entry, PlanRowAction action) =>
         entry is not null && PlanRowActionPolicy.GetAvailableActions(entry, _request?.ModKey).Contains(action);
 
-    private async Task RefreshRecommendationHistoryAsync()
-    {
-        var snapshot = await AppServices.ModMatchStore.LoadAsync();
-        _acceptedMatchLinks = snapshot.Links.Values.ToList();
-        _acceptedContextualMatchLinks = snapshot.ContextualLinks.Values.ToList();
-    }
-
     /// <summary>
     /// Folds <paramref name="entry"/> into <paramref name="target"/>: the source row is removed,
     /// the association is remembered as a key-to-key alias (so a future resolve folds it in
@@ -1528,26 +1675,21 @@ public sealed partial class DependencyPlanPage : PageBase
             return;
         }
 
-        // The user confirmed this decision for the plan session: it becomes sticky.
-        RecordDecisionConfirmation(entry);
-
+        // The user confirmed this decision: it is persisted as a Resolve decision (one store, one
+        // lifecycle) and applied automatically on every later resolve — the resolver redirects the
+        // edge and the applier retires the matching requirement chip, so every occurrence is
+        // covered at once.
         var remembered = false;
         string? persistenceError = null;
         try
         {
-            if (entry.RemoteIdentity is { } sourceRef && target.RemoteIdentity is { } targetRef)
+            var targetRef = target.RemoteIdentity;
+            if (targetRef is not null)
             {
-                await AppServices.ModMatchStore.SaveAliasAsync(
-                    sourceRef.SiteId, sourceRef.ModKey, targetRef.ModKey, entry.Name, target.Name, ModMatchStore.KindFold);
-                remembered = true;
-            }
-            else if (entry.ContextualRequirementKey is not null
-                && entry.RequirementParentRef is { } parentRef
-                && target.RemoteIdentity is { } contextualTarget)
-            {
-                await AppServices.ModMatchStore.SaveContextualAsync(
-                    entry.SiteId, entry.GameKey, parentRef.ModKey, entry.Name, string.Empty,
-                    null, contextualTarget.ModKey, target.Name, ModMatchStore.KindFold);
+                await SaveResolveDecisionAsync(
+                    entry,
+                    new PlanDecisionTarget(targetRef.SiteId, targetRef.GameKey, targetRef.ModKey),
+                    entry.Name, target.Name);
                 remembered = true;
             }
         }
@@ -1555,8 +1697,6 @@ public sealed partial class DependencyPlanPage : PageBase
         {
             persistenceError = exception.Message;
         }
-        if (remembered)
-            await RefreshRecommendationHistoryAsync();
 
         // Show the fold on the target and mark it changed (so Reset is available). Reassign a fresh
         // list so the row re-binds and FoldedInText updates.
@@ -1646,12 +1786,15 @@ public sealed partial class DependencyPlanPage : PageBase
             return;
         }
 
-        // The user confirmed this decision for the plan session: it becomes sticky.
-        RecordDecisionConfirmation(entry);
+        // Persist the Replace decision: the requirement this row names is covered by the target
+        // plan mod. Applied automatically on every later resolve — the resolver redirects the
+        // edge to the target and the applier sets this row aside.
+        await SaveReplaceDecisionAsync(
+            entry,
+            new PlanDecisionTarget(targetRemote.SiteId, targetRemote.GameKey, targetRemote.ModKey),
+            entry.Name, target.Name);
 
         var originalRef = entryRemote;
-        await SaveReplacementMatchAsync(entry, originalRef, targetRemote.ModKey, target.Name);
-        await RefreshRecommendationHistoryAsync();
 
         entry.ApplyReplacement(target, target);
         entry.StatusDetail = $"Replaces {entry.ReplacementOriginalName}; using this plan mod instead.";
@@ -1701,14 +1844,15 @@ public sealed partial class DependencyPlanPage : PageBase
             return;
         }
 
-        // The user confirmed this decision for the plan session: it becomes sticky.
-        RecordDecisionConfirmation(entry);
+        // Persist the Replace decision: a library mod that carries a site reference redirects the
+        // requirement to that site mod (applied automatically on every resolve); a local-only
+        // archive keeps this row set aside in place.
+        var libraryRemote = target.Remote;
+        var targetDecision = libraryRemote is not null
+            ? new PlanDecisionTarget(libraryRemote.SiteId, libraryRemote.GameKey, libraryRemote.ModKey)
+            : new PlanDecisionTarget(null, null, null, target.Id);
+        await SaveReplaceDecisionAsync(entry, targetDecision, entry.Name, target.Name);
 
-        var targetKey = target.Remote is { } remote
-            && string.Equals(remote.SiteId, entry.SiteId, StringComparison.OrdinalIgnoreCase)
-            && string.Equals(remote.GameKey, entry.GameKey, StringComparison.OrdinalIgnoreCase)
-                ? remote.ModKey
-                : string.Empty;
         // Resolve the replacement and its dependency tree, then move its mod data into the
         // original requirement row so the user sees one active replacement row.
         var keysBefore = new HashSet<string>(_entries.Select(candidate => candidate.EntryKey),
@@ -1733,10 +1877,6 @@ public sealed partial class DependencyPlanPage : PageBase
             .Distinct()
             .ToList();
 
-        if (targetKey.Length > 0)
-            await SaveReplacementMatchAsync(entry, originalRef, targetKey, target.Name);
-        await RefreshRecommendationHistoryAsync();
-
         entry.ApplyReplacement(added);
         _entries.Remove(added);
         entry.ObsoleteAddedKeys = addedKeys.Count > 0 ? addedKeys : null;
@@ -1751,28 +1891,6 @@ public sealed partial class DependencyPlanPage : PageBase
             UpdateSummary(p);
         SelectEntry(entry);
         ShowInfo($"'{target.Name}' now represents the replaced requirement '{entry.ReplacementOriginalName}'. Use Undo changes to restore it.", InfoBarSeverity.Success);
-    }
-
-    private static async Task SaveReplacementMatchAsync(
-        DependencyPlanEntry entry,
-        RemoteRef originalRef,
-        string targetKey,
-        string targetName)
-    {
-        var snapshot = await AppServices.ModMatchStore.LoadAsync();
-        snapshot.Links.TryGetValue(
-            ModMatchStore.LinkKey(originalRef.SiteId, originalRef.ModKey),
-            out var previousMatch);
-        entry.ReplacementPreviousMatch = previousMatch;
-        await AppServices.ModMatchStore.SaveAliasAsync(
-            originalRef.SiteId, originalRef.ModKey, targetKey,
-            entry.Name, targetName, ModMatchStore.KindObsolete);
-        var savedSnapshot = await AppServices.ModMatchStore.LoadAsync();
-        entry.ReplacementMatchChanged = savedSnapshot.Links.TryGetValue(
-                ModMatchStore.LinkKey(originalRef.SiteId, originalRef.ModKey),
-                out var savedMatch)
-            && string.Equals(savedMatch.TargetModKey, targetKey, StringComparison.OrdinalIgnoreCase)
-            && string.Equals(savedMatch.Kind, ModMatchStore.KindObsolete, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>Resolves the subtree of a single added row into the plan.</summary>
@@ -1790,13 +1908,16 @@ public sealed partial class DependencyPlanPage : PageBase
         {
             var profileNames = (await AppServices.ProfileStore.LoadAsync())
                 .ToDictionary(profile => profile.Id, profile => profile.Name, StringComparer.OrdinalIgnoreCase);
+            var decisionSnapshot = await AppServices.PlanDecisionStore.LoadAsync();
             var resolved = await _resolver.ResolveIncrementalAsync(
                 plan,
                 new[] { addedRow.Ref.ModKey },
                 profileNames,
                 _request?.ProfileId,
                 (visited, _) => { _resolveVisited = visited; DispatcherQueue.TryEnqueue(UpdateResolveProgress); },
-                cts.Token);
+                carriedRequirements: plan.Requirements,
+                decisions: decisionSnapshot.Decisions,
+                cancellationToken: cts.Token);
             cts.Token.ThrowIfCancellationRequested();
             ReconcileEntries(resolved.Entries, resolved);
         }
@@ -1809,6 +1930,11 @@ public sealed partial class DependencyPlanPage : PageBase
             SetResolving(false, "Could not resolve requirements.");
             ShowInfo(exception.Message, InfoBarSeverity.Error);
         }
+        finally
+        {
+            if (_isResolving)
+                SetResolving(false, "Resolution complete.");
+        }
     }
 
     /// <summary>
@@ -1818,14 +1944,23 @@ public sealed partial class DependencyPlanPage : PageBase
     /// </summary>
     private async Task RemoveObsoleteReplacementAsync(DependencyPlanEntry entry)
     {
+        // Undoing a resolve, match, or replacement drops the persisted decision so the resolver
+        // re-derives this requirement's state from scratch on the next resolve. No-op when no
+        // decision is on the row's key.
+        try
+        {
+            await RemoveDecisionAsync(entry);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // Non-fatal: the row is reset in this plan even if the remembered decision lingers.
+        }
+
         var addedKeys = entry.ObsoleteAddedKeys;
         var hasReplacementState = entry.HasReplacement;
         if (!hasReplacementState && addedKeys is not { Count: > 0 })
             return;
 
-        // Undoing a replacement removes the persisted link; forget the plan-session
-        // confirmation too, so the decision is not sticky until confirmed again.
-        ForgetDecisionConfirmation(entry, entry.ReplacementOriginalRef);
 
         if (addedKeys is { Count: > 0 })
         {
@@ -1836,42 +1971,7 @@ public sealed partial class DependencyPlanPage : PageBase
                 _entries.Remove(row);
             _plan?.Entries.RemoveAll(candidate => toRemove.Contains(candidate.EntryKey));
         }
-
-        if (hasReplacementState)
-        {
-            if (entry.ReplacementOriginalRef is { } originalRef)
-                await RestoreReplacementMatchAsync(entry, originalRef);
-        }
-        else if (entry.RemoteIdentity is { } remote)
-        {
-            await AppServices.ModMatchStore.RemoveAsync(remote.SiteId, remote.ModKey);
-        }
         entry.ObsoleteAddedKeys = null;
-    }
-
-    private static async Task RestoreReplacementMatchAsync(DependencyPlanEntry entry, RemoteRef originalRef)
-    {
-        if (!entry.ReplacementMatchChanged)
-            return;
-
-        if (entry.ReplacementPreviousMatch is not { } previousMatch)
-        {
-            await AppServices.ModMatchStore.RemoveAsync(originalRef.SiteId, originalRef.ModKey);
-            return;
-        }
-
-        if (!string.IsNullOrWhiteSpace(previousMatch.TargetModKey))
-        {
-            await AppServices.ModMatchStore.SaveAliasAsync(
-                previousMatch.SiteId, previousMatch.ModKey, previousMatch.TargetModKey,
-                previousMatch.SourceName, previousMatch.TargetName, previousMatch.Kind);
-        }
-        else if (!string.IsNullOrWhiteSpace(previousMatch.LocalModId))
-        {
-            await AppServices.ModMatchStore.SaveAsync(
-                previousMatch.SiteId, previousMatch.ModKey, previousMatch.LocalModId,
-                previousMatch.LocalName, previousMatch.SourceName);
-        }
     }
 
     /// <summary>
@@ -1879,12 +1979,21 @@ public sealed partial class DependencyPlanPage : PageBase
     /// baseline; if the resolver previously skipped their subtree, a Resolve changes pass
     /// re-fetches it.
     /// </summary>
-    private void Include_Click(object sender, RoutedEventArgs args)
+    private async void Include_Click(object sender, RoutedEventArgs args)
     {
         var entry = GetActionEntry(sender);
         if (entry is null || entry.RowStatus != RowStatus.Excluded)
             return;
         IncludeRow(entry);
+        // Undo the exclusion so the resolver walks this subtree again.
+        try
+        {
+            await RemoveDecisionAsync(entry);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            ShowInfo($"Included '{entry.Name}' again, but the remembered exclusion could not be removed: {exception.Message}", InfoBarSeverity.Warning);
+        }
         RebuildSections();
         if (_plan is { } plan)
             UpdateSummary(plan);
@@ -1904,16 +2013,9 @@ public sealed partial class DependencyPlanPage : PageBase
         var previousPlanTarget = entry.ReplacementPlanTarget;
         var replacementKey = entry.EntryKey;
         var originalRef = entry.ReplacementOriginalRef;
-        // Forget the plan-session confirmation now, while the row still carries the identity
-        // (or contextual key) the decision was recorded under.
-        ForgetDecisionConfirmation(entry, originalRef);
-        if (entry.ContextualRequirementKey is { } contextualKey)
-        {
-            await AppServices.ModMatchStore.RemoveContextualAsync(contextualKey);
-            await RefreshRecommendationHistoryAsync();
-        }
-        // Reset removes newly introduced replacement dependencies, restores the old row identity,
-        // and returns a merged pre-existing plan target to its own row.
+        // Reset removes the persisted decision (via RemoveObsoleteReplacementAsync), the newly
+        // introduced replacement dependencies, restores the old row identity, and returns a
+        // merged pre-existing plan target to its own row.
         await RemoveObsoleteReplacementAsync(entry);
         entry.ResetToBaseline();
         if (previousPlanTarget is not null && !_entries.Contains(previousPlanTarget))
@@ -1984,12 +2086,15 @@ public sealed partial class DependencyPlanPage : PageBase
         {
             var profileNames = (await AppServices.ProfileStore.LoadAsync())
                 .ToDictionary(profile => profile.Id, profile => profile.Name, StringComparer.OrdinalIgnoreCase);
+            var decisionSnapshot = await AppServices.PlanDecisionStore.LoadAsync();
             var plan = await _resolver.ResolveIncrementalAsync(
                 _plan, roots,
                 profileNames,
                 _request.ProfileId,
                 (visited, _) => { _resolveVisited = visited; DispatcherQueue.TryEnqueue(UpdateResolveProgress); },
-                cts.Token);
+                carriedRequirements: _plan.Requirements,
+                decisions: decisionSnapshot.Decisions,
+                cancellationToken: cts.Token);
             cts.Token.ThrowIfCancellationRequested();
             ReconcileEntries(plan.Entries, plan);
         }
@@ -2001,6 +2106,11 @@ public sealed partial class DependencyPlanPage : PageBase
         {
             SetResolving(false, "Could not resolve the changes.");
             ShowInfo(exception.Message, InfoBarSeverity.Error);
+        }
+        finally
+        {
+            if (_isResolving)
+                SetResolving(false, "Resolution complete.");
         }
     }
 
@@ -2134,6 +2244,120 @@ public sealed partial class DependencyPlanPage : PageBase
         }
     }
 
+    /// <summary>The user clicked a requirement chip's "resolve this requirement" action.</summary>
+    private async void ResolveChip_Click(object sender, RoutedEventArgs args)
+    {
+        if (sender is not FrameworkElement { Tag: RequirementChip chip })
+            return;
+        await ResolveChipAsync(chip);
+    }
+
+    /// <summary>
+    /// Resolves a name-only requirement chip to a mod identity. The chip's key already carries the
+    /// parent-scoped requirement context, so saving a Resolve decision under that key covers every
+    /// occurrence at once; re-walking the parent promotes the chip into a single row (never
+    /// duplicates). Picking from the library or the plan yields the identical outcome.
+    /// </summary>
+    private async Task ResolveChipAsync(RequirementChip chip)
+    {
+        if (_request is null || _plan is null || _isResolving)
+            return;
+        var parent = _entries.FirstOrDefault(entry => entry.RemoteIdentity is { } ref_
+            && string.Equals(ChipParentKey(ref_), ChipParentKey(chip.ParentRef!), StringComparison.OrdinalIgnoreCase));
+        if (parent is null)
+        {
+            ShowInfo("The requirement's parent is no longer in the plan. Resolve the changes to refresh it.", InfoBarSeverity.Warning);
+            return;
+        }
+
+        var installed = (await _modStore.LoadAsync()).ToList();
+        var planCandidates = _entries
+            .Where(candidate => PlanRowActionPolicy.CanSatisfyWithPlanMod(parent, candidate))
+            .ToList();
+
+        var dialog = new Controls.MatchModDialog(installed, chip.Name, planCandidates, null, null) { XamlRoot = XamlRoot };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+            return;
+
+        PlanDecisionTarget target;
+        string targetName;
+        if (dialog.SelectedMod is { } mod)
+        {
+            target = new PlanDecisionTarget(null, null, null, mod.Id);
+            targetName = mod.Name;
+        }
+        else if (dialog.SelectedPlanMod is { } planTarget && planTarget.RemoteIdentity is { } planRef)
+        {
+            target = new PlanDecisionTarget(planRef.SiteId, planRef.GameKey, planRef.ModKey);
+            targetName = planTarget.Name;
+        }
+        else
+        {
+            return;
+        }
+
+        try
+        {
+            await AppServices.PlanDecisionStore.SaveAsync(
+                new PlanDecision(chip.Key, PlanDecisionKind.Resolve, target, chip.Name, targetName));
+            await RebuildDecisionsStripAsync();
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException)
+        {
+            ShowInfo($"Could not remember the choice: {exception.Message}", InfoBarSeverity.Error);
+            return;
+        }
+
+        // Re-walk the parent so the walk promotes this chip to a single row and re-applies decisions.
+        await ReResolveChipAsync(chip, parent);
+    }
+
+    /// <summary>Re-resolves the parent's subtree so a newly saved chip decision becomes a row.</summary>
+    private async Task ReResolveChipAsync(RequirementChip chip, DependencyPlanEntry parent)
+    {
+        if (_request is null || _plan is null || parent.RemoteIdentity is not { } parentRef)
+            return;
+        var cts = new CancellationTokenSource();
+        _resolveCts?.Cancel();
+        _resolveCts = cts;
+        SetResolving(true, $"Resolving '{chip.Name}'...");
+        PlanInfoBar.Severity = InfoBarSeverity.Informational;
+        PlanInfoBar.Title = "Resolving requirement";
+        PlanInfoBar.Message = $"Matching '{chip.Name}' and adding the row.";
+        PlanInfoBar.IsOpen = true;
+        try
+        {
+            var profileNames = (await AppServices.ProfileStore.LoadAsync())
+                .ToDictionary(profile => profile.Id, profile => profile.Name, StringComparer.OrdinalIgnoreCase);
+            var decisionSnapshot = await AppServices.PlanDecisionStore.LoadAsync();
+            var plan = await _resolver.ResolveIncrementalAsync(
+                _plan, [parentRef.ModKey],
+                profileNames,
+                _request.ProfileId,
+                (visited, _) => { _resolveVisited = visited; DispatcherQueue.TryEnqueue(UpdateResolveProgress); },
+                carriedRequirements: _plan.Requirements,
+                decisions: decisionSnapshot.Decisions,
+                cancellationToken: cts.Token);
+            cts.Token.ThrowIfCancellationRequested();
+            ReconcileEntries(plan.Entries, plan);
+            ShowInfo($"'{chip.Name}' now resolves to a single row.", InfoBarSeverity.Success);
+        }
+        catch (OperationCanceledException)
+        {
+            SetResolving(false, "Resolution cancelled.");
+        }
+        catch (Exception exception)
+        {
+            SetResolving(false, "Could not resolve the requirement.");
+            ShowInfo(exception.Message, InfoBarSeverity.Error);
+        }
+        finally
+        {
+            if (_isResolving)
+                SetResolving(false, "Resolution complete.");
+        }
+    }
+
     private async Task MatchToLocalModAsync(DependencyPlanEntry entry, ModEntry mod)
     {
         var sourceRef = entry.RemoteIdentity;
@@ -2146,16 +2370,24 @@ public sealed partial class DependencyPlanPage : PageBase
         {
             if (hasStableIdentity && sourceRef is not null)
             {
+                // Remember the local mod's own site reference so the library recognizes it, then
+                // persist the Resolve decision: this requirement is covered by that local mod.
                 mod.Remote = sourceRef;
                 await _modStore.UpsertAsync(mod);
-                await AppServices.ModMatchStore.SaveAsync(sourceRef.SiteId, sourceRef.ModKey, mod.Id, mod.Name, entry.Name);
+                await SaveResolveDecisionAsync(
+                    entry,
+                    new PlanDecisionTarget(null, null, null, mod.Id),
+                    entry.Name, mod.Name);
                 remembered = true;
             }
-            else if (entry.ContextualRequirementKey is not null && entry.RequirementParentRef is { } parentRef)
+            else if (entry.RequirementParentRef is { } parentRef)
             {
-                await AppServices.ModMatchStore.SaveContextualAsync(
-                    entry.SiteId, entry.GameKey, parentRef.ModKey, entry.Name, mod.Id,
-                    mod.Name, null, null, ModMatchStore.KindMatch);
+                // A name-only requirement under a parent: a local-target Resolve decision keyed by
+                // context, applied automatically on every later resolve.
+                await SaveResolveDecisionAsync(
+                    entry,
+                    new PlanDecisionTarget(null, null, null, mod.Id),
+                    entry.Name, mod.Name);
                 remembered = true;
             }
         }
@@ -2163,9 +2395,6 @@ public sealed partial class DependencyPlanPage : PageBase
         {
             persistenceError = exception.Message;
         }
-
-        if (remembered)
-            await RefreshRecommendationHistoryAsync();
 
         var profileNames = (await AppServices.ProfileStore.LoadAsync())
             .ToDictionary(profile => profile.Id, profile => profile.Name, StringComparer.OrdinalIgnoreCase);
@@ -2222,8 +2451,10 @@ public sealed partial class DependencyPlanPage : PageBase
     private void ResolveAll_Click(object sender, RoutedEventArgs args)
     {
         // Batch the free-tier relay: open every pending page in order; each resulting link is
-        // matched to its row as it arrives.
+        // matched to its row as it arrives. A row whose archive is already on disk (downloaded
+        // earlier in this session) is never pending, no matter what its download state says.
         foreach (var entry in _entries.Where(candidate => candidate.DownloadState == DependencyPlanEntryDownloadState.None
+            && !candidate.HasLocalArchive
             && candidate.RemoteIdentity is { } remote
             && remote.ModKey != _request?.ModKey && remote.PageUrl is { Length: > 0 }))
         {
@@ -2237,7 +2468,7 @@ public sealed partial class DependencyPlanPage : PageBase
 
     private void ReResolve_Click(object sender, RoutedEventArgs args)
     {
-        if (_request is { } request)
+        if (_request is { } request && !_isResolving)
             UiTask.Run(() => StartResolveAsync(request), nameof(ReResolve_Click), ShowLoadError);
     }
 
@@ -2466,10 +2697,14 @@ public sealed partial class DependencyPlanPage : PageBase
         // Enqueue and update row state on the UI thread: the download queue is thread-safe and
         // posts its own updates, and entry property mutations must not run off-thread.
         int done = 0;
+        int noIdentity = 0;
+        int notStarted = 0;
         foreach (var entry in selected)
         {
             if (entry.RemoteIdentity is not { } remote)
             {
+                noIdentity++;
+                LogRowDownloadSkipped(entry.Name, "no remote identity");
                 entry.DownloadState = DependencyPlanEntryDownloadState.Failed;
                 entry.StatusDetail = "This requirement has no remote identity and cannot be downloaded.";
                 continue;
@@ -2478,6 +2713,8 @@ public sealed partial class DependencyPlanPage : PageBase
             var job = _queue.Enqueue(link, gameIds);
             if (job is null)
             {
+                notStarted++;
+                LogRowDownloadSkipped(entry.Name, "could not be started");
                 entry.DownloadState = DependencyPlanEntryDownloadState.Failed;
                 entry.StatusDetail = "The download could not be started for this file.";
                 continue;
@@ -2488,6 +2725,7 @@ public sealed partial class DependencyPlanPage : PageBase
             BindJobProgress(job, entry);
             done++;
         }
+        LogDownloadBatchQueued(selected.Count, done, noIdentity, notStarted);
 
         IsInstalling = false;
         RefreshSummaryOnly();
@@ -2547,6 +2785,8 @@ public sealed partial class DependencyPlanPage : PageBase
         var rootName = _entries.FirstOrDefault(candidate => candidate.RemoteIdentity?.ModKey == request.ModKey)?.Name
             ?? request.ModKey;
         var edgesBySourceKey = BuildPlanEdgesBySource();
+        LogInstallHandoff(profileId, ready.Count, mods.Count, rootName,
+            string.Join("; ", mods.Select(mod => $"{mod.Id} '{mod.Name}'")));
         DependencyPlanInstallHandoff.Set(profileId, rootName, mods, edgesBySourceKey);
         MainWindow.Instance?.NavigateToSection(NavigationCatalog.ProfilesTag);
     }

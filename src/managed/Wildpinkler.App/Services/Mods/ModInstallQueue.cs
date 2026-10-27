@@ -5,6 +5,8 @@ using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.UI.Dispatching;
 using Wildpinkler.App.Models;
 
@@ -94,7 +96,7 @@ public sealed class ModInstallJob : ObservableObject
 /// which is where the dialogs and the InfoBar live; without one (tests) everything runs inline on
 /// the worker.
 /// </summary>
-public sealed class ModInstallQueue
+public sealed partial class ModInstallQueue
 {
     private readonly object _gate = new();
     private readonly Channel<ModInstallJob> _channel = Channel.CreateUnbounded<ModInstallJob>();
@@ -104,9 +106,11 @@ public sealed class ModInstallQueue
     private Func<Profile, ModEntry, CancellationTokenSource, Task<InstallOutcome>>? _installer;
     private ModInstallJob? _activeJob;
     private int _pendingCount;
+    private readonly ILogger<ModInstallQueue> _logger;
 
-    public ModInstallQueue()
+    public ModInstallQueue(ILogger<ModInstallQueue>? logger = null)
     {
+        _logger = logger ?? NullLogger<ModInstallQueue>.Instance;
         _worker = ProcessAsync();
     }
 
@@ -169,12 +173,17 @@ public sealed class ModInstallQueue
                 batch.Add(job);
             }
         }
+        LogBatchEnqueued(profile.Id, profile.Name, batch.Count, batch[0].Key);
         foreach (var job in batch)
         {
             _channel.Writer.TryWrite(job);
             NotifyJobChanged(job);
         }
     }
+
+    [LoggerMessage(Level = LogLevel.Information,
+        Message = "Install batch enqueued: {Count} mod(s) into profile '{ProfileId}' '{ProfileName}' (first job {FirstJobKey}).")]
+    private partial void LogBatchEnqueued(string profileId, string profileName, int count, string firstJobKey);
 
     /// <summary>Teardown helper for tests: completes the channel and waits for the worker.</summary>
     public async Task DisposeAsync()
@@ -198,6 +207,7 @@ public sealed class ModInstallQueue
             _activeJob = job;
             _pendingCount = Math.Max(0, _pendingCount - 1);
         }
+        LogInstallStarted(job.Profile.Id, job.Profile.Name, job.ModName, job.ModId, _pendingCount);
         SetJobState(job, ModInstallJobState.Installing);
 
         var installer = _installer;
@@ -211,6 +221,7 @@ public sealed class ModInstallQueue
             InstallOutcome.Cancelled => ModInstallJobState.Cancelled,
             _ => ModInstallJobState.Failed
         });
+        LogInstallFinished(job.ModName, job.ModId, outcome, _pendingCount);
 
         lock (_gate)
         {
@@ -219,6 +230,14 @@ public sealed class ModInstallQueue
         }
         NotifyJobChanged(job);
     }
+
+    [LoggerMessage(Level = LogLevel.Information,
+        Message = "Installing '{ModName}' ({ModId}) into profile '{ProfileId}' '{ProfileName}'; {Pending} still queued.")]
+    private partial void LogInstallStarted(string profileId, string profileName, string modName, string modId, int pending);
+
+    [LoggerMessage(Level = LogLevel.Information,
+        Message = "Install finished for '{ModName}' ({ModId}): {Outcome}; {Pending} still queued.")]
+    private partial void LogInstallFinished(string modName, string modId, InstallOutcome outcome, int pending);
 
     private async Task<InstallOutcome> InvokeInstallerAsync(ModInstallJob job,
         Func<Profile, ModEntry, CancellationTokenSource, Task<InstallOutcome>> installer, CancellationTokenSource cts)

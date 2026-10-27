@@ -15,6 +15,7 @@ public static class AppServices
     public static ThemeService ThemeService => AppHost.Get<ThemeService>();
     public static ModStore ModStore => AppHost.Get<ModStore>();
     public static ModMatchStore ModMatchStore => AppHost.Get<ModMatchStore>();
+    public static PlanDecisionStore PlanDecisionStore => AppHost.Get<PlanDecisionStore>();
     public static ModListManifestSerializer ModListManifestSerializer => AppHost.Get<ModListManifestSerializer>();
     public static ModListCatalogStore ModListCatalogStore => AppHost.Get<ModListCatalogStore>();
     public static ModListExportService ModListExportService => AppHost.Get<ModListExportService>();

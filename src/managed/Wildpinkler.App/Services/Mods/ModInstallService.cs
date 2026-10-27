@@ -8,6 +8,8 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using SharpCompress.Archives;
 using SharpSevenZip;
 using Wildpinkler.App.Models;
@@ -19,26 +21,29 @@ namespace Wildpinkler.App.Services;
 /// Orchestrates installing a mod into a shared, managed folder: parses a FOMOD's ModuleConfig.xml,
 /// and finds-or-creates the physical folder for either a FOMOD selection or a manual destination path.
 /// </summary>
-public sealed class ModInstallService
+public sealed partial class ModInstallService
 {
     private readonly ModInstallationStore _store;
     private readonly IArchiveInspector _archiveInspector;
     private readonly FomodInstallerParser _parser;
     private readonly string _installsRoot;
     private readonly ArchiveExtractionLimits _extractionLimits;
+    private readonly ILogger<ModInstallService> _logger;
 
     public ModInstallService(
         ModInstallationStore store,
         IArchiveInspector archiveInspector,
         FomodInstallerParser parser,
         string? installsRoot = null,
-        ArchiveExtractionLimits? extractionLimits = null)
+        ArchiveExtractionLimits? extractionLimits = null,
+        ILogger<ModInstallService>? logger = null)
     {
         _store = store;
         _archiveInspector = archiveInspector;
         _parser = parser;
         _extractionLimits = extractionLimits ?? ArchiveExtractionLimits.Default;
         _installsRoot = installsRoot ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Wildpinkler", "mod-installs");
+        _logger = logger ?? NullLogger<ModInstallService>.Instance;
     }
 
     /// <summary>Parses the mod's ModuleConfig.xml, or returns null if it is not a FOMOD / cannot be read.</summary>
@@ -111,7 +116,10 @@ public sealed class ModInstallService
             .FirstOrDefault(item => item.ModId == mod.Id && item.Recipe is FomodInstallationRecipe &&
                                     item.SourceArchiveSha256 == archiveSha256 && item.SelectionSignature == signature);
         if (existing is not null && Directory.Exists(existing.FolderPath))
+        {
+            LogInstallReused(mod.Id, mod.Name, existing.FolderPath);
             return existing;
+        }
 
         var installation = new ModInstallation
         {
@@ -127,6 +135,9 @@ public sealed class ModInstallService
             (root, token) => Task.Run(() => ExtractFomodFiles(mod.ArchivePath, resolvedFiles, root, destination, progress, token), token),
             cancellationToken);
     }
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Reused existing installation for mod {ModId} '{Name}' at {Folder}.")]
+    private partial void LogInstallReused(string modId, string name, string folder);
 
     public async Task<ModInstallation> FindOrCreateFromRecipeAsync(
         ModEntry mod, ModInstallationRecipe recipe, IReadOnlyList<ProfileFolder> profileFolders,
@@ -243,6 +254,8 @@ public sealed class ModInstallService
         var stagingPath = Path.Combine(installParent, $".pending-{installation.Id}");
         installation.FolderPath = Path.Combine(installParent, installation.Id);
 
+        LogExtractionStarted(installation.ModId, installation.FolderPath);
+        var timer = Stopwatch.StartNew();
         try
         {
             Directory.CreateDirectory(stagingPath);
@@ -253,18 +266,32 @@ public sealed class ModInstallService
                 ScanPluginFiles(installation);
             }, cancellationToken);
             await _store.AddAsync(installation);
+            timer.Stop();
+            LogExtractionCompleted(installation.ModId, installation.FolderPath, installation.Plugins?.Count ?? 0, timer.ElapsedMilliseconds);
             return installation;
         }
-        catch
+        catch (Exception exception)
         {
             // A cancelled or failed extraction can leave a multi-gigabyte staging tree; remove it off
             // the UI thread so cleanup never freezes the app. Cleanup deliberately ignores the
             // (possibly cancelled) token so partial files are still removed.
+            timer.Stop();
+            LogExtractionFailed(installation.ModId, installation.FolderPath, timer.ElapsedMilliseconds, exception);
             await Task.Run(() => DeleteDirectoryIfPresent(stagingPath), CancellationToken.None);
             await Task.Run(() => DeleteDirectoryIfPresent(installation.FolderPath), CancellationToken.None);
             throw;
         }
     }
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Extraction started for mod {ModId} into {Folder}.")]
+    private partial void LogExtractionStarted(string modId, string folder);
+
+    [LoggerMessage(Level = LogLevel.Information,
+        Message = "Extraction completed for mod {ModId} into {Folder} ({Plugins} plugin file(s), {Milliseconds} ms).")]
+    private partial void LogExtractionCompleted(string modId, string folder, int plugins, long milliseconds);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Extraction failed for mod {ModId} into {Folder} after {Milliseconds} ms.")]
+    private partial void LogExtractionFailed(string modId, string folder, long milliseconds, Exception exception);
 
     /// <summary>
     /// Records the plugin files (.esm/.esp/.esl) shipped by the mod into

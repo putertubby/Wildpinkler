@@ -201,11 +201,11 @@ profiles/<uuid>/
 - [x] No automatic folding (matching) on initial scan - only use user cues for operations through actions. (Superseded: on a new plan every persisted decision is shown only as a recommendation; once the user *confirms* one (via the recommendation or the manual action) it is sticky and auto re-applied on subsequent rescans of the same plan — see "Dependency Plan State Analysis.md" → "Sticky decisions".)
 - [x] Two distinct plan states both read "Installed" (library-only vs. profile-installed). Unified per-row status: Unidentified → To download → Ready → Installed (plus Conflicting); "Installed" now strictly means in the target profile, "Ready" means archive on disk but not installed here. Set-aside states (Excluded/Folded/Obsoleted) remain badges with dimmed rows.- [x] Reintroduce sections (expandable) and make sure rows move when changing state.
 - [x] "obsoleted by" and matches using "name heuristics" are remembered between planning sessions and if there are possible matches for mods there shall be an indicator on the row and an action that the user can take to investigate and possibly accept the suggestion to replace (or fold in) the mod in the plan. (Done: accepted identify/satisfy/replace decisions are remembered and offered as a "Recommended:" row action with the previous target preselected; explicit confirmation still required — see "Dependency Plan State Analysis.md".)
-- [ ] "Install" button only actually installed one mod (and no dependencies)
+- [ ] "Install" button only actually installed one mod (and no dependencies) - should work only on selected mods!
+- [ ] what does the checkboxes mean anyway? RETHINK!
 
-- [ ] what does the checkboxes mean anyway?
 - [ ] conflicts with mods in profile not in dependencies. add all mods in profile to page for resolution?
-
+- [ ] plan page: is there a way to "set aside" only name-base dependencies or prerequisites now? If not, should all such persisted decisions be removed?
 
 - [ ] Claims SkyUI needs updates but no update available.
 - [ ] Bodyslide v6.0.0 presents as new mod instead of upgrade from v5.8.2

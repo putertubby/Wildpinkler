@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
@@ -491,7 +492,11 @@ public sealed partial class ProfilesPage
                 var wizard = new FomodInstallWizardDialog(fomodModule, fileState, mod.ArchivePath, defaultDestination,
                     gameExecutablePath: GameFor(profile)?.ExecutablePath) { XamlRoot = XamlRoot };
                 if (await wizard.ShowAsync() != ContentDialogResult.Primary)
+                {
+                    LogInstallCancelled(mod.Name, "FOMOD wizard dismissed");
                     return InstallOutcome.Cancelled;
+                }
+                LogInstallPathChosen(mod.Name, "FOMOD", wizard.Destination, wizard.SelectionSignature, DescribeSelections(wizard.Selections));
 
                 installDialog.SetPhase(InstallPhase.Hashing, "Hashing archive…");
                 _ = installDialog.ShowAsync();
@@ -519,7 +524,11 @@ public sealed partial class ProfilesPage
                 var manualDefaultDestination = GameFor(profile)?.Definition?.PluginList?.PluginDataFolder ?? "Data";
                 var destinationDialog = new ModDestinationDialog(layout, mod.LastInstallPath ?? manualDefaultDestination) { XamlRoot = XamlRoot };
                 if (await destinationDialog.ShowAsync() != ContentDialogResult.Primary)
+                {
+                    LogInstallCancelled(mod.Name, "destination dialog dismissed");
                     return InstallOutcome.Cancelled;
+                }
+                LogInstallPathChosen(mod.Name, "manual", destinationDialog.DestinationRelativePath, string.Empty, string.Empty);
 
                 installDialog.SetPhase(InstallPhase.Hashing, "Hashing archive…");
                 _ = installDialog.ShowAsync();
@@ -536,6 +545,7 @@ public sealed partial class ProfilesPage
             // The empty-path placeholder row (queue installs) does not count as an existing install.
             if (profile.LoadOrder.Any(item => item.ModId == mod.Id && item.Path.Length > 0))
             {
+                LogInstallAlreadyPresent(mod.Name);
                 await CloseDialogAsync(installDialog, InstallPhase.Done, "Installed.");
                 ShowLoadOrderError($"'{mod.Name}' is already in this profile's load order.");
                 return InstallOutcome.Failed;
@@ -543,6 +553,7 @@ public sealed partial class ProfilesPage
 
             if (!_runAccess.CanModify(profile))
             {
+                LogInstallAccessDenied(mod.Name);
                 await CloseDialogAsync(installDialog, InstallPhase.Done, "Installed.");
                 return InstallOutcome.Failed;
             }
@@ -595,12 +606,14 @@ public sealed partial class ProfilesPage
                 ApplyModRoles(profile, newFolder, roles);
 
             await UpdateModAssociationsAsync(profile.Id, new(), new() { mod.Id });
+            LogInstallCompleted(profile.Name, mod.Name, installation.FolderPath);
             return InstallOutcome.Done;
         }
         catch (OperationCanceledException)
         {
             // Staging cleanup happens in ExtractAndPublishAsync before this point, so the
             // dialog stays open (owned by this method) while partial files are removed.
+            LogInstallCancelled(mod.Name, "user cancelled mid-install");
             installDialog.SetPhase(InstallPhase.Cancelling, "Cancelling — removing partial files…");
             await CloseDialogAsync(installDialog, InstallPhase.Cancelling, "Cancelled.");
             ShowLoadOrderError($"Install of '{mod.Name}' was cancelled.");
@@ -608,11 +621,32 @@ public sealed partial class ProfilesPage
         }
         catch (Exception exception)
         {
+            LogInstallFailed(mod.Name, exception);
             await CloseDialogAsync(installDialog, InstallPhase.Done, "Install failed.");
             ShowLoadOrderError($"Unable to install '{mod.Name}'. {exception.Message}");
             return InstallOutcome.Failed;
         }
     }
+
+    [LoggerMessage(Level = LogLevel.Information,
+        Message = "Install path chosen for '{Name}': {Kind} destination '{Destination}' (signature {Signature}, selections '{Selections}').")]
+    private partial void LogInstallPathChosen(string name, string kind, string destination, string signature, string selections);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Install cancelled: '{Name}' ({Reason}).")]
+    private partial void LogInstallCancelled(string name, string reason);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Install skipped: '{Name}' is already in this profile's load order.")]
+    private partial void LogInstallAlreadyPresent(string name);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Install skipped: '{Name}' — the profile cannot be modified right now.")]
+    private partial void LogInstallAccessDenied(string name);
+
+    [LoggerMessage(Level = LogLevel.Information,
+        Message = "Install completed: '{Name}' into profile '{Profile}' at {Folder}.")]
+    private partial void LogInstallCompleted(string profile, string name, string folder);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Install failed: '{Name}'.")]
+    private partial void LogInstallFailed(string name, Exception exception);
 
     private static async Task CloseDialogAsync(InstallProgressDialog dialog, InstallPhase phase, string statusText)
     {

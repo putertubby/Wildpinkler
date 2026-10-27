@@ -7,6 +7,8 @@ using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.UI.Dispatching;
 using Wildpinkler.App.Models;
 using Wildpinkler.Remote;
@@ -166,14 +168,19 @@ public sealed record RemoteDownloadPreview(
 /// Orchestrates downloads for any registered site. Every mutation of <see cref="Jobs"/> and of a job
 /// is marshalled to the UI thread, because activation arrives on a background thread.
 /// </summary>
-public sealed class DownloadQueueCoordinator
+public sealed partial class DownloadQueueCoordinator
 {
     private readonly RemoteArchiveAcquisitionService _acquisition;
     private readonly object _inFlightGate = new();
     private readonly List<DownloadJob> _inFlight = new();
     private DispatcherQueue? _dispatcher;
+    private readonly ILogger<DownloadQueueCoordinator> _logger;
 
-    public DownloadQueueCoordinator(RemoteArchiveAcquisitionService acquisition) => _acquisition = acquisition;
+    public DownloadQueueCoordinator(RemoteArchiveAcquisitionService acquisition, ILogger<DownloadQueueCoordinator>? logger = null)
+    {
+        _acquisition = acquisition;
+        _logger = logger ?? NullLogger<DownloadQueueCoordinator>.Instance;
+    }
 
     public ObservableCollection<DownloadJob> Jobs { get; } = new();
 
@@ -204,16 +211,28 @@ public sealed class DownloadQueueCoordinator
         {
             var existing = _inFlight.FirstOrDefault(item => IsSameDownload(item.Link, link));
             if (existing is not null)
+            {
+                LogEnqueueDuplicate(link.SiteId, link.GameKey, link.ModKey, link.FileKey);
                 return existing;
+            }
 
             job = new DownloadJob(link, link.SiteId, confirmedGameIds);
             _inFlight.Add(job);
         }
 
+        LogEnqueued(link.SiteId, link.GameKey, link.ModKey, link.FileKey, job.Key);
         Post(() => Jobs.Add(job));
         _ = RunAsync(job);
         return job;
     }
+
+    [LoggerMessage(Level = LogLevel.Information,
+        Message = "Download enqueued: {Site} {Game}/{ModKey} file {FileKey} (job {JobKey}).")]
+    private partial void LogEnqueued(string site, string? game, string? modKey, string? fileKey, string jobKey);
+
+    [LoggerMessage(Level = LogLevel.Debug,
+        Message = "Download already in flight for {Site} {Game}/{ModKey} file {FileKey}; reusing the existing job.")]
+    private partial void LogEnqueueDuplicate(string site, string? game, string? modKey, string? fileKey);
 
     public DownloadJob? Retry(DownloadJob job) => job.CanRetry ? Enqueue(job.Link, job.ConfirmedGameIds) : null;
 
@@ -262,6 +281,10 @@ public sealed class DownloadQueueCoordinator
             }));
             var result = await _acquisition.AcquireAsync(job.Link, confirmedGameIds: job.ConfirmedGameIds, progress: progress, cancellationToken: job.Cancellation.Token);
 
+            LogDownloadCompleted(
+                job.Link.SiteId, job.Link.GameKey, job.Link.ModKey, job.Link.FileKey,
+                result.File.FileName, result.File.SizeInBytes);
+
             FinishJob(job, item =>
             {
                 if (!item.IsActive)
@@ -274,6 +297,7 @@ public sealed class DownloadQueueCoordinator
         }
         catch (OperationCanceledException)
         {
+            LogDownloadCancelled(job.Link.SiteId, job.Link.GameKey, job.Link.ModKey, job.Link.FileKey);
             // Fallback: the registration above has normally already flipped the state.
             FinishJob(job, item =>
             {
@@ -283,6 +307,7 @@ public sealed class DownloadQueueCoordinator
         }
         catch (RemoteSiteException exception)
         {
+            LogDownloadFailed(job.Link.SiteId, job.Link.GameKey, job.Link.ModKey, job.Link.FileKey, exception);
             FinishJob(job, item =>
             {
                 item.Error = exception.Message;
@@ -292,6 +317,7 @@ public sealed class DownloadQueueCoordinator
         }
         catch (Exception exception)
         {
+            LogDownloadFailed(job.Link.SiteId, job.Link.GameKey, job.Link.ModKey, job.Link.FileKey, exception);
             FinishJob(job, item =>
             {
                 item.Error = exception.Message;
@@ -335,4 +361,14 @@ public sealed class DownloadQueueCoordinator
         else
             dispatcher.TryEnqueue(() => action());
     }
+
+    [LoggerMessage(Level = LogLevel.Information,
+        Message = "Download completed: {Site} {Game}/{ModKey} file {FileKey} '{File}' ({Bytes} bytes).")]
+    private partial void LogDownloadCompleted(string site, string? game, string? modKey, string? fileKey, string file, long? bytes);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Download cancelled: {Site} {Game}/{ModKey} file {FileKey}.")]
+    private partial void LogDownloadCancelled(string site, string? game, string? modKey, string? fileKey);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "Download failed: {Site} {Game}/{ModKey} file {FileKey}.")]
+    private partial void LogDownloadFailed(string site, string? game, string? modKey, string? fileKey, Exception exception);
 }

@@ -184,6 +184,9 @@ internal sealed class NexusModDetailsDto
     public string? UpdatedAt { get; set; }
     // Total size of the mod's files in kilobytes; null until the server populates it.
     public int? FileSize { get; set; }
+    // The mod's long description in Nexus BBCode/HTML. Used to detect non-Nexus prerequisites
+    // (C++ runtimes, framework installs) that the GraphQL requirements API does not expose.
+    public string? Description { get; set; }
 }
 
 internal sealed class NexusUploaderDto
