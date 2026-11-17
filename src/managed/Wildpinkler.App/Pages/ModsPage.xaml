@@ -59,6 +59,8 @@
                     <AppBarButton x:Name="IdentifySelectedButton" Command="{x:Bind IdentifySelectedCommand}" Label="Identify from site"
                                   ToolTipService.ToolTip="Look the selected archive up by its checksum and fill in its details" />
                     <AppBarSeparator />
+                    <AppBarButton x:Name="ManageTagsButton" Click="ManageTags_Click" Icon="Tag" Label="Manage tags..."
+                                  ToolTipService.ToolTip="Add, remove, or reset the tags offered for grouping and filtering mods" />
                     <AppBarButton x:Name="GoToDownloadsButton" Click="GoToDownloads_Click" Label="Show downloads"
                                   ToolTipService.ToolTip="Open the Downloads page" />
                 </CommandBar.SecondaryCommands>

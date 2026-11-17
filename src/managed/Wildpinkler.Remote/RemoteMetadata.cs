@@ -80,6 +80,16 @@ public sealed record RemoteTrackedMod(RemoteRef Ref, string Name, string? Author
 /// <summary>A mod the site reports as changed within the requested period.</summary>
 public sealed record RemoteModUpdate(string ModKey, string Name, DateTimeOffset LatestFileUpdate);
 
+/// <summary>One hit of a site search, enough to list and (on selection) resolve further details.</summary>
+public sealed record RemoteSearchResult(
+    RemoteRef Ref,
+    string Name,
+    string? Summary = null,
+    string? Author = null,
+    string? Version = null,
+    string? PictureUrl = null,
+    DateTimeOffset? UpdatedAt = null);
+
 /// <summary>A file identified purely from its content hash.</summary>
 public sealed record RemoteHashMatch(RemoteModMetadata Mod, RemoteFileMetadata File);
 
@@ -92,7 +102,8 @@ public sealed record RemoteSiteCapabilities(
     bool SupportsGameCatalog = false,
     bool SupportsCollections = false,
     bool SupportsRequirements = false,
-    bool SupportsModDetails = false)
+    bool SupportsModDetails = false,
+    bool SupportsSearch = false)
 {
     public static RemoteSiteCapabilities BrowserOnly { get; } = new();
 }

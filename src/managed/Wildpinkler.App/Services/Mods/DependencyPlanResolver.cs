@@ -53,6 +53,7 @@ public sealed partial class DependencyPlanResolver
         IReadOnlySet<string>? skipKeys = null,
         List<RequirementChip>? carriedRequirements = null,
         IReadOnlyDictionary<string, PlanDecision>? decisions = null,
+        IReadOnlySet<string>? targetProfileModIds = null,
         CancellationToken cancellationToken = default)
     {
         if (!_registry.TryGet(root.SiteId, out var provider))
@@ -69,7 +70,7 @@ public sealed partial class DependencyPlanResolver
         var queue = new Queue<(string Key, int Depth)>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var chips = carriedRequirements is { } carried ? carried.ToList() : new List<RequirementChip>();
-        var state = new WalkState(provider, credential, root.GameKey, installedMods, progress, byKey, edges, seen, profileNames, resolvingProfileId, matchLinks, skipKeys, chips, decisions);
+        var state = new WalkState(provider, credential, root.GameKey, installedMods, progress, byKey, edges, seen, profileNames, resolvingProfileId, matchLinks, skipKeys, chips, decisions, targetProfileModIds);
 
         rootEntry = CreateEntry(state, root.ModKey);
         rootEntry.EntryKey = root.ModKey;
@@ -187,9 +188,7 @@ public sealed partial class DependencyPlanResolver
             entry.Status = entry.Status == DependencyPlanEntryStatus.Unresolvable
                 ? entry.Status
                 : DependencyPlanEntryStatus.Conflict;
-        entry.IsSelected = entry.Status == DependencyPlanEntryStatus.Ready
-            && entry.Kind != RemoteRequirementKind.Recommended
-            && entry.Kind != RemoteRequirementKind.Incompatible;
+        entry.IsSelected = DefaultSelected(entry);
 
         // Children discovered by the re-walk were added to the byKey cache but never surfaced in
         // the plan; append any entries the plan does not yet carry so the UI shows them.
@@ -200,9 +199,7 @@ public sealed partial class DependencyPlanResolver
                 // Give the discovered child its kind from the fresh edges so its status is coherent.
                 if (edges.TryGetValue(key, out var freshEdges) && freshEdges.Count > 0)
                     discovered.Kind = StrongestKind(freshEdges);
-                discovered.IsSelected = discovered.Status == DependencyPlanEntryStatus.Ready
-                    && discovered.Kind != RemoteRequirementKind.Recommended
-                    && discovered.Kind != RemoteRequirementKind.Incompatible;
+                discovered.IsSelected = DefaultSelected(discovered);
                 plan.Entries.Add(discovered);
             }
         }
@@ -307,9 +304,7 @@ public sealed partial class DependencyPlanResolver
                 continue;
             if (edges.TryGetValue(key, out var freshEdges) && freshEdges.Count > 0)
                 discovered.Kind = StrongestKind(freshEdges);
-            discovered.IsSelected = discovered.Status == DependencyPlanEntryStatus.Ready
-                && discovered.Kind != RemoteRequirementKind.Recommended
-                && discovered.Kind != RemoteRequirementKind.Incompatible;
+            discovered.IsSelected = DefaultSelected(discovered);
             plan.Entries.Add(discovered);
         }
 
@@ -452,7 +447,8 @@ public sealed partial class DependencyPlanResolver
             IReadOnlyDictionary<string, ModMatchLink>? matchLinks = null,
                 IReadOnlySet<string>? skipKeys = null,
                 List<RequirementChip>? chips = null,
-                IReadOnlyDictionary<string, PlanDecision>? decisions = null)
+                IReadOnlyDictionary<string, PlanDecision>? decisions = null,
+                IReadOnlySet<string>? targetProfileModIds = null)
             {
                 Provider = provider;
                 Credential = credential;
@@ -469,6 +465,7 @@ public sealed partial class DependencyPlanResolver
                 SkipKeys = skipKeys;
                 Chips = chips ?? new List<RequirementChip>();
                 Decisions = decisions ?? new Dictionary<string, PlanDecision>(StringComparer.Ordinal);
+                TargetProfileModIds = targetProfileModIds;
             }
 
         public IRemoteSiteProvider Provider { get; }
@@ -493,6 +490,13 @@ public sealed partial class DependencyPlanResolver
         /// Null when nothing is excluded.
         /// </summary>
         public IReadOnlySet<string>? SkipKeys { get; }
+
+        /// <summary>
+        /// Mod ids actually present in the target profile's load order. When set, this is the
+        /// authoritative source for <c>InTargetProfile</c> (a mod's own <c>ProfileIds</c> list is
+        /// best-effort bookkeeping and can go stale); when null the resolver falls back to that list.
+        /// </summary>
+        public IReadOnlySet<string>? TargetProfileModIds { get; }
 
         /// <summary>Name-only requirements collected during the walk, merged by context so they never duplicate.</summary>
         public List<RequirementChip> Chips { get; }
@@ -645,6 +649,25 @@ public sealed partial class DependencyPlanResolver
         entry.CandidateFiles = new List<RemoteFileMetadata>();
     }
 
+    /// <summary>
+    /// Default selection for a freshly resolved (or re-resolved) entry, before the user overrides
+    /// it in the plan UI. An entry goes in when it is either:
+    /// <list>
+    /// <item>a healthy remote mod ready to download (<see cref="DependencyPlanEntryStatus.Ready"/>), or</item>
+    /// <item>a local archive already on disk that the target profile does not yet contain
+    /// (so the install should add it). Such entries carry status <see cref="DependencyPlanEntryStatus.Installed"/>
+    /// — the local-mod match — not <c>Ready</c>, which is why they need their own clause.</item>
+    /// </list>
+    /// Recommended and incompatible requirements are never selected by default, and entries in
+    /// the target profile are left alone (there is nothing to install). FetchFailed, Conflict and
+    /// Unresolvable entries are never selected — the user must act on them first.
+    /// </summary>
+    private static bool DefaultSelected(DependencyPlanEntry entry)
+        => (entry.Status == DependencyPlanEntryStatus.Ready
+            || (entry.HasLocalArchive && !entry.InTargetProfile))
+            && entry.Kind != RemoteRequirementKind.Recommended
+            && entry.Kind != RemoteRequirementKind.Incompatible;
+
     private static void FinalizeEntries(Dictionary<string, DependencyPlanEntry> byKey, Dictionary<string, List<RemoteRequirement>> edges)
     {
         foreach (var (key, entry) in byKey)
@@ -657,12 +680,7 @@ public sealed partial class DependencyPlanResolver
                     : entry.Status;
             if (entry.Status == DependencyPlanEntryStatus.Conflict && entry.Kind != RemoteRequirementKind.Required)
                 entry.StatusDetail = "Marked incompatible by one or more requirements.";
-            // Default selection: required and identified mods in, optional/ambiguous/conflicts out.
-            // FetchFailed never selects — the user must retry it first.
-            // The user can override every one of these in the plan UI.
-            entry.IsSelected = entry.Status == DependencyPlanEntryStatus.Ready
-                && entry.Kind != RemoteRequirementKind.Recommended
-                && entry.Kind != RemoteRequirementKind.Incompatible;
+            entry.IsSelected = DefaultSelected(entry);
         }
     }
 
@@ -920,8 +938,10 @@ public sealed partial class DependencyPlanResolver
         // Whether the matched local mod is installed in the target profile: the page uses this
         // to decide between "Installed in this profile" and "Ready" (archive on disk only).
         var inTargetProfile = local is not null
-            && state.ResolvingProfileId is { } profileId
-            && local.ProfileIds.Contains(profileId, StringComparer.OrdinalIgnoreCase);
+            && (state.TargetProfileModIds is { } targetMods
+                ? targetMods.Contains(local.Id, StringComparer.OrdinalIgnoreCase)
+                : state.ResolvingProfileId is { } profileId
+                    && local.ProfileIds.Contains(profileId, StringComparer.OrdinalIgnoreCase));
         if (local is not null)
         {
             // Keep the installed mod's canonical site ref for details, update checks, and links.

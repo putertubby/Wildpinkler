@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="Wildpinkler.App.Controls.InstallLocationPanel"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Border Style="{StaticResource ContentCardStyle}" Padding="16">
+        <StackPanel Spacing="10">
+            <TextBlock Text="Install location"
+                       Style="{StaticResource SubtitleTextBlockStyle}" />
+
+            <!-- One-line summary of how source and destination compose (incl. file count). -->
+            <TextBlock x:Name="SummaryText"
+                       Style="{StaticResource CaptionTextBlockStyle}"
+                       Opacity="0.72" TextWrapping="Wrap" />
+
+            <!-- The composed absolute destination: <root prefix> / <relative segment>. -->
+            <StackPanel Spacing="2">
+                <TextBlock Text="Will install to"
+                           Style="{StaticResource CaptionTextBlockStyle}"
+                           FontWeight="SemiBold" />
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                    <!-- Non-editable root, shown separately from the user's relative segment. -->
+                    <Border CornerRadius="4" Padding="6,2"
+                            Background="{ThemeResource ControlFillColorSecondaryBrush}">
+                        <TextBlock x:Name="RootPrefix"
+                                   FontFamily="Cascadia Code, Consolas" FontSize="12"
+                                   Opacity="0.85" TextWrapping="Wrap" VerticalAlignment="Center" />
+                    </Border>
+                    <TextBlock Text="/" FontFamily="Cascadia Code, Consolas" FontSize="12"
+                               Opacity="0.5" VerticalAlignment="Center" />
+                    <!-- The user-editable relative segment, mirrored next to the field below. -->
+                    <TextBlock x:Name="RelativeSegment"
+                               FontFamily="Cascadia Code, Consolas" FontSize="12"
+                               VerticalAlignment="Center" />
+                </StackPanel>
+            </StackPanel>
+
+            <!-- Source folder (non-FOMOD archives only). -->
+            <StackPanel x:Name="SourceSection" Spacing="4" Visibility="Collapsed">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="Source folder"
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               FontWeight="SemiBold"
+                               VerticalAlignment="Center" />
+                    <ComboBox x:Name="SourceCombo" Grid.Column="1"
+                              Margin="12,0,0,0"
+                              SelectionChanged="SourceCombo_SelectionChanged" />
+                    <TextBlock x:Name="SourceBadge" Grid.Column="2"
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               Margin="8,0,0,0"
+                               VerticalAlignment="Center"
+                               FontWeight="SemiBold" />
+                </Grid>
+                <!-- Only shown when the source root is an unconfirmed default. -->
+                <TextBlock x:Name="SourceCaution"
+                           Style="{StaticResource CaptionTextBlockStyle}"
+                           Foreground="{ThemeResource SystemFillColorCautionBrush}"
+                           TextWrapping="Wrap"
+                           Text="This install root is a guess from the archive layout. Check it before installing."
+                           Visibility="Collapsed" />
+            </StackPanel>
+
+            <!-- Destination (always shown). -->
+            <StackPanel Spacing="4">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock Text="Destination"
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               FontWeight="SemiBold"
+                               VerticalAlignment="Center" />
+                    <TextBox x:Name="DestinationBox" Grid.Column="1"
+                             Margin="12,0,0,0"
+                             PlaceholderText="Relative destination path, e.g. Data"
+                             TextChanged="DestinationBox_TextChanged" />
+                    <TextBlock x:Name="DestinationBadge" Grid.Column="2"
+                               Style="{StaticResource CaptionTextBlockStyle}"
+                               Margin="8,0,0,0"
+                               VerticalAlignment="Center"
+                               FontWeight="SemiBold" />
+                </Grid>
+                <TextBlock x:Name="DestinationError"
+                           Style="{StaticResource CaptionTextBlockStyle}"
+                           Foreground="{ThemeResource SystemFillColorCriticalBrush}"
+                           TextWrapping="Wrap"
+                           Visibility="Collapsed" />
+            </StackPanel>
+
+            <!-- Accept reviews and commits the paths for this install AND saves them as this
+                 mod's remembered defaults, so the "Paths" caution never reappears for it.
+                 Cancel discards the edits and keeps the last-accepted values without saving.
+                 SubtleButtonStyle is used (not the page-scoped RowActionButtonStyle) because
+                 InstallLocationPanel is a standalone control loaded outside the page's resource
+                 scope - referencing the page style crashes with a XamlParseException. -->
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+                <Button x:Name="CancelButton" Content="Cancel"
+                        Style="{StaticResource SubtleButtonStyle}" Padding="12,6"
+                        Click="CancelButton_Click"
+                        ToolTipService.ToolTip="Discard your changes and keep the last-accepted paths" />
+                <Button x:Name="AcceptButton" Content="Accept"
+                        Style="{StaticResource SubtleButtonStyle}" Padding="12,6"
+                        Click="AcceptButton_Click"
+                        ToolTipService.ToolTip="Use these source/destination paths for this install and remember them for future installs of this mod" />
+            </StackPanel>
+        </StackPanel>
+    </Border>
+</UserControl>

@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using Wildpinkler.App.Models;
 using Wildpinkler.Remote;
 using Xunit;
@@ -181,6 +183,42 @@ public class PlanRowActionPolicyTests
         Assert.DoesNotContain(PlanRowAction.UseModManagerDownload, actions);
         Assert.DoesNotContain(PlanRowAction.Exclude, actions);
         Assert.Contains(PlanRowAction.OpenSitePage, actions);
+    }
+
+    [Fact]
+    public void UseModManagerDownloadSuppressedForAnyPlanRootKeyInMultiRootSet()
+    {
+        // A row that is one of several plan roots must not be offered as a download of itself,
+        // even when it is not the primary root.
+        var entry = Entry(DependencyPlanEntryStatus.Ready, RowStatus.Identified);
+        entry.Ref = new RemoteRef("nexus", "game", "secondRoot", PageUrl: "https://example.invalid/mod");
+
+        var rootKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "firstRoot",
+            "secondRoot"
+        };
+
+        var actions = PlanRowActionPolicy.GetAvailableActions(entry, rootKeys);
+
+        Assert.DoesNotContain(PlanRowAction.UseModManagerDownload, actions);
+    }
+
+    [Fact]
+    public void UseModManagerDownloadOfferedForNonRootInMultiRootSet()
+    {
+        var entry = Entry(DependencyPlanEntryStatus.Ready, RowStatus.Identified);
+        entry.Ref = new RemoteRef("nexus", "game", "leaf", PageUrl: "https://example.invalid/mod");
+
+        var rootKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            "firstRoot",
+            "secondRoot"
+        };
+
+        var actions = PlanRowActionPolicy.GetAvailableActions(entry, rootKeys);
+
+        Assert.Contains(PlanRowAction.UseModManagerDownload, actions);
     }
 
     private static DependencyPlanEntry Entry(DependencyPlanEntryStatus status, RowStatus rowStatus)

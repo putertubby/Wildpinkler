@@ -53,6 +53,7 @@ public static class ServiceRegistration
         services.AddSingleton<DownloadQueueCoordinator>();
         services.AddSingleton<RemoteActivationRouter>();
         services.AddSingleton<RemoteGameCatalog>();
+        services.AddSingleton<RemoteSearchService>();
         services.AddSingleton<RemoteGameMapper>();
         services.AddSingleton<RemoteMetadataService>();
         services.AddSingleton<UpdateCheckService>();
@@ -96,10 +97,13 @@ public static class ServiceRegistration
         services.AddSingleton<ModStore>();
         services.AddSingleton<ModMatchStore>();
         services.AddSingleton(provider => new PlanDecisionStore(logger: provider.GetService<ILogger<PlanDecisionStore>>()));
+        services.AddSingleton<ProfilePlanStore>();
         services.AddSingleton<ModInstallationStore>();
         services.AddSingleton<ModInstallService>();
-        services.AddSingleton<ModInstallQueue>();
         services.AddSingleton<DependencyExtractionService>();
+        services.AddSingleton<ModMetadataCache>();
+        services.AddSingleton<ArchiveDependencyExtractor>();
+        services.AddSingleton<ConflictAndDependencyEvaluator>();
         services.AddSingleton<DependencyGraphService>();
         services.AddSingleton<DependencySubgraphService>();
         services.AddSingleton<BatchDependencyService>();

@@ -46,7 +46,8 @@ public sealed class NexusSiteProvider : IRemoteSiteProvider, IRemoteCollectionPr
         SupportsGameCatalog: true,
         SupportsCollections: true,
         SupportsRequirements: true,
-        SupportsModDetails: true);
+        SupportsModDetails: true,
+        SupportsSearch: true);
 
     public RemoteRateLimit LastRateLimit => _transport.LastRateLimit;
 
@@ -389,6 +390,45 @@ public sealed class NexusSiteProvider : IRemoteSiteProvider, IRemoteCollectionPr
                 item.ModId.ToString(CultureInfo.InvariantCulture),
                 string.Empty,
                 DateTimeOffset.FromUnixTimeSeconds(item.LatestFileUpdate)))
+            .ToList();
+    }
+
+    public async Task<IReadOnlyList<RemoteSearchResult>> SearchModsAsync(
+        string gameKey,
+        string query,
+        RemoteCredential credential,
+        int page = 1,
+        CancellationToken cancellationToken = default)
+    {
+        if (!Capabilities.SupportsSearch)
+            return Array.Empty<RemoteSearchResult>();
+        var trimmed = (query ?? string.Empty).Trim();
+        if (trimmed.Length == 0)
+            return Array.Empty<RemoteSearchResult>();
+
+        var response = await _transport.GetAsync<NexusSearchResponseDto>(
+            $"games/{Escape(gameKey)}/search/mods?search={Escape(trimmed)}&page={Math.Max(1, page)}",
+            credential,
+            cancellationToken).ConfigureAwait(false);
+
+        return response.Data
+            .Where(item => !string.IsNullOrWhiteSpace(item.DomainName))
+            .Select(item =>
+            {
+                var modKey = item.ModId.ToString(CultureInfo.InvariantCulture);
+                var reference = new RemoteRef(Id, item.DomainName, modKey)
+                {
+                    PageUrl = BuildModPageUrl(new RemoteRef(Id, item.DomainName, modKey))
+                };
+                return new RemoteSearchResult(
+                    reference,
+                    item.Name,
+                    item.Summary,
+                    item.AuthorName,
+                    item.LatestVersion,
+                    item.ImageUrl,
+                    item.LastUpdated > 0 ? DateTimeOffset.FromUnixTimeSeconds(item.LastUpdated) : null);
+            })
             .ToList();
     }
 

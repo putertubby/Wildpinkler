@@ -69,8 +69,22 @@ public sealed class PlanRowContainer : ObservableObject, IDisposable
     /// <summary>The underlying plan row the user acts on.</summary>
     public DependencyPlanEntry Entry { get; }
 
-    /// <summary>A reviewable next-step proposal based on accepted history or exact-name evidence.</summary>
-    public PlanRowRecommendation? Recommendation { get; }
+    /// <summary>A reviewable next-step proposal based on accepted history or exact-name evidence.
+    /// Settable so the unified-list reconcile can refresh a reused container in place.</summary>
+    public PlanRowRecommendation? Recommendation
+    {
+        get => _recommendation;
+        set
+        {
+            if (SetProperty(ref _recommendation, value))
+            {
+                OnPropertyChanged(nameof(RecommendationText));
+                OnPropertyChanged(nameof(SubtitleText));
+            }
+        }
+    }
+
+    private PlanRowRecommendation? _recommendation;
 
     public string? RecommendationText => Recommendation is null
         ? null
@@ -106,11 +120,58 @@ public sealed class PlanRowContainer : ObservableObject, IDisposable
             case nameof(DependencyPlanEntry.CoveredRequirements):
                 OnPropertyChanged(nameof(CoveredRequirementsText));
                 break;
+            case nameof(DependencyPlanEntry.PathsNeedReview):
+                OnPropertyChanged(nameof(PathsNeedReview));
+                break;
         }
     }
 
     /// <summary>The "Required by:" annotation carried by the row, or null when none.</summary>
     public string? CoveredRequirementsText => Entry.CoveredRequirementsText;
+
+    /// <summary>
+    /// The single condensed subtitle line for a dense row: the most useful of the recommendation,
+    /// the covered-requirements annotation, or the first unresolved name-only requirement. Null
+    /// hides the subtitle. Full tag chips and the full requirement-chip list live in the details
+    /// pane, keeping the row to two lines.
+    /// </summary>
+    public string? SubtitleText =>
+        RecommendationText
+        ?? CoveredRequirementsText
+        ?? (HasChips ? Chips[0].Text : null);
+
+    /// <summary>
+    /// The display name of the plan root this row resolved from. Set only when the plan has
+    /// more than one root, so single-root plans stay uncluttered. Null hides the badge.
+    /// Settable so the unified-list rebuild can refresh a reused container in place.
+    /// </summary>
+    public string? RootLabel
+    {
+        get => _rootLabel;
+        set
+        {
+            // Normalize whitespace-only labels to null so HasRootLabel and the badge text agree.
+            var normalized = string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+            if (SetProperty(ref _rootLabel, normalized))
+                OnPropertyChanged(nameof(HasRootLabel));
+        }
+    }
+
+    private string? _rootLabel;
+
+    /// <summary>
+    /// True when a root badge should be shown on this row. Keyed on non-whitespace (not just
+    /// non-null) so a label that trims to empty can never produce a visible empty chip.
+    /// </summary>
+    public bool HasRootLabel => !string.IsNullOrWhiteSpace(RootLabel);
+
+    /// <summary>
+    /// True while this row's install paths are unreviewed heuristic defaults. Drives the compact
+    /// "Paths" caution chip on the row (the actual source/destination values stay in the details
+    /// pane, where the user reviews and accepts them). Mirrors the entry's flag so the row stays
+    /// in sync when the content view clears it after a review.
+    /// </summary>
+    public bool PathsNeedReview => Entry.PathsNeedReview;
 
     public void Dispose() => Entry.PropertyChanged -= Entry_PropertyChanged;
 }
@@ -129,7 +190,8 @@ public static class PlanSectionBuilder
         [PlanRowSection.ToDownload] = "To download",
         [PlanRowSection.Ready] = "Ready",
         [PlanRowSection.Installed] = "Installed",
-        [PlanRowSection.SetAside] = "Set aside"
+        [PlanRowSection.SetAside] = "Set aside",
+        [PlanRowSection.InProfileTail] = "In profile"
     };
 
     /// <summary>
@@ -141,7 +203,8 @@ public static class PlanSectionBuilder
         IEnumerable<DependencyPlanEntry> entries,
         IReadOnlySet<PlanRowSection> collapsedKeys,
         Func<DependencyPlanEntry, PlanRowRecommendation?>? recommendationFor = null,
-        Func<DependencyPlanEntry, List<RequirementChip>>? chipsFor = null)
+        Func<DependencyPlanEntry, List<RequirementChip>>? chipsFor = null,
+        Func<DependencyPlanEntry, string?>? rootLabelFor = null)
     {
         var byKey = entries
             .GroupBy(entry => entry.DerivedSection)
@@ -161,6 +224,8 @@ public static class PlanSectionBuilder
             {
                 var container = new PlanRowContainer(entry, recommendationFor?.Invoke(entry));
                 container.Chips.AddRange(chipsFor?.Invoke(entry) ?? []);
+                var rootLabel = rootLabelFor?.Invoke(entry);
+                container.RootLabel = string.IsNullOrWhiteSpace(rootLabel) ? null : rootLabel;
                 section.Entries.Add(container);
             }
             sections.Add(section);

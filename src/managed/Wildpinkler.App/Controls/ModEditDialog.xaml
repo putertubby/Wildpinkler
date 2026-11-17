@@ -25,6 +25,11 @@
 
             <Border BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,1,0,0" />
 
+            <controls:TagInputBox x:Name="TagsInput" Header="Tags"
+                                  PlaceholderText="Type a tag, then Enter" />
+
+            <Border BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="0,1,0,0" />
+
             <controls:GameAssociationPicker x:Name="GamePicker" SelectionChanged="Field_Changed" />
 
             <StackPanel x:Name="FomodSection" Spacing="6" Visibility="Collapsed">

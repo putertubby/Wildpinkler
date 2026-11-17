@@ -98,6 +98,11 @@ public sealed class AppSettings
     public List<string> AssistantAcceptedRemoteHosts { get; set; } = [];
     public bool IsAssistantPaneOpen { get; set; }
     public double? AssistantPaneWidth { get; set; }
+
+    // The user's global mod-tag set (the "defaults" offered everywhere). Null until first managed,
+    // at which point TagCatalog seeds it with the function defaults. Removing a tag here does not
+    // strip it from mods that already carry it.
+    public List<string>? CustomTags { get; set; }
 }
 
 // Deliberately synchronous, unlike the other stores: both call sites are window lifecycle points

@@ -41,6 +41,8 @@ public sealed partial class ModEditDialog : ContentDialog
 
         var matchedGame = MatchGame(games, metadata.GameDependency, archivePath) ?? (games.Count == 1 ? games[0] : null);
         GamePicker.Initialize(games, matchedGame is null ? Array.Empty<string>() : new[] { matchedGame.Id });
+        // A freshly reviewed archive starts with no tags; the user adds them here.
+        TagsInput.SetTags(Array.Empty<string>());
 
         FomodSection.Visibility = Visibility.Visible;
         FomodStateText.Text = metadata.State switch
@@ -73,6 +75,7 @@ public sealed partial class ModEditDialog : ContentDialog
         WebsiteBox.Text = existingMod.Website ?? string.Empty;
         DescriptionBox.Text = existingMod.Description ?? string.Empty;
         GamePicker.Initialize(games, existingMod.GameIds);
+        TagsInput.SetTags(existingMod.Tags);
 
         UpdateValidity();
     }
@@ -88,6 +91,8 @@ public sealed partial class ModEditDialog : ContentDialog
     public string? Description => Trimmed(DescriptionBox.Text);
 
     public IReadOnlyList<string> GameIds => GamePicker.SelectedGameIds;
+
+    public IReadOnlyList<string> Tags => TagsInput.Tags;
 
     private void Field_Changed(object sender, object args) => UpdateValidity();
 

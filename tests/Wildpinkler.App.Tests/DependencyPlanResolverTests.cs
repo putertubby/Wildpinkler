@@ -258,6 +258,188 @@ public class DependencyPlanResolverTests
     }
 
     [Fact]
+    public async Task LocalDependencyNotInTargetProfile_IsSelectedByDefault()
+    {
+        // A required dependency that the user already owns locally (an archive on disk) but
+        // is NOT installed in the target profile: the plan must include it in the install by
+        // default, so "Install" adds it to the profile.
+        var installed = new List<ModEntry>
+        {
+            new()
+            {
+                Id = "local-2",
+                Name = "Base",
+                Remote = new RemoteRef("fake", "testgame", "2"),
+                Author = "Author",
+                Version = "9.9"
+            }
+        };
+
+        var (resolver, _) = Create(
+            requirements: new Dictionary<string, IReadOnlyList<RemoteRequirement>>
+            {
+                ["1"] = new[] { Req("2", "Base", RemoteRequirementKind.Required) }
+            },
+            files: new Dictionary<string, IReadOnlyList<RemoteFileMetadata>>
+            {
+                ["1"] = new[] { File("10") }
+            },
+            mods: new Dictionary<string, RemoteModMetadata>
+            {
+                ["1"] = Mod("1", "Root")
+            });
+
+        var plan = await resolver.ResolveAsync(
+            new RemoteRef("fake", "testgame", "1"), installed, cancellationToken: TestContext.Current.CancellationToken);
+
+        var baseMod = plan.Entries.Single(entry => entry.Ref.ModKey == "2");
+        Assert.Equal(DependencyPlanEntryStatus.Installed, baseMod.Status);
+        Assert.True(baseMod.HasLocalArchive);
+        Assert.False(baseMod.InTargetProfile);
+        Assert.True(baseMod.IsSelected,
+            "A locally owned dependency not yet in the target profile must be selected by default.");
+    }
+
+    [Fact]
+    public async Task LocalDependencyAlreadyInTargetProfile_IsNotReInstalled()
+    {
+        // The same local dependency, but now installed in the target profile: nothing to do,
+        // so it must not be offered for re-install.
+        var installed = new List<ModEntry>
+        {
+            new()
+            {
+                Id = "local-2",
+                Name = "Base",
+                Remote = new RemoteRef("fake", "testgame", "2"),
+                Author = "Author",
+                Version = "9.9"
+            }
+        };
+
+        var (resolver, _) = Create(
+            requirements: new Dictionary<string, IReadOnlyList<RemoteRequirement>>
+            {
+                ["1"] = new[] { Req("2", "Base", RemoteRequirementKind.Required) }
+            },
+            files: new Dictionary<string, IReadOnlyList<RemoteFileMetadata>>
+            {
+                ["1"] = new[] { File("10") }
+            },
+            mods: new Dictionary<string, RemoteModMetadata>
+            {
+                ["1"] = Mod("1", "Root")
+            });
+
+        var plan = await resolver.ResolveAsync(
+            new RemoteRef("fake", "testgame", "1"), installed,
+            targetProfileModIds: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "local-2" },
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        var baseMod = plan.Entries.Single(entry => entry.Ref.ModKey == "2");
+        Assert.Equal(DependencyPlanEntryStatus.Installed, baseMod.Status);
+        Assert.True(baseMod.InTargetProfile);
+        Assert.False(baseMod.IsSelected,
+            "A dependency already installed in the target profile must not be offered for re-install.");
+    }
+
+    [Fact]
+    public async Task InTargetProfileIsAuthoritativeAgainstLoadOrderNotProfileIds()
+    {
+        // The local mod's ProfileIds list claims it is in the target profile (stale bookkeeping),
+        // but the target profile's actual load order does NOT carry it. The resolver must trust
+        // the load order, so the entry is "Installed" on disk but NOT in the target profile —
+        // the page will install the on-disk archive rather than treating it as already present.
+        var installed = new List<ModEntry>
+        {
+            new()
+            {
+                Id = "local-2",
+                Name = "Base",
+                Remote = new RemoteRef("fake", "testgame", "2"),
+                Author = "Author",
+                Version = "9.9",
+                ProfileIds = new List<string> { "profile-test2" } // stale: claims Test2
+            }
+        };
+
+        var (resolver, _) = Create(
+            requirements: new Dictionary<string, IReadOnlyList<RemoteRequirement>>
+            {
+                ["1"] = new[] { Req("2", "Base", RemoteRequirementKind.Required) }
+            },
+            files: new Dictionary<string, IReadOnlyList<RemoteFileMetadata>>
+            {
+                ["1"] = new[] { File("10") }
+            },
+            mods: new Dictionary<string, RemoteModMetadata>
+            {
+                ["1"] = Mod("1", "Root")
+            });
+
+        // The authoritative load order for the target profile holds a different mod id, so
+        // "local-2" is not actually installed in the profile.
+        var targetLoadOrder = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "some-other-mod" };
+
+        var plan = await resolver.ResolveAsync(
+            new RemoteRef("fake", "testgame", "1"),
+            installed,
+            resolvingProfileId: "profile-test2",
+            targetProfileModIds: targetLoadOrder,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        var baseMod = plan.Entries.Single(entry => entry.Ref.ModKey == "2");
+        Assert.Equal(DependencyPlanEntryStatus.Installed, baseMod.Status); // matched on disk
+        Assert.False(baseMod.InTargetProfile); // not actually in the target profile
+    }
+
+    [Fact]
+    public async Task InTargetProfileTrueWhenModIsInLoadOrder()
+    {
+        // The load order does carry the mod's id, so it is genuinely in the target profile, even
+        // if the (stale) ProfileIds list does not claim so.
+        var installed = new List<ModEntry>
+        {
+            new()
+            {
+                Id = "local-2",
+                Name = "Base",
+                Remote = new RemoteRef("fake", "testgame", "2"),
+                Author = "Author",
+                Version = "9.9",
+                ProfileIds = new List<string>() // does not claim the profile
+            }
+        };
+
+        var (resolver, _) = Create(
+            requirements: new Dictionary<string, IReadOnlyList<RemoteRequirement>>
+            {
+                ["1"] = new[] { Req("2", "Base", RemoteRequirementKind.Required) }
+            },
+            files: new Dictionary<string, IReadOnlyList<RemoteFileMetadata>>
+            {
+                ["1"] = new[] { File("10") }
+            },
+            mods: new Dictionary<string, RemoteModMetadata>
+            {
+                ["1"] = Mod("1", "Root")
+            });
+
+        var targetLoadOrder = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "local-2" };
+
+        var plan = await resolver.ResolveAsync(
+            new RemoteRef("fake", "testgame", "1"),
+            installed,
+            resolvingProfileId: "profile-test2",
+            targetProfileModIds: targetLoadOrder,
+            cancellationToken: TestContext.Current.CancellationToken);
+
+        var baseMod = plan.Entries.Single(entry => entry.Ref.ModKey == "2");
+        Assert.Equal(DependencyPlanEntryStatus.Installed, baseMod.Status);
+        Assert.True(baseMod.InTargetProfile);
+    }
+
+    [Fact]
     public async Task InstalledDependencyWithSameSiteIdentityAndVersionUsesSiteDetailsWithoutDuplicate()
     {
         var installed = new List<ModEntry>

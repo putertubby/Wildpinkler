@@ -10,19 +10,31 @@
     DefaultButton="Primary"
     Style="{StaticResource DefaultContentDialogStyle}">
 
-    <StackPanel Spacing="12">
-        <Grid ColumnSpacing="8">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="*" />
-                <ColumnDefinition Width="Auto" />
-            </Grid.ColumnDefinitions>
-            <TextBox x:Name="SearchBox" PlaceholderText="Search mods for this game"
-                     AutomationProperties.Name="Search mods for this game" TextChanged="SearchBox_TextChanged" />
-            <Button Grid.Column="1" Content="Add archive..." Click="AddArchive_Click"
-                    ToolTipService.ToolTip="Choose archive files to add and install" />
-        </Grid>
-        <TextBlock x:Name="ResultCountText" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.68" />
-        <Border Background="{ThemeResource LayerFillColorDefaultBrush}"
+    <ContentDialog.Resources>
+        <!-- Upper cap for the dialog width. The content below is pinned to a fixed width, so the
+             dialog measures to a constant width regardless of which list rows are realized. -->
+        <x:Double x:Key="ContentDialogMaxWidth">640</x:Double>
+    </ContentDialog.Resources>
+
+    <!-- Fixed width: the ContentDialog sizes itself to its content's measured width, and a
+         ListView reports a different desired width as rows realize/recycle during scroll. Pinning
+         the content to a constant width makes the dialog's measured width constant (and constrains
+         the list rows to a finite width so their text trims instead of widening the dialog). -->
+    <TabView x:Name="PickerTabs" Width="560">
+        <TabViewItem Header="Library">
+            <StackPanel Spacing="12" Margin="0,12,0,0">
+                <Grid ColumnSpacing="8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBox x:Name="SearchBox" PlaceholderText="Search mods for this game"
+                             AutomationProperties.Name="Search mods for this game" TextChanged="SearchBox_TextChanged" />
+                    <Button Grid.Column="1" Content="Add archive..." Click="AddArchive_Click"
+                            ToolTipService.ToolTip="Choose archive files to add and install" />
+                </Grid>
+                <TextBlock x:Name="ResultCountText" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.68" />
+                <Border Background="{ThemeResource LayerFillColorDefaultBrush}"
                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8">
             <Grid x:Name="DropTarget" MinHeight="160" AllowDrop="True"
                 DragOver="DropTarget_DragOver" DragLeave="DropTarget_DragLeave" Drop="DropTarget_Drop">
@@ -68,6 +80,53 @@
                 </Border>
             </Grid>
         </Border>
-        <TextBlock x:Name="StatusText" TextWrapping="Wrap" Opacity="0.68" Visibility="Collapsed" />
-    </StackPanel>
+                <TextBlock x:Name="StatusText" TextWrapping="Wrap" Opacity="0.68" Visibility="Collapsed" />
+            </StackPanel>
+        </TabViewItem>
+
+        <TabViewItem x:Name="SearchTab" Header="Search">
+            <StackPanel Spacing="12" Margin="0,12,0,0">
+                <TextBox x:Name="RemoteSearchBox" PlaceholderText="Search the site for mods to add"
+                         AutomationProperties.Name="Search the site for mods to add"
+                         TextChanged="RemoteSearchBox_TextChanged" />
+                <TextBlock x:Name="RemoteResultCountText" Style="{StaticResource CaptionTextBlockStyle}" Opacity="0.68" />
+                <Border Background="{ThemeResource LayerFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8">
+                    <Grid MinHeight="160">
+                        <ListView x:Name="RemoteResultList" MaxHeight="320" SelectionMode="Single"
+                                  ItemContainerStyle="{StaticResource ListRowContainerStyle}" Padding="0,4,0,4"
+                                  SelectionChanged="RemoteResultList_SelectionChanged"
+                                  ScrollViewer.HorizontalScrollMode="Disabled" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                            <ListView.ItemTemplate>
+                                <DataTemplate>
+                                    <Grid Padding="12,8" ColumnSpacing="10">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="32" />
+                                            <ColumnDefinition Width="*" MinWidth="160" />
+                                        </Grid.ColumnDefinitions>
+                                        <Border Style="{StaticResource RowAvatarStyle}">
+                                            <TextBlock HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="SemiBold"
+                                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                       Text="{Binding Name, Converter={StaticResource InitialLetterConverter}}" />
+                                        </Border>
+                                        <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                                            <TextBlock FontWeight="SemiBold" TextTrimming="CharacterEllipsis" Text="{Binding Name}" />
+                                            <TextBlock Opacity="0.62" TextTrimming="CharacterEllipsis" Text="{Binding Version}" />
+                                            <TextBlock Opacity="0.62" TextTrimming="CharacterEllipsis" Text="{Binding Author}" />
+                                        </StackPanel>
+                                    </Grid>
+                                </DataTemplate>
+                            </ListView.ItemTemplate>
+                        </ListView>
+                        <TextBlock x:Name="RemoteEmptyText" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="16"
+                                   TextAlignment="Center" TextWrapping="Wrap" Opacity="0.68" />
+                        <ProgressBar x:Name="RemoteSearchProgress" IsIndeterminate="True"
+                                     VerticalAlignment="Top" Height="3" Width="200"
+                                     HorizontalAlignment="Center" Visibility="Collapsed" />
+                    </Grid>
+                </Border>
+                <TextBlock x:Name="RemoteSearchStatusText" TextWrapping="Wrap" Opacity="0.68" Visibility="Collapsed" />
+            </StackPanel>
+        </TabViewItem>
+    </TabView>
 </ContentDialog>

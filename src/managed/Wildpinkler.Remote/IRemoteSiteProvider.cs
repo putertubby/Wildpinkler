@@ -36,6 +36,18 @@ public interface IRemoteSiteProvider
     Task<RemoteFileListing> GetModFilesAsync(RemoteRef reference, RemoteCredential credential, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Searches a game's mods by name. A provider without search support
+    /// (see <see cref="RemoteSiteCapabilities.SupportsSearch"/>) leaves the default empty result.
+    /// </summary>
+    Task<IReadOnlyList<RemoteSearchResult>> SearchModsAsync(
+        string gameKey,
+        string query,
+        RemoteCredential credential,
+        int page = 1,
+        CancellationToken cancellationToken = default) =>
+        Task.FromResult<IReadOnlyList<RemoteSearchResult>>(Array.Empty<RemoteSearchResult>());
+
+    /// <summary>
     /// The mods a mod requires. A provider without requirements support (see
     /// <see cref="RemoteSiteCapabilities.SupportsRequirements"/>) leaves the default empty result.
     /// </summary>

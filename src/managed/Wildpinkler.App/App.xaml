@@ -40,6 +40,7 @@
             <converters:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter" />
             <converters:InitialLetterConverter x:Key="InitialLetterConverter" />
             <converters:InverseBoolToVisibilityConverter x:Key="InverseBoolToVisibilityConverter" />
+            <converters:InverseBoolConverter x:Key="InverseBoolConverter" />
             <converters:NullToVisibilityConverter x:Key="NullToVisibilityConverter" />
             <converters:NonNullToVisibilityConverter x:Key="NonNullToVisibilityConverter" />
             <converters:PlanStatusToBrushConverter x:Key="PlanStatusToBrushConverter" />
@@ -110,6 +111,14 @@
                 <Setter Property="Padding" Value="12" />
             </Style>
             <Style x:Key="FilterChipStyle" TargetType="Border">
+                <Setter Property="Background" Value="{ThemeResource LayerFillColorDefaultBrush}" />
+                <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
+                <Setter Property="BorderThickness" Value="1" />
+                <Setter Property="CornerRadius" Value="14" />
+                <Setter Property="Padding" Value="10,2,4,2" />
+            </Style>
+            <!-- Clickable counterpart of FilterChipStyle for buttons (same pill look). -->
+            <Style x:Key="FilterChipButtonStyle" TargetType="Button">
                 <Setter Property="Background" Value="{ThemeResource LayerFillColorDefaultBrush}" />
                 <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
                 <Setter Property="BorderThickness" Value="1" />

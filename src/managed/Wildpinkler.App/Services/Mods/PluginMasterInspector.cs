@@ -33,6 +33,13 @@ public static class PluginMasterInspector
         }
     }
 
+    /// <summary>Master filenames declared by a plugin held in memory (e.g. an archive entry's bytes).</summary>
+    public static IReadOnlyList<string> ReadMasters(byte[] bytes)
+    {
+        using var stream = new MemoryStream(bytes, writable: false);
+        return ReadMasters(stream);
+    }
+
     internal static IReadOnlyList<string> ReadMasters(Stream stream)
     {
         if (stream.Length < 24)

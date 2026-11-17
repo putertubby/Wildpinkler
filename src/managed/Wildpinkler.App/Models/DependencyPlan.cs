@@ -199,6 +199,10 @@ public sealed partial class DependencyPlanEntry : ObservableObject
     private PlanRowState _derivedState = PlanRowState.Attention;
     private PlanRowSection _derivedSection = PlanRowSection.Attention;
     private AttentionReason? _attentionReason;
+    // Set by the page, not the resolver: true while the row's install paths are unreviewed
+    // heuristic defaults. Drives the "Paths" caution chip on the row; independent of the
+    // projected display state so a "To download" row keeps its state while flagging the paths.
+    private bool _pathsNeedReview;
     private string? _replacementOriginalName;
     private RemoteRef? _replacementOriginalRef;
     private DependencyPlanEntry? _replacementPlanTarget;
@@ -208,6 +212,12 @@ public sealed partial class DependencyPlanEntry : ObservableObject
 
     /// <summary>Opaque key used only to address this row inside the current plan.</summary>
     public string EntryKey { get => _entryKey; set => SetProperty(ref _entryKey, value); }
+
+    /// <summary>
+    /// The plan root (a mod key) that first resolved this row, when the plan holds more than one
+    /// root. Null when the plan has a single root or the row predates the multi-root merge.
+    /// </summary>
+    public string? PlanRootKey { get; set; }
 
     /// <summary>The provider and game that supplied this row, even when the requirement has no remote key.</summary>
     public string SiteId { get => _siteId; set => SetProperty(ref _siteId, value); }
@@ -501,6 +511,19 @@ public sealed partial class DependencyPlanEntry : ObservableObject
     public AttentionReason? Attention => _attentionReason;
 
     /// <summary>
+    /// Whether the row's install paths are unreviewed heuristic defaults and need a look before
+    /// installing. Set by the content view (not the resolver); when true a "Paths" caution chip is
+    /// shown on the row. Independent of the projected display state: a "To download" row keeps its
+    /// state and section while flagging its unreviewed paths, and the chip clears once the user
+    /// accepts the paths in the details pane.
+    /// </summary>
+    public bool PathsNeedReview
+    {
+        get => _pathsNeedReview;
+        set => SetProperty(ref _pathsNeedReview, value);
+    }
+
+    /// <summary>
     /// Derives this row's display state and section from its resolver status plus the user's
     /// applied decision. Called after every reconcile so the list groups by what the user needs
     /// to do. The stored <see cref="DerivedState"/>/
@@ -538,15 +561,19 @@ public sealed partial class DependencyPlanEntry : ObservableObject
         _ => null
     };
 
-    /// <summary>The glyph for the attention state, shown before the attention label.</summary>
+    /// <summary>
+    /// The glyph for the attention state, shown before the attention label. Every value is a
+    /// Segoe Fluent Icons (MDL2) private-use-area codepoint: a <c>FontIcon</c> renders from that
+    /// font, so a literal Unicode symbol (⚠ ✕ ⚡) would draw as a "tofu" box.
+    /// </summary>
     public string AttentionGlyph => Attention switch
     {
-        AttentionReason.Unidentifiable => "⚠",
-        AttentionReason.FetchFailed => "↻",
-        AttentionReason.GoneFromSite => "✕",
-        AttentionReason.FileMismatch => "⚠",
-        AttentionReason.Conflict => "⚡",
-        _ => "•"
+        AttentionReason.Unidentifiable => "\uE8BA", // Warning
+        AttentionReason.FetchFailed => "\uE895",    // Sync (retry)
+        AttentionReason.GoneFromSite => "\uE711",   // Cancel (gone)
+        AttentionReason.FileMismatch => "\uE8BA",   // Warning
+        AttentionReason.Conflict => "\uEA39",       // Status/issue
+        _ => "\uE8AB"                               // More (neutral)
     };
 
     /// <summary>The short display state tag for the row, in the user's terms.</summary>
@@ -565,15 +592,18 @@ public sealed partial class DependencyPlanEntry : ObservableObject
         _ => "Unknown"
     };
 
-    /// <summary>The glyph for the derived display state, shown before the state tag.</summary>
+    /// <summary>
+    /// The glyph for the derived display state, shown before the state tag. Every value is a
+    /// Segoe Fluent Icons (MDL2) private-use-area codepoint so a <c>FontIcon</c> renders it.
+    /// </summary>
     public string DerivedStateGlyph => DerivedState switch
     {
         PlanRowState.Attention => AttentionGlyph,
-        PlanRowState.ToDownload => "⬇",
-        PlanRowState.Ready => "✓",
-        PlanRowState.Installed => UpdateAvailable ? "⇪" : "★",
-        PlanRowState.SetAside => "✕",
-        _ => "•"
+        PlanRowState.ToDownload => "\uE896", // Download
+        PlanRowState.Ready => "\uE73E",      // CheckMark
+        PlanRowState.Installed => UpdateAvailable ? "\uE895" : "\uE714", // Sync (update) / check (installed)
+        PlanRowState.SetAside => "\uE711",   // Cancel
+        _ => "\uE8AB"                        // More (neutral)
     };
 
     /// <summary>True when the row is set aside (excluded, resolved away, or replaced); its checkbox is disabled.</summary>
@@ -810,21 +840,24 @@ public sealed partial class DependencyPlanEntry : ObservableObject
         return $"{bytes} B";
     }
 
-    /// <summary>The short glyph shown on the row before the status text.</summary>
+    /// <summary>
+    /// The short glyph shown on the row before the status text. Segoe Fluent Icons (MDL2)
+    /// private-use-area codepoints so a <c>FontIcon</c> renders each one.
+    /// </summary>
     public string StatusGlyph =>
         UpdateAvailable && Status == DependencyPlanEntryStatus.Installed
-            ? "⇪"
+            ? "\uE895" // Sync (update available)
             : Status switch
         {
-            DependencyPlanEntryStatus.Installed => "✓",
-            DependencyPlanEntryStatus.Ready => "⬇",
-            DependencyPlanEntryStatus.Recommended => "★",
-            DependencyPlanEntryStatus.NeedsMatching => "⚠",
-            DependencyPlanEntryStatus.Unresolvable => "⚠",
-            DependencyPlanEntryStatus.FileMismatch => "⚠",
-            DependencyPlanEntryStatus.Conflict => "✖",
-            DependencyPlanEntryStatus.FetchFailed => "↻",
-            _ => "•"
+            DependencyPlanEntryStatus.Installed => "\uE714",
+            DependencyPlanEntryStatus.Ready => "\uE73E",
+            DependencyPlanEntryStatus.Recommended => "\uE714",
+            DependencyPlanEntryStatus.NeedsMatching => "\uE8BA",
+            DependencyPlanEntryStatus.Unresolvable => "\uE8BA",
+            DependencyPlanEntryStatus.FileMismatch => "\uE8BA",
+            DependencyPlanEntryStatus.Conflict => "\uEA39",
+            DependencyPlanEntryStatus.FetchFailed => "\uE895",
+            _ => "\uE8AB"
         };
 
     /// <summary>The short human label for the status, shown on the row.</summary>
@@ -860,18 +893,21 @@ public sealed partial class DependencyPlanEntry : ObservableObject
     _ => "Unknown"
     };
 
-    /// <summary>The glyph shown on the row before the status tag, by lifecycle status.</summary>
+    /// <summary>
+    /// The glyph shown on the row before the status tag, by lifecycle status. Segoe Fluent
+    /// Icons (MDL2) private-use-area codepoints so a <c>FontIcon</c> renders each one.
+    /// </summary>
     public string RowStatusGlyph => RowStatus switch
     {
-    RowStatus.Installed => UpdateAvailable ? "⇪" : "★",
-    RowStatus.Ready => "✓",
-    RowStatus.Identified => "⬇",
-    RowStatus.Unidentified => "⚠",
-    RowStatus.Excluded => "✕",
-    RowStatus.Conflicting => "⚡",
-    RowStatus.Folded => "⊃",
-    RowStatus.Obsoleted => "↻",
-    _ => "•"
+    RowStatus.Installed => UpdateAvailable ? "\uE895" : "\uE714", // Sync (update) / check (installed)
+    RowStatus.Ready => "\uE73E",                                  // CheckMark
+    RowStatus.Identified => "\uE896",                             // Download (to download)
+    RowStatus.Unidentified => "\uE8BA",                           // Warning
+    RowStatus.Excluded => "\uE711",                               // Cancel
+    RowStatus.Conflicting => "\uEA39",                            // Status/issue
+    RowStatus.Folded => "\uE8AB",                                 // More (satisfied)
+    RowStatus.Obsoleted => "\uE895",                              // Sync (replaced)
+    _ => "\uE8AB"                                                 // More (neutral)
     };
 
     /// <summary>The plan list section this row is filed into, by its lifecycle status.</summary>

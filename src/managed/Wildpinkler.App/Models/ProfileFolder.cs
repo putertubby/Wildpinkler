@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Text.Json.Serialization;
 using CommunityToolkit.Mvvm.ComponentModel;
 
@@ -86,6 +87,11 @@ public sealed partial class ProfileFolder : ObservableObject
     // added by the install queue; null when idle.
     [JsonIgnore]
     public string? InstallStatusText { get => _installStatusText; set => SetProperty(ref _installStatusText, value); }
+
+    // Not persisted: the tags on the associated mod (resolved from the mod library on load/refresh).
+    // Shown as chips in the row; empty for non-mod branches or untagged mods.
+    [JsonIgnore]
+    public List<string> Tags { get; set; } = new();
 
     [JsonIgnore]
     public bool IsModBranch => Kind == ProfileFolderKind.Mod;

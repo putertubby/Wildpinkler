@@ -201,6 +201,17 @@ public sealed partial class ModsPage : PageBase
     private void GoToDependencyGraph_Click(object sender, RoutedEventArgs args) =>
         MainWindow.Instance?.NavigateToModDependencyGraph();
 
+    private async void ManageTags_Click(object sender, RoutedEventArgs args)
+    {
+        var settings = AppServices.AppSettings;
+        var dialog = new TagManagerDialog(settings.CustomTags) { XamlRoot = XamlRoot };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+            return;
+        settings.CustomTags = dialog.Tags.ToList();
+        AppServices.AppSettingsStore.Save(settings);
+        ShowInfo("Tags updated.", InfoBarSeverity.Success);
+    }
+
     private void ModRowShowInGraph_Click(object sender, RoutedEventArgs args)
     {
         if ((sender as FrameworkElement)?.DataContext is ModEntry mod)
@@ -557,6 +568,7 @@ public sealed partial class ModsPage : PageBase
         mod.Description = dialog.Description;
         mod.GameIds = dialog.GameIds.ToList();
         mod.GameNamesText = DescribeGames(mod.GameIds);
+        mod.Tags = dialog.Tags.ToList();
         await _store.UpsertAsync(mod);
         RefreshMods();
         ShowInfo($"Updated {mod.Name}.", InfoBarSeverity.Success);

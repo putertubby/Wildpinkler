@@ -113,6 +113,7 @@ public static class ModImportService
                 Author = dialog.Author,
                 Website = dialog.Website,
                 Description = dialog.Description,
+                Tags = dialog.Tags.ToList(),
                 FileName = file.Name,
                 Status = "Queued",
                 Source = "Local file"

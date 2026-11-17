@@ -22,9 +22,6 @@ public sealed partial class ProfilesPage
 {
     private Profile? _loadOrderSubscribedProfile;
 
-    // The cancellation source for the in-flight install, if any. Exposed to the busy InfoBar's
-    // Cancel button so a long archive analysis can be torn down before a dialog is even shown.
-    private CancellationTokenSource? _activeInstallCts;
 
     private void AttachLoadOrder(Profile profile)
     {
@@ -51,6 +48,117 @@ public sealed partial class ProfilesPage
         _loadOrderSubscribedProfile = null;
         FolderList.ItemsSource = null;
         ProfileViewBranchCountText = string.Empty;
+    }
+
+    // The active tag filter for the Content branch list (null = show all). Kept separately from
+    // the list's ItemsSource so drag/Alt reordering stays wired to the real load-order collection.
+    private string? _contentTagFilter;
+
+    /// <summary>Applies the active Content-tag filter by hiding non-matching branch containers.
+    /// The load-order <see cref="ListView"/> ItemsSource is left intact so reordering still targets
+    /// the real collection; only row visibility changes. Non-mod branches are hidden when a tag is
+    /// active (they carry no tags) and always shown otherwise.</summary>
+    private void ApplyContentTagFilter()
+    {
+        if (FolderList is null)
+            return;
+        var active = _contentTagFilter;
+        foreach (var item in FolderList.Items)
+        {
+            if (FolderList.ContainerFromItem(item) is not ListViewItem { } container)
+                continue;
+            bool show = active is null
+                || item is ProfileFolder folder
+                   && folder.Tags.Any(tag => string.Equals(tag, active, StringComparison.OrdinalIgnoreCase));
+            container.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        }
+    }
+
+    /// <summary>Reads the Content tag-filter ComboBox selection (index 0 = all tags).</summary>
+    [System.Diagnostics.CodeAnalysis.SuppressMessage("Naming", "CA1707:Use underscores correctly", Justification = "Event handler name referenced from XAML.")]
+    private void ContentTagFilter_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (ContentTagFilter is null || ContentTagFilter.SelectedIndex <= 0)
+        {
+            _contentTagFilter = null;
+        }
+        else
+        {
+            _contentTagFilter = (ContentTagFilter.SelectedItem as ComboBoxItem)?.Content as string;
+        }
+        ApplyContentTagFilter();
+    }
+
+    /// <summary>
+    /// Resolves each mod branch's library tags into its <see cref="ProfileFolder.Tags"/> so the
+    /// row's tag chips stay fresh. Non-mod branches and mods without a library entry show no chips.
+    /// </summary>
+    private void RefreshFolderTags(Profile? profile)
+    {
+        if (profile is null)
+            return;
+        var modById = _allMods
+            .Where(mod => !string.IsNullOrEmpty(mod.Id))
+            .ToDictionary(mod => mod.Id, StringComparer.OrdinalIgnoreCase);
+        var presentTags = new List<string>();
+        foreach (var folder in profile.LoadOrder)
+        {
+            var tags = folder.Kind == ProfileFolderKind.Mod
+                && folder.ModId is { } modId
+                && modById.TryGetValue(modId, out var mod)
+                    ? mod.Tags.ToList()
+                    : new List<string>();
+            if (!ReferenceEquals(folder.Tags, tags))
+                folder.Tags = tags;
+            foreach (var tag in tags)
+                if (!presentTags.Any(existing => string.Equals(existing, tag, StringComparison.OrdinalIgnoreCase)))
+                    presentTags.Add(tag);
+        }
+
+        RefreshContentTagFilterOptions(presentTags);
+        ApplyContentTagFilter();
+    }
+
+    /// <summary>
+    /// Populates the Content tag-filter ComboBox from the tags actually present on this profile's
+    /// branches (ordered by the global tag catalog where possible), keeping the current selection
+    /// when it is still offered.
+    /// </summary>
+    private void RefreshContentTagFilterOptions(List<string> presentTags)
+    {
+        if (ContentTagFilter is null)
+            return;
+        var catalog = TagCatalog.Ensure(AppServices.AppSettings.CustomTags);
+        var ordered = new List<string>();
+        foreach (var tag in catalog)
+            if (presentTags.Any(candidate => string.Equals(candidate, tag, StringComparison.OrdinalIgnoreCase)))
+                ordered.Add(tag);
+        foreach (var tag in presentTags)
+            if (!ordered.Any(candidate => string.Equals(candidate, tag, StringComparison.OrdinalIgnoreCase)))
+                ordered.Add(tag);
+
+        var previous = _contentTagFilter;
+        ContentTagFilter.Items.Clear();
+        ContentTagFilter.Items.Add(new ComboBoxItem { Content = "All tags" });
+        foreach (var tag in ordered)
+            ContentTagFilter.Items.Add(new ComboBoxItem { Content = tag });
+
+        var index = 0;
+        if (previous is not null)
+        {
+            for (var i = 1; i < ContentTagFilter.Items.Count; i++)
+            {
+                if (string.Equals((ContentTagFilter.Items[i] as ComboBoxItem)?.Content as string, previous, StringComparison.OrdinalIgnoreCase))
+                {
+                    index = i;
+                    break;
+                }
+            }
+        }
+        // Suppress the handler while we re-select programmatically.
+        ContentTagFilter.SelectionChanged -= ContentTagFilter_SelectionChanged;
+        ContentTagFilter.SelectedIndex = index;
+        ContentTagFilter.SelectionChanged += ContentTagFilter_SelectionChanged;
     }
 
     // Covers drag reorder, Alt+Up/Down and the "more" menu moves, and add/remove - all mutate the
@@ -327,55 +435,6 @@ public sealed partial class ProfilesPage
         }
     }
 
-    /// <summary>
-    /// One-click rollback of the most recent "install with dependencies" run: removes every mod
-    /// that run added (that is still present), cleans up its tools, fixes mod associations, and
-    /// refreshes plugins.txt if the tab is open. Other mods in the profile are untouched.
-    /// </summary>
-    private async void RemovePlanInstall_Click(object sender, RoutedEventArgs args)
-    {
-        if (SelectedProfile is not { } profile || !_runAccess.CanModify(profile))
-            return;
-        if (profile.LatestPlanInstall is not { } record || record.ModIds.Count == 0)
-            return;
-
-        var toRemove = profile.LoadOrder
-            .Where(folder => folder.ModId is { } modId && record.ModIds.Contains(modId))
-            .ToList();
-        if (toRemove.Count == 0)
-        {
-            // Nothing left to remove: the mods were already deleted individually.
-            profile.PlanInstalls.Remove(record);
-            Save("Save profile plan install");
-            UpdateSelectedProfileDetails();
-            return;
-        }
-
-        foreach (var folder in toRemove)
-        {
-            if (ProfileToolCleanup.OnToolOutputBranchRemoved(profile, folder))
-                RefreshTools(profile);
-
-            profile.LoadOrder.Remove(folder);
-
-            if (folder.Kind == ProfileFolderKind.Mod)
-                ProfileToolCleanup.RemoveToolsForFolder(profile, folder.Id);
-        }
-
-        profile.PlanInstalls.Remove(record);
-        RefreshTools(profile);
-        RefreshProfiles();
-        Save("Save profile after plan rollback");
-        await UpdateModAssociationsAsync(
-            profile.Id,
-            new HashSet<string>(record.ModIds),
-            profile.LoadOrder.Where(folder => folder.ModId is not null).Select(folder => folder.ModId!).ToHashSet());
-
-        if (PluginsTxtSection.Visibility == Visibility.Visible)
-            UiTask.Run(() => ApplyPluginsTxtChangeAsync(isReorder: false), nameof(RemovePlanInstall_Click), ShowLoadOrderError);
-
-        ShowInfo($"Removed {toRemove.Count} mod(s) from the '{record.RootModName}' install.", InfoBarSeverity.Success);
-    }
 
     private async void AddFolder_Click(object sender, RoutedEventArgs args)
     {
@@ -420,255 +479,6 @@ public sealed partial class ProfilesPage
         {
             ShowLoadOrderError($"Unable to open the folder picker. {exception.Message}");
         }
-    }
-
-    private async Task InstallModAsync(Profile profile, ModEntry mod)
-    {
-        if (!_runAccess.CanModify(profile))
-            return;
-
-        var cts = new CancellationTokenSource();
-        _activeInstallCts = cts;
-        try
-        {
-            await RunInstallAsync(profile, mod, cts);
-        }
-        finally
-        {
-            if (ReferenceEquals(_activeInstallCts, cts))
-                _activeInstallCts = null;
-            cts.Dispose();
-            SetLoadOrderBusy(false);
-        }
-    }
-
-    // The interactive installer the install queue runs per job. It receives the job's own
-    // cancellation source and wires it to _activeInstallCts, so the InfoBar's Cancel button
-    // tears down the running install exactly like a single interactive install. The placeholder
-    // row inserted by StartQueueInstall is replaced in place on success and dropped otherwise,
-    // so a finished install keeps its queued position and a failed one leaves no empty row.
-    private async Task<InstallOutcome> RunQueueInstallAsync(Profile profile, ModEntry mod, CancellationTokenSource cts,
-        int batchIndex, int batchCount)
-    {
-        _activeInstallCts = cts;
-        var outcome = InstallOutcome.Failed;
-        try
-        {
-            outcome = await RunInstallAsync(profile, mod, cts, batchIndex, batchCount);
-        }
-        finally
-        {
-            if (ReferenceEquals(_activeInstallCts, cts))
-                _activeInstallCts = null;
-            if (outcome is not InstallOutcome.Done)
-                RemoveInstallPlaceholder(profile, mod.Id);
-            UpdateInstallQueueStatus();
-        }
-        return outcome;
-    }
-
-    private async Task<InstallOutcome> RunInstallAsync(Profile profile, ModEntry mod, CancellationTokenSource cts,
-        int batchIndex = 0, int batchCount = 0)
-    {
-        // The progress dialog is opened once for the whole install and drives every phase:
-        // analyzing, hashing, extracting, scanning, and dependencies. WinUI 3 allows only one
-        // modal per XamlRoot, so it is closed (Hide) before the wizard or destination dialog
-        // opens and reopened when the user accepts. When batchCount > 1 the title shows the
-        // mod's position in the batch ("— N of M").
-        InstallProgressDialog installDialog = new(mod.Name, cts.Cancel, batchIndex, batchCount) { XamlRoot = XamlRoot };
-        try
-        {
-            installDialog.SetPhase(InstallPhase.Analyzing, $"Analyzing '{mod.Name}'…");
-            _ = installDialog.ShowAsync();
-            SetLoadOrderBusy(false);
-            var fomodModule = await AppServices.ModInstallService.TryParseFomodAsync(
-                mod, installDialog.AnalysisProgress, cts.Token);
-            ModInstallation installation;
-
-            if (fomodModule is not null)
-            {
-                // Close the progress dialog so the wizard can take its place on the XamlRoot.
-                installDialog.CloseAsync().GetAwaiter().GetResult();
-
-                var fileState = new ProfileFileStateProvider(profile.LoadOrder);
-                var defaultDestination = GameFor(profile)?.Definition?.PluginList?.PluginDataFolder ?? "Data";
-                var wizard = new FomodInstallWizardDialog(fomodModule, fileState, mod.ArchivePath, defaultDestination,
-                    gameExecutablePath: GameFor(profile)?.ExecutablePath) { XamlRoot = XamlRoot };
-                if (await wizard.ShowAsync() != ContentDialogResult.Primary)
-                {
-                    LogInstallCancelled(mod.Name, "FOMOD wizard dismissed");
-                    return InstallOutcome.Cancelled;
-                }
-                LogInstallPathChosen(mod.Name, "FOMOD", wizard.Destination, wizard.SelectionSignature, DescribeSelections(wizard.Selections));
-
-                installDialog.SetPhase(InstallPhase.Hashing, "Hashing archive…");
-                _ = installDialog.ShowAsync();
-                // The wizard's destination (default the game's PluginDataFolder) is the TARGET
-                // FOLDER: every file's FOMOD destination is relative to it (empty -> files go
-                // directly in it, non-empty -> nested under it, e.g. "SKSE" -> "Data/SKSE").
-                // It is also used for the reuse signature, the recorded install path (install
-                // root + base), and the remembered LastInstallPath.
-                installation = await AppServices.ModInstallService.FindOrCreateFomodInstallationAsync(
-                    mod, wizard.ResolvedFiles, wizard.SelectionSignature, DescribeSelections(wizard.Selections), wizard.Selections,
-                    destination: wizard.Destination,
-                    progress: installDialog.Progress, cancellationToken: cts.Token);
-
-                if (wizard.RememberPath)
-                    await RememberInstallPathAsync(mod.Id, wizard.Destination);
-            }
-            else
-            {
-                installDialog.CloseAsync().GetAwaiter().GetResult();
-
-                var layout = await AppServices.ModInstallService.InspectLayoutAsync(
-                    mod, installDialog.AnalysisProgress, cts.Token);
-                // Pre-fill the game's configured PluginDataFolder (same default as the FOMOD
-                // wizard); a remembered LastInstallPath from a previous install wins.
-                var manualDefaultDestination = GameFor(profile)?.Definition?.PluginList?.PluginDataFolder ?? "Data";
-                var destinationDialog = new ModDestinationDialog(layout, mod.LastInstallPath ?? manualDefaultDestination) { XamlRoot = XamlRoot };
-                if (await destinationDialog.ShowAsync() != ContentDialogResult.Primary)
-                {
-                    LogInstallCancelled(mod.Name, "destination dialog dismissed");
-                    return InstallOutcome.Cancelled;
-                }
-                LogInstallPathChosen(mod.Name, "manual", destinationDialog.DestinationRelativePath, string.Empty, string.Empty);
-
-                installDialog.SetPhase(InstallPhase.Hashing, "Hashing archive…");
-                _ = installDialog.ShowAsync();
-                installation = await AppServices.ModInstallService.FindOrCreateManualInstallationAsync(
-                    mod, destinationDialog.SourceRootRelativePath, destinationDialog.DestinationRelativePath,
-                    progress: installDialog.Progress, cancellationToken: cts.Token);
-
-                if (destinationDialog.RememberPath)
-                    await RememberInstallPathAsync(mod.Id, destinationDialog.DestinationRelativePath);
-            }
-
-            installDialog.SetPhase(InstallPhase.ScanningPlugins, "Scanning plugins…");
-
-            // The empty-path placeholder row (queue installs) does not count as an existing install.
-            if (profile.LoadOrder.Any(item => item.ModId == mod.Id && item.Path.Length > 0))
-            {
-                LogInstallAlreadyPresent(mod.Name);
-                await CloseDialogAsync(installDialog, InstallPhase.Done, "Installed.");
-                ShowLoadOrderError($"'{mod.Name}' is already in this profile's load order.");
-                return InstallOutcome.Failed;
-            }
-
-            if (!_runAccess.CanModify(profile))
-            {
-                LogInstallAccessDenied(mod.Name);
-                await CloseDialogAsync(installDialog, InstallPhase.Done, "Installed.");
-                return InstallOutcome.Failed;
-            }
-
-            installDialog.SetPhase(InstallPhase.CheckingDependencies, "Checking dependencies…");
-
-            await ExtractAndSaveDependenciesAsync(mod, fomodModule, installation.FolderPath);
-
-            await CloseDialogAsync(installDialog, InstallPhase.Done, "Installed.");
-
-            var newFolder = new ProfileFolder
-            {
-                Id = Guid.NewGuid().ToString("N"),
-                Name = mod.Name,
-                Path = installation.FolderPath,
-                Kind = ProfileFolderKind.Mod,
-                ModId = mod.Id,
-                ModInstallationId = installation.Id,
-                IsEnabled = true
-            };
-
-            // Single per-executable role dialog in place of the old two-pass launcher picker:
-            // the user assigns each discovered executable a role (launcher, tool, or skip).
-            // A cancel (null) inserts the plain folder with no launcher and no tools.
-            var roles = await PickModRolesAsync(profile, newFolder);
-            if (roles is not null)
-            {
-                var launcherPath = roles.FirstOrDefault(role => role.Role == ModRole.Launcher)?.RelativePath;
-                newFolder.LauncherExecutableRelativePath = launcherPath;
-
-                if (launcherPath is not null && string.IsNullOrWhiteSpace(mod.ProvidedGameVersion))
-                {
-                    mod.ProvidedGameVersion = GameVersionInspector.ReadVersion(System.IO.Path.Combine(installation.FolderPath, launcherPath));
-                    await AppServices.ModStore.UpsertAsync(mod);
-                }
-            }
-
-            // Queue installs replace their transient placeholder row in place so the mod keeps its
-            // queued position; single interactive installs insert after the overlay branch.
-            var placeholder = FindInstallPlaceholder(profile, mod.Id);
-            if (placeholder is not null)
-                profile.LoadOrder[profile.LoadOrder.IndexOf(placeholder)] = newFolder;
-            else
-            {
-                var overlayIndex = profile.LoadOrder.ToList().FindIndex(item => item.Kind == ProfileFolderKind.Overlay);
-                profile.LoadOrder.Insert(overlayIndex + 1, newFolder);
-            }
-
-            if (roles is not null)
-                ApplyModRoles(profile, newFolder, roles);
-
-            await UpdateModAssociationsAsync(profile.Id, new(), new() { mod.Id });
-            LogInstallCompleted(profile.Name, mod.Name, installation.FolderPath);
-            return InstallOutcome.Done;
-        }
-        catch (OperationCanceledException)
-        {
-            // Staging cleanup happens in ExtractAndPublishAsync before this point, so the
-            // dialog stays open (owned by this method) while partial files are removed.
-            LogInstallCancelled(mod.Name, "user cancelled mid-install");
-            installDialog.SetPhase(InstallPhase.Cancelling, "Cancelling — removing partial files…");
-            await CloseDialogAsync(installDialog, InstallPhase.Cancelling, "Cancelled.");
-            ShowLoadOrderError($"Install of '{mod.Name}' was cancelled.");
-            return InstallOutcome.Cancelled;
-        }
-        catch (Exception exception)
-        {
-            LogInstallFailed(mod.Name, exception);
-            await CloseDialogAsync(installDialog, InstallPhase.Done, "Install failed.");
-            ShowLoadOrderError($"Unable to install '{mod.Name}'. {exception.Message}");
-            return InstallOutcome.Failed;
-        }
-    }
-
-    [LoggerMessage(Level = LogLevel.Information,
-        Message = "Install path chosen for '{Name}': {Kind} destination '{Destination}' (signature {Signature}, selections '{Selections}').")]
-    private partial void LogInstallPathChosen(string name, string kind, string destination, string signature, string selections);
-
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Install cancelled: '{Name}' ({Reason}).")]
-    private partial void LogInstallCancelled(string name, string reason);
-
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Install skipped: '{Name}' is already in this profile's load order.")]
-    private partial void LogInstallAlreadyPresent(string name);
-
-    [LoggerMessage(Level = LogLevel.Warning, Message = "Install skipped: '{Name}' — the profile cannot be modified right now.")]
-    private partial void LogInstallAccessDenied(string name);
-
-    [LoggerMessage(Level = LogLevel.Information,
-        Message = "Install completed: '{Name}' into profile '{Profile}' at {Folder}.")]
-    private partial void LogInstallCompleted(string profile, string name, string folder);
-
-    [LoggerMessage(Level = LogLevel.Error, Message = "Install failed: '{Name}'.")]
-    private partial void LogInstallFailed(string name, Exception exception);
-
-    private static async Task CloseDialogAsync(InstallProgressDialog dialog, InstallPhase phase, string statusText)
-    {
-        dialog.SetPhase(phase, statusText);
-        await dialog.CloseAsync();
-    }
-
-    // Best-effort: a mod with no fileDependency/plugin-master match to another known mod gets no
-    // edges rather than a false positive, since this is the only local (non-Nexus) dependency source.
-    private static async Task ExtractAndSaveDependenciesAsync(ModEntry mod, FomodModule? fomodModule, string folderPath)
-    {
-        var knownMods = await AppServices.ModStore.LoadAsync();
-        var installations = await AppServices.ModInstallationStore.LoadAsync();
-        var dependencies = AppServices.DependencyExtractionService.Extract(mod, fomodModule, folderPath, knownMods, installations);
-        if (dependencies.Count == 0)
-            return;
-
-        mod.Dependencies = dependencies;
-        await AppServices.ModStore.UpsertAsync(mod);
     }
 
     // Scans the mod folder for executables and lets the user assign each one a role: game
@@ -812,25 +622,6 @@ public sealed partial class ProfilesPage
         }
     }
 
-    // Mirrors UpdateModAssociationsAsync's reload-mutate-save shape so a stale in-memory mod
-    // snapshot elsewhere in the app can never clobber this write. Used by both FOMOD and
-    // manual installs to remember the last chosen destination.
-    private async Task RememberInstallPathAsync(string modId, string destinationRelativePath)
-    {
-        var mods = (await AppServices.ModStore.LoadAsync()).ToList();
-        var mod = mods.FirstOrDefault(item => item.Id == modId);
-        if (mod is null)
-            return;
-
-        mod.LastInstallPath = destinationRelativePath;
-        await AppServices.ModStore.SaveAsync(mods);
-    }
-
-    private static string DescribeSelections(System.Collections.Generic.IReadOnlyList<FomodStepSelection> selections)
-    {
-        var names = selections.SelectMany(step => step.Groups).SelectMany(group => group.SelectedPlugins).Select(plugin => plugin.Name).ToList();
-        return names.Count == 0 ? "(defaults)" : string.Join(", ", names);
-    }
 
     private void ShowLoadOrderError(string message)
     {
@@ -838,72 +629,9 @@ public sealed partial class ProfilesPage
         LoadOrderErrorText.Visibility = Visibility.Visible;
     }
 
-    private void SetLoadOrderBusy(bool isBusy)
-    {
-        SetLoadOrderBusy(isBusy, isBusy ? "Working…" : string.Empty);
-    }
 
-    private void SetLoadOrderBusy(bool isBusy, string message)
-    {
-        AddFolderButton.IsEnabled = !isBusy;
-        LoadOrderBusyInfoBar.IsOpen = isBusy;
-        if (isBusy)
-        {
-            LoadOrderBusyMessage.Text = message;
-            LoadOrderBusyCancelButton.Visibility = Visibility.Visible;
-        }
-        else
-        {
-            LoadOrderBusyCancelButton.Visibility = Visibility.Collapsed;
-        }
-    }
 
-    // Refreshes the shared InfoBar from the install queue: names the active job (or how many are
-    // waiting) and shows the Cancel button while any job is running or queued.
-    private void UpdateInstallQueueStatus()
-    {
-        var queue = AppServices.ModInstallQueue;
-        SetLoadOrderBusy(queue.IsBusy, queue.StatusText);
-    }
 
-    // Inserts a transient empty-path row so a queued mod is visible in the load order (with its
-    // status chip) before its install actually produces a folder. The empty path is ignored by
-    // every consumer that walks load-order folders (file-state provider, plugin merge, garbage
-    // collection, launch targets, tool discovery), and the row is replaced in place on success
-    // or removed on failure/cancellation by RunQueueInstallAsync.
-    private void AddInstallPlaceholder(Profile profile, ModEntry mod)
-    {
-        if (profile.LoadOrder.Any(item => item.ModId == mod.Id))
-            return;
-
-        var placeholder = new ProfileFolder
-        {
-            Id = Guid.NewGuid().ToString("N"),
-            Name = mod.Name,
-            Kind = ProfileFolderKind.Mod,
-            ModId = mod.Id,
-            InstallStatusText = "Queued"
-        };
-        var overlayIndex = profile.LoadOrder.ToList().FindIndex(item => item.Kind == ProfileFolderKind.Overlay);
-        profile.LoadOrder.Insert(overlayIndex + 1, placeholder);
-    }
-
-    private static ProfileFolder? FindInstallPlaceholder(Profile profile, string modId) =>
-        profile.LoadOrder.FirstOrDefault(item => item.ModId == modId && item.Path.Length == 0);
-
-    private void RemoveInstallPlaceholder(Profile profile, string modId)
-    {
-        var placeholder = FindInstallPlaceholder(profile, modId);
-        if (placeholder is not null)
-            profile.LoadOrder.Remove(placeholder);
-    }
-
-    private void LoadOrderBusyCancel_Click(object sender, RoutedEventArgs args)
-    {
-        // Cancelling mid-analysis (before any progress dialog is up) or mid-install: the active
-        // install loop observes OperationCanceledException and reports the outcome itself.
-        _activeInstallCts?.Cancel();
-    }
 
     private void UpdateProfileViewBranchCount(Profile profile) =>
         ProfileViewBranchCountText = profile.LoadOrder.Count == 1 ? "1 branch" : $"{profile.LoadOrder.Count} branches";

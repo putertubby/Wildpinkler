@@ -80,7 +80,7 @@ git rebase -r 6a8b51fbf9cb1dea6a35cceb5cbb04833c8f86ab --exec 'git commit --amen
 
 ## Bugs
 
-- [ ] Add Mods dialog (in Profile page) - width jumps when scrolling in mod list. (cosmetic)
+- [x] Add Mods dialog (in Profile page) - width jumps when scrolling in mod list. (cosmetic)
 - [ ] Add mod with dependencies should be offered as part of the add mod workflow, not a separate button (cosmetic)
 - [ ] Don't step the tool output overlay folder if there are no new files written.
 - [ ] Disabling/enabling mods with tools does not remove and bring back tools or overlays correctly. (see above)
@@ -219,3 +219,18 @@ profiles/<uuid>/
 - [ ] Installation setting dialog (non fomod) which mod is installed? Is the path default or user selected? is the "archive root" dropdown default or user selected? Preview!
 - [ ] download progress is not working very well in the plan page.
 - [ ] Download button only works with preminum account (for nexus) disable if not available.
+
+- [ ] "Profile content" page : "root" badge does not contain any text
+- [x] "Profile content" page : BHUNP is classified as installed when adding to Test2 profile even though it is only installed in Test1.
+- [x] "Profile content" page : Glyphs are not visible, all looks like a small square.
+- [x] "Profile content" page : "Paths" badge reappears next time a mod is a dependency to be installed even though the path is accepted earlier - once accepted the path label should never reappear (even though the user may change the accepted paths later to affect future installs). 
+- [x] "Profile content" page : Details pane/Install tab : Glyph is not visible (replacement - small square is displayed) for unexpanded folders, expanded folders and files work. 
+- [x] "Profile content" page : Dependencies are not installed, only the root mod. Expected is that all changes (additions/removals/settings changes) are applied when the plan is executed. Reason seem to be that non-root mods are never included in the plan even though they are shown as a row in the list.
+
+- [ ] "Profile content" page : Phases/steps at the top of the page are not used in practice. Phase 0 IS the plan? WHat's going on?
+- [x] "Profile content" page : archive content is both displayed as list ("A", "A/B") and "A" can be expanded into a tree showing "B" as child. This is uneccessary, make it a pure tree instead.
+- [ ] "Profile content" page : removed mods and changed mods must be handled.
+- [ ] Need fomod badge just as paths...
+- [ ] group all role selections in one dialog instead of showing multiple dialogs. 
+- [ ] didn't close content page after applying changes
+- [ ] sse engine fixes - mod directory empty

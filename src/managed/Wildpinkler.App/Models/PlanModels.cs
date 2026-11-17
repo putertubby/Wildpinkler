@@ -52,7 +52,9 @@ public enum PlanRowSection
     ToDownload,
     Ready,
     Installed,
-    SetAside
+    SetAside,
+    /// <summary>The trailing section of the content-view list holding the profile's other (non-plan) mods.</summary>
+    InProfileTail
 }
 
 /// <summary>The three user decisions the plan tracks. Every action adds or removes one; undo re-derives state.</summary>

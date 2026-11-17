@@ -23,9 +23,20 @@ public enum PlanRowAction
 /// <summary>Determines which existing plan commands apply to a row.</summary>
 public static class PlanRowActionPolicy
 {
+    /// <summary>Single-root convenience overload: treats <paramref name="rootModKey"/> as the only root.</summary>
     public static IReadOnlyList<PlanRowAction> GetAvailableActions(
         DependencyPlanEntry entry,
         string? rootModKey)
+    {
+        var rootKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (rootModKey is { Length: > 0 })
+            rootKeys.Add(rootModKey);
+        return GetAvailableActions(entry, rootKeys);
+    }
+
+    public static IReadOnlyList<PlanRowAction> GetAvailableActions(
+        DependencyPlanEntry entry,
+        IReadOnlySet<string> rootKeys)
     {
         ArgumentNullException.ThrowIfNull(entry);
         var actions = new List<PlanRowAction>();
@@ -49,7 +60,7 @@ public static class PlanRowActionPolicy
             actions.Add(PlanRowAction.OpenSitePage);
         if (!isSetAside && entry.DownloadState == DependencyPlanEntryDownloadState.None
             && entry.RemoteIdentity?.PageUrl is { Length: > 0 }
-            && !string.Equals(entry.RemoteIdentity.ModKey, rootModKey, StringComparison.Ordinal))
+            && !rootKeys.Contains(entry.RemoteIdentity.ModKey))
             actions.Add(PlanRowAction.UseModManagerDownload);
         if (!isSetAside && entry.RemoteIdentity is not null
             && entry.DownloadState == DependencyPlanEntryDownloadState.Failed && entry.FileKey is not null)

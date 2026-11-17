@@ -76,6 +76,13 @@ public sealed partial class ModInstallService
     }
 
     /// <summary>Like <see cref="InspectLayout"/>, but runs the archive scan off the caller's thread.</summary>
+    /// <summary>
+    /// Lists every file path in the mod's archive (archive-relative, forward slashes) for the
+    /// read-only archive preview. Runs on a worker thread so large archives do not block the UI.
+    /// </summary>
+    public Task<IReadOnlyList<string>> ListEntryPathsAsync(ModEntry mod, CancellationToken cancellationToken = default) =>
+        Task.Run(() => _archiveInspector.ListEntryPaths(mod.ArchivePath, null, cancellationToken), cancellationToken);
+
     public Task<ArchiveLayout> InspectLayoutAsync(ModEntry mod, IProgress<AnalysisProgressReport>? analysisProgress = null, CancellationToken cancellationToken = default) =>
         Task.Run(() => InspectLayout(mod, analysisProgress, cancellationToken), cancellationToken);
 

@@ -9,6 +9,7 @@
     xmlns:controls="using:Wildpinkler.App.Controls"
     xmlns:services="using:Wildpinkler.App.Services"
     xmlns:converters="using:Wildpinkler.App.Converters"
+    xmlns:sys="using:System"
     xmlns:controlsToolkit="using:CommunityToolkit.WinUI.Controls"
     Background="{ThemeResource ApplicationPageBackgroundThemeBrush}"
     KeyboardAcceleratorPlacementMode="Hidden">
@@ -222,21 +223,6 @@
                             <Button Grid.Column="1" x:Name="RevealFolderButton" VerticalAlignment="Bottom"
                                     Command="{x:Bind RevealFolderCommand}" Content="Reveal folder" />
                         </Grid>
-                        <!-- Busy indicator for a long-running load-order operation. It doubles as the
-                             cancellation affordance: while the archive is being analysed the message
-                             names the mod and the Cancel button tears it down (see LoadOrder). It sits
-                             on its own full-width row so it never squeezes the launch buttons. -->
-                        <InfoBar x:Name="LoadOrderBusyInfoBar" Severity="Informational"
-                                 IsOpen="False" IsClosable="False"
-                                 Margin="0,6,0,0">
-                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                <TextBlock x:Name="LoadOrderBusyMessage" TextWrapping="Wrap"
-                                           VerticalAlignment="Center" />
-                                <Button x:Name="LoadOrderBusyCancelButton" Content="Cancel"
-                                        Click="LoadOrderBusyCancel_Click" VerticalAlignment="Center"
-                                        MinWidth="72" HorizontalAlignment="Right" />
-                            </StackPanel>
-                        </InfoBar>
                         <!-- One split button per enabled tool target: the main area launches the tool;
                              the chevron opens the per-tool actions menu. -->
                         <ItemsControl x:Name="ToolToolbar" HorizontalAlignment="Left"
@@ -339,24 +325,25 @@
                                                 <ColumnDefinition Width="Auto" />
                                                 <ColumnDefinition Width="Auto" />
                                                 <ColumnDefinition Width="Auto" />
-                                                <ColumnDefinition Width="Auto" />
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Opacity="0.68" VerticalAlignment="Center" Text="Branches, highest priority first" />
                                             <Button Grid.Column="1" x:Name="AddModsButton" Content="Add mods..." Click="AddMods_Click"
                                                     IsEnabled="{x:Bind IsSelectedProfileModifiable, Mode=OneWay}"
                                                     ToolTipService.ToolTip="Add mods to this profile view" />
-                                                <Button Grid.Column="2" x:Name="AddModWithDependenciesButton" Content="Add mod with dependencies..." Click="AddModWithDependencies_Click"
+                                                <Button Grid.Column="2" x:Name="AddModWithDependenciesButton" Content="Add mod(s) with dependencies..." Click="AddModWithDependencies_Click"
                                                     IsEnabled="{x:Bind IsSelectedProfileModifiable, Mode=OneWay}"
-                                                    ToolTipService.ToolTip="Pick a known mod from the catalog and resolve its site dependencies into an install plan" />
+                                                    ToolTipService.ToolTip="Pick one or more known mods from the catalog; each is resolved into an install plan from its site dependencies" />
                                                 <Button Grid.Column="3" x:Name="AddFolderButton" Content="Add folder..." Click="AddFolder_Click"
                                                     IsEnabled="{x:Bind IsSelectedProfileModifiable, Mode=OneWay}" />
-                                                <Button Grid.Column="4" x:Name="RemovePlanButton" Content="Remove last plan install" Click="RemovePlanInstall_Click"
-                                                    Visibility="{x:Bind IsLatestPlanInstallPresent, Mode=OneWay}"
-                                                    IsEnabled="{x:Bind IsSelectedProfileModifiable, Mode=OneWay}"
-                                                    ToolTipService.ToolTip="Remove the mods the most recent 'install with dependencies' run added to this profile" />
                                         </Grid>
                                         <TextBlock Opacity="0.68" TextWrapping="Wrap"
                                                    Text="Highest priority first: a file in a higher branch hides the same file below it. The profile overlay stays on top and the game install stays at the bottom. Reorder by dragging a row, or from its actions menu with Alt+Up and Alt+Down." />
+                                        <ComboBox x:Name="ContentTagFilter" Width="180" HorizontalAlignment="Left"
+                                                  SelectedIndex="0" SelectionChanged="ContentTagFilter_SelectionChanged"
+                                                  ToolTipService.ToolTip="Show only branches whose mod carries this tag"
+                                                  AutomationProperties.Name="Filter branches by tag">
+                                            <ComboBoxItem Content="All tags" />
+                                        </ComboBox>
                                         <ListView x:Name="FolderList" CanDragItems="True" CanReorderItems="True" AllowDrop="True" ReorderMode="Enabled"
                                                   IsEnabled="{x:Bind IsSelectedProfileModifiable, Mode=OneWay}"
                                                   DragItemsStarting="FolderList_DragItemsStarting"
@@ -400,6 +387,24 @@
                                                                         Background="{ThemeResource ControlFillColorSecondaryBrush}">
                                                                     <TextBlock FontSize="11" Opacity="0.72" Text="{x:Bind KindText, Mode=OneWay}" />
                                                                 </Border>
+                                                                <!-- Tags: the mod's library tags, shown as chips (mod branches only). -->
+                                                                <ItemsControl ItemsSource="{x:Bind Tags, Mode=OneWay}"
+                                                                               Visibility="{x:Bind IsModBranch, Converter={StaticResource BoolToVisibilityConverter}}">
+                                                                    <ItemsControl.ItemsPanel>
+                                                                        <ItemsPanelTemplate>
+                                                                            <controls:WrapPanel ItemSpacing="4" LineSpacing="2" />
+                                                                        </ItemsPanelTemplate>
+                                                                    </ItemsControl.ItemsPanel>
+                                                                    <ItemsControl.ItemTemplate>
+                                                                        <DataTemplate x:DataType="sys:String">
+                                                                            <Border Style="{StaticResource FilterChipStyle}" Padding="6,0"
+                                                                                    VerticalAlignment="Center"
+                                                                                    ToolTipService.ToolTip="Tag">
+                                                                                <TextBlock Text="{x:Bind}" FontSize="10" VerticalAlignment="Center" />
+                                                                            </Border>
+                                                                        </DataTemplate>
+                                                                    </ItemsControl.ItemTemplate>
+                                                                </ItemsControl>
                                                             </StackPanel>
                                                             <ToggleSwitch Grid.Column="3" VerticalAlignment="Center" OnContent="" OffContent=""
                                                                           Visibility="{x:Bind IsLocked, Converter={StaticResource InverseBoolToVisibilityConverter}}"

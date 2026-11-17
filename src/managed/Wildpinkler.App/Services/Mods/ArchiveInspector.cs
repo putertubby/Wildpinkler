@@ -36,6 +36,21 @@ public interface IArchiveInspector
     byte[]? ReadEntryBytes(string path, string entryName, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Lists the archive-relative paths (forward slashes, no leading slash) of every plugin file
+    /// (.esm/.esp/.esl) in the archive, for reading declared master dependencies without
+    /// extracting the whole archive. Empty when the archive has no plugin files or cannot be
+    /// enumerated.
+    /// </summary>
+    IReadOnlyList<string> ListPluginEntries(string path, IProgress<AnalysisProgressReport>? analysisProgress = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Lists the archive-relative paths (forward slashes, no leading slash) of every file entry in
+    /// the archive, for driving the read-only archive preview tree. Directory entries are omitted
+    /// (folders are inferred from the contained files). Empty when the archive cannot be enumerated.
+    /// </summary>
+    IReadOnlyList<string> ListEntryPaths(string path, IProgress<AnalysisProgressReport>? analysisProgress = null, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Reads several archive entries in ONE archive pass, returning an array aligned with
     /// <paramref name="entryNames"/> (null slot = that entry is missing or undecodable); the
     /// whole array is null when the archive itself is unusable. The 7z path is the reason this
@@ -303,6 +318,119 @@ public sealed class ArchiveInspector : IArchiveInspector
         {
             return new ArchiveLayout(Array.Empty<string>(), null, false);
         }
+    }
+
+    public IReadOnlyList<string> ListPluginEntries(string path, IProgress<AnalysisProgressReport>? analysisProgress = null, CancellationToken cancellationToken = default)
+    {
+        var pluginPaths = new List<string>();
+        if (!File.Exists(path))
+            return pluginPaths;
+
+        try
+        {
+            if (ModInstallService.IsSevenZipArchive(path))
+            {
+                using var extractor = new SharpSevenZipExtractor(path);
+                var totalEntries = (int?)extractor.ArchiveFileData.Count;
+                var entryIndex = 0;
+                foreach (var entry in extractor.ArchiveFileData)
+                {
+                    if ((entryIndex & 63) == 0)
+                        cancellationToken.ThrowIfCancellationRequested();
+                    entryIndex++;
+                    analysisProgress?.Report(new AnalysisProgressReport(entryIndex, totalEntries, null, null));
+                    if (entry.IsDirectory || entry.FileName is null || !PluginMasterInspector.IsPluginFile(entry.FileName))
+                        continue;
+                    pluginPaths.Add(Normalize(entry.FileName).TrimStart('/'));
+                }
+            }
+            else
+            {
+                using var archive = ArchiveFactory.OpenArchive(path);
+                var entries = archive.Entries.ToList();
+                var totalEntries = (int?)entries.Count;
+                var entryIndex = 0;
+                foreach (var entry in entries)
+                {
+                    if ((entryIndex & 63) == 0)
+                        cancellationToken.ThrowIfCancellationRequested();
+                    entryIndex++;
+                    analysisProgress?.Report(new AnalysisProgressReport(entryIndex, totalEntries, null, null));
+                    if (entry.IsDirectory || entry.Key is null || !PluginMasterInspector.IsPluginFile(entry.Key))
+                        continue;
+                    pluginPaths.Add(Normalize(entry.Key).TrimStart('/'));
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            // Best-effort: a corrupt archive yields no plugin list; FOMOD/plugin analysis simply
+            // finds nothing rather than failing the install.
+        }
+
+        return pluginPaths;
+    }
+
+    public IReadOnlyList<string> ListEntryPaths(string path, IProgress<AnalysisProgressReport>? analysisProgress = null, CancellationToken cancellationToken = default)
+    {
+        var filePaths = new List<string>();
+        if (!File.Exists(path))
+            return filePaths;
+
+        try
+        {
+            if (ModInstallService.IsSevenZipArchive(path))
+            {
+                using var extractor = new SharpSevenZipExtractor(path);
+                var totalEntries = (int?)extractor.ArchiveFileData.Count;
+                var entryIndex = 0;
+                foreach (var entry in extractor.ArchiveFileData)
+                {
+                    if ((entryIndex & 63) == 0)
+                        cancellationToken.ThrowIfCancellationRequested();
+                    entryIndex++;
+                    analysisProgress?.Report(new AnalysisProgressReport(entryIndex, totalEntries, null, null));
+                    if (entry.IsDirectory || entry.FileName is null)
+                        continue;
+                    var normalized = Normalize(entry.FileName).TrimStart('/');
+                    if (normalized.Length > 0 && !IsPackagingNoise(normalized))
+                        filePaths.Add(normalized);
+                }
+            }
+            else
+            {
+                using var archive = ArchiveFactory.OpenArchive(path);
+                var entries = archive.Entries.ToList();
+                var totalEntries = (int?)entries.Count;
+                var entryIndex = 0;
+                foreach (var entry in entries)
+                {
+                    if ((entryIndex & 63) == 0)
+                        cancellationToken.ThrowIfCancellationRequested();
+                    entryIndex++;
+                    analysisProgress?.Report(new AnalysisProgressReport(entryIndex, totalEntries, null, null));
+                    if (entry.IsDirectory || entry.Key is null)
+                        continue;
+                    var normalized = Normalize(entry.Key).TrimStart('/');
+                    if (normalized.Length > 0 && !IsPackagingNoise(normalized))
+                        filePaths.Add(normalized);
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            // Best-effort: a corrupt archive yields no file list; the preview simply shows nothing.
+        }
+
+        return filePaths;
     }
 
     public byte[]? ReadEntryBytes(string path, string entryName, CancellationToken cancellationToken = default)

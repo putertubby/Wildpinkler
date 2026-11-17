@@ -34,12 +34,14 @@ public sealed partial class ModEntry : ObservableObject
     private bool _hasUpdate;
     private List<string> _profileIds = new();
     private string? _lastInstallPath;
+    private string? _lastSourceRoot;
     private RemoteFileCategory _remoteFileCategory;
     private bool _isPrimaryFile;
     private string? _changelogText;
     private DateTimeOffset? _remoteUpdatedAt;
     private string? _requirementsRaw;
     private List<ModDependency> _dependencies = new();
+    private List<string> _tags = new();
     private string? _providedGameVersion;
     private DependencyState _dependencyState;
     private string? _catalogIssueSummary;
@@ -71,12 +73,14 @@ public sealed partial class ModEntry : ObservableObject
         HasFomod = source.HasFomod;
         FomodState = source.FomodState;
         LastInstallPath = source.LastInstallPath;
+        LastSourceRoot = source.LastSourceRoot;
         RemoteFileCategory = source.RemoteFileCategory;
         IsPrimaryFile = source.IsPrimaryFile;
         ChangelogText = source.ChangelogText;
         RemoteUpdatedAt = source.RemoteUpdatedAt;
         RequirementsRaw = source.RequirementsRaw;
         Dependencies = source.Dependencies.ToList();
+        Tags = source.Tags.ToList();
         ProvidedGameVersion = source.ProvidedGameVersion;
         GameNamesText = source.GameNamesText;
     }
@@ -166,6 +170,12 @@ public sealed partial class ModEntry : ObservableObject
     /// <summary>The last relative destination path this mod was installed with, if the user chose to remember it. Used by both FOMOD and manual installs.</summary>
     public string? LastInstallPath { get => _lastInstallPath; set => SetProperty(ref _lastInstallPath, value); }
 
+    /// <summary>
+    /// The last source folder (relative to the archive root, empty = the whole archive) this mod was
+    /// installed from, if the user chose to remember it. Manual (non-FOMOD) installs only.
+    /// </summary>
+    public string? LastSourceRoot { get => _lastSourceRoot; set => SetProperty(ref _lastSourceRoot, value); }
+
     public RemoteFileCategory RemoteFileCategory { get => _remoteFileCategory; set => SetProperty(ref _remoteFileCategory, value); }
     public bool IsPrimaryFile { get => _isPrimaryFile; set => SetProperty(ref _isPrimaryFile, value); }
     public string? ChangelogText { get => _changelogText; set => SetProperty(ref _changelogText, value); }
@@ -185,6 +195,22 @@ public sealed partial class ModEntry : ObservableObject
             OnPropertyChanged(nameof(DependencySummaryText));
         }
     }
+
+    /// <summary>User-assigned tags used to group and filter mods across the app. Stored per mod in the library.</summary>
+    public List<string> Tags
+    {
+        get => _tags;
+        set
+        {
+            if (!SetProperty(ref _tags, value ?? new List<string>()))
+                return;
+            OnPropertyChanged(nameof(TagText));
+        }
+    }
+
+    /// <summary>The tags joined for display, e.g. "Gameplay, UI".</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string TagText => _tags.Count == 0 ? string.Empty : string.Join(", ", _tags);
 
     /// <summary>Auto-detected (and user-editable) executable version, set only for a mod designated as a game launcher.</summary>
     public string? ProvidedGameVersion { get => _providedGameVersion; set => SetProperty(ref _providedGameVersion, value); }

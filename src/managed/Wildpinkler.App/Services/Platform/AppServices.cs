@@ -16,6 +16,7 @@ public static class AppServices
     public static ModStore ModStore => AppHost.Get<ModStore>();
     public static ModMatchStore ModMatchStore => AppHost.Get<ModMatchStore>();
     public static PlanDecisionStore PlanDecisionStore => AppHost.Get<PlanDecisionStore>();
+    public static ProfilePlanStore ProfilePlanStore => AppHost.Get<ProfilePlanStore>();
     public static ModListManifestSerializer ModListManifestSerializer => AppHost.Get<ModListManifestSerializer>();
     public static ModListCatalogStore ModListCatalogStore => AppHost.Get<ModListCatalogStore>();
     public static ModListExportService ModListExportService => AppHost.Get<ModListExportService>();
@@ -45,7 +46,6 @@ public static class AppServices
     public static ModListPreflightService ModListPreflightService => AppHost.Get<ModListPreflightService>();
     public static ProfileGarbageCollector ProfileGarbageCollector => AppHost.Get<ProfileGarbageCollector>();
     public static ModInstallService ModInstallService => AppHost.Get<ModInstallService>();
-    public static ModInstallQueue ModInstallQueue => AppHost.Get<ModInstallQueue>();
     public static DependencyExtractionService DependencyExtractionService => AppHost.Get<DependencyExtractionService>();
     public static DependencyGraphService DependencyGraphService => AppHost.Get<DependencyGraphService>();
     public static DependencySubgraphService DependencySubgraphService => AppHost.Get<DependencySubgraphService>();
@@ -61,6 +61,7 @@ public static class AppServices
     public static DownloadQueueCoordinator DownloadQueueCoordinator => AppHost.Get<DownloadQueueCoordinator>();
     public static RemoteActivationRouter RemoteActivationRouter => AppHost.Get<RemoteActivationRouter>();
     public static RemoteGameCatalog RemoteGameCatalog => AppHost.Get<RemoteGameCatalog>();
+    public static RemoteSearchService RemoteSearchService => AppHost.Get<RemoteSearchService>();
     public static RemoteGameMapper RemoteGameMapper => AppHost.Get<RemoteGameMapper>();
     public static RemoteMetadataService RemoteMetadataService => AppHost.Get<RemoteMetadataService>();
     public static UpdateCheckService UpdateCheckService => AppHost.Get<UpdateCheckService>();

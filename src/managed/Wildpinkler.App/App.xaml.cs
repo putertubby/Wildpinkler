@@ -59,34 +59,53 @@ public partial class App : Application
         };
     }
 
+    private bool _fatalDialogOpen;
+
     private void ReportFatal(Exception exception)
     {
+        if (_fatalDialogOpen)
+        {
+            // A second fatal error while the first dialog is still open would throw from
+            // ShowAsync ("only a single ContentDialog can be open") and cascade into a
+            // handler-reentry loop; just log the duplicate.
+            AppDiagnostics.Write("Suppressed duplicate fatal dialog.", exception);
+            return;
+        }
         var root = (_window?.Content as FrameworkElement)?.XamlRoot;
         if (root is null)
             return;
 
-        var dialog = new ContentDialog
+        _fatalDialogOpen = true;
+        try
         {
-            XamlRoot = root,
-            Title = "Something went wrong",
-            Content = $"{exception.Message}\n\nThe full details were written to the log folder.",
-            PrimaryButtonText = "Open log folder",
-            CloseButtonText = "Close",
-            DefaultButton = ContentDialogButton.Close
-        };
-        dialog.PrimaryButtonClick += (_, _) =>
+            var dialog = new ContentDialog
+            {
+                XamlRoot = root,
+                Title = "Something went wrong",
+                Content = $"{exception.Message}\n\nThe full details were written to the log folder.",
+                PrimaryButtonText = "Open log folder",
+                CloseButtonText = "Close",
+                DefaultButton = ContentDialogButton.Close
+            };
+            dialog.PrimaryButtonClick += (_, _) =>
+            {
+                try
+                {
+                    System.IO.Directory.CreateDirectory(AppDiagnostics.LogDirectory);
+                    _ = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(AppDiagnostics.LogDirectory) { UseShellExecute = true });
+                }
+                catch (Exception folderException)
+                {
+                    AppDiagnostics.Write("Could not open the log folder.", folderException);
+                }
+            };
+            dialog.Closed += (_, _) => _fatalDialogOpen = false;
+            _ = dialog.ShowAsync();
+        }
+        catch (Exception)
         {
-            try
-            {
-                System.IO.Directory.CreateDirectory(AppDiagnostics.LogDirectory);
-                _ = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(AppDiagnostics.LogDirectory) { UseShellExecute = true });
-            }
-            catch (Exception folderException)
-            {
-                AppDiagnostics.Write("Could not open the log folder.", folderException);
-            }
-        };
-        _ = dialog.ShowAsync();
+            _fatalDialogOpen = false;
+        }
     }
 
     /// <summary>Raised for a link that arrived but cannot be downloaded, so the shell can explain it.</summary>

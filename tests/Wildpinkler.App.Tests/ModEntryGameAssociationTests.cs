@@ -29,6 +29,22 @@ public class ModEntryGameAssociationTests
     }
 
     [Fact]
+    public void UpdateFrom_Copies_InstallPathMemory()
+    {
+        var source = new ModEntry
+        {
+            Id = "mod",
+            LastInstallPath = "Data\\SomeMod",
+            LastSourceRoot = "SomeMod\\files"
+        };
+        var target = new ModEntry { Id = "mod" };
+        target.UpdateFrom(source);
+
+        Assert.Equal("Data\\SomeMod", target.LastInstallPath);
+        Assert.Equal("SomeMod\\files", target.LastSourceRoot);
+    }
+
+    [Fact]
     public void DependencySummaryText_EmptyDependencies_IsEmpty()
     {
         var mod = new ModEntry { Id = "mod" };

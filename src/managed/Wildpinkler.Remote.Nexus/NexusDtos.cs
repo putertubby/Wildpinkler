@@ -120,6 +120,25 @@ internal sealed class NexusMd5ResultDto
     public NexusFileDto? FileDetails { get; set; }
 }
 
+/// <summary>Wire shape of <c>games/{domain}/search/mods</c>: a page of hits plus the total count.</summary>
+internal sealed class NexusSearchResponseDto
+{
+    public List<NexusSearchModDto> Data { get; set; } = new();
+    public int Total { get; set; }
+}
+
+internal sealed class NexusSearchModDto
+{
+    public int ModId { get; set; }
+    public string DomainName { get; set; } = string.Empty;
+    public string Name { get; set; } = string.Empty;
+    public string? Summary { get; set; }
+    public string? AuthorName { get; set; }
+    public string? LatestVersion { get; set; }
+    public string? ImageUrl { get; set; }
+    public long LastUpdated { get; set; }
+}
+
 // Mod requirements come from the GraphQL v2 API (there is no REST requirements endpoint):
 //   mod(modId, gameId) { modRequirements { nexusRequirements { nodes { ... } } } }
 // The query fields are requested in camelCase, so these DTOs deserialize under the GraphQL
